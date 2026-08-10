@@ -50,7 +50,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-__version__ = "0.3"
+__version__ = "0.5"
 # Versioning scheme: 0.<N>, N incrementing by 1 each release (0.9 -> 0.10,
 # never rolling over to 1.0). See CHANGELOG.md for what changed per release.
 
@@ -80,6 +80,10 @@ STATE_DIR = DEFAULT_STATE_DIR
 STATE_FILE = STATE_DIR / "current_profile"
 
 TITLE_PREFIX = "xtm:"
+DEFAULT_TITLE_TEMPLATE = "xtm:{session}"
+# How a profile disposes of its own windows when the user switches away.
+SWITCH_MODES = ("leave", "detach", "kill")
+DEFAULT_SWITCH_MODE = "detach"
 # Window instance name (WM_CLASS) prefix. Unlike the title, a running
 # program inside the terminal cannot change this, so it survives
 # `set-titles on` in .tmux.conf and shells that rewrite the title.
@@ -94,6 +98,11 @@ INSTANCE_PREFIX = "xtm-"
 SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]+\Z")
 
 DEFAULT_PROFILE_NAME = "default"
+# The "default" profile is reserved: it is created with the config, cannot be
+# deleted or renamed, and is always global (never machine-specific), so it is
+# guaranteed to exist as the last resort of profile resolution. That
+# guarantee is what stops the effective default silently changing when the
+# config is edited or reordered.
 DEFAULT_STACK = {
     "x": 40,
     "y": 40,
@@ -806,6 +815,17 @@ def load_config(create_if_missing: bool = True) -> ConfigDict:
         # name containing ':' would round-trip through the built-in
         # dumper into a file that can no longer be parsed.
         validate_profile_name(name)
+    if DEFAULT_PROFILE_NAME not in data["profiles"]:
+        # The reserved profile is the last resort of resolution, so it has
+        # to exist. Recreating it keeps a config written by an older
+        # version, or one whose default was removed by hand, working.
+        logger.info("Adding the reserved %r profile to %s.",
+                    DEFAULT_PROFILE_NAME, CONFIG_FILE)
+        data["profiles"][DEFAULT_PROFILE_NAME] = {
+            "stack": dict(DEFAULT_STACK),
+            "sessions": {},
+        }
+        save_config(data)
     logger.debug("Loaded config from %s with profiles: %s",
                  CONFIG_FILE, ", ".join(sorted(data["profiles"])) or "(none)")
     return data
@@ -853,8 +873,18 @@ def validate_geometry(entry: GeometryDict, context: str,
 
 
 def validate_session_entry(entry: GeometryDict, context: str) -> None:
-    """Validate a session's geometry plus its optional launch settings."""
+    """Validate a slot's geometry plus its optional launch settings."""
     validate_geometry(entry, context)
+    session = entry.get("session")
+    if session is not None:
+        if not isinstance(session, str):
+            die("%s: 'session' must be a string, got %r." % (context, session))
+        validate_session_name(session)
+    title = entry.get("title")
+    if title is not None:
+        if not isinstance(title, str):
+            die("%s: 'title' must be a string, got %r." % (context, title))
+        validate_title_template(title, context)
     command = entry.get("command")
     if command is not None and not isinstance(command, str):
         die("%s: 'command' must be a string, got %r." % (context, command))
@@ -871,16 +901,131 @@ def validate_session_entry(entry: GeometryDict, context: str) -> None:
                     % (context, arg))
 
 
+def validate_title_template(template: str, context: str) -> None:
+    """Reject a title template that would fail at window-creation time.
+
+    Checked when the config is read rather than when a window is opened,
+    so a typo is reported by --validate instead of surfacing much later
+    as a half-opened layout.
+    """
+    try:
+        template.format(slot="s", session="s", profile="p")
+    except (KeyError, IndexError, ValueError) as e:
+        die("%s: invalid 'title' template %r: %s. Available fields are "
+            "{slot}, {session} and {profile}." % (context, template, e))
+
+
+def validate_prefix(value: Any, context: str) -> None:
+    """Validate a profile's session-name prefix.
+
+    The prefix is concatenated with a slot name to form a tmux session
+    name, so the result has to satisfy the same charset rules as a name
+    written out in full.
+    """
+    if not isinstance(value, str):
+        die("%s: 'prefix' must be a string, got %r." % (context, value))
+    if value and not is_valid_session_name(value + "x"):
+        die("%s: 'prefix' %r would produce invalid session names. Only "
+            "letters, digits, '.', '_' and '-' are allowed."
+            % (context, value))
+
+
+def validate_switch_mode(value: Any, context: str) -> None:
+    """Validate a profile's on_switch setting."""
+    if value not in SWITCH_MODES:
+        die("%s: 'on_switch' must be one of %s, got %r."
+            % (context, ", ".join(SWITCH_MODES), value))
+
+
 def validate_match(entry: Any, context: str) -> None:
-    """Validate a profile's optional auto-selection block."""
+    """Validate a profile's machine-binding block.
+
+    A profile carrying a 'match' block is machine-specific: it is only
+    visible and selectable on a machine whose hostname the block matches.
+    A profile without one is global and available everywhere.
+
+    'hostname' may be a single glob or a list of them, so that one
+    profile can serve several machines with the same screen layout.
+    """
     if not isinstance(entry, dict):
         die("%s: 'match' must be a mapping." % (context,))
+    if not entry:
+        die("%s: 'match' is empty. Remove it to make the profile global, "
+            "or give it a 'hostname'." % (context,))
     for key, value in entry.items():
-        if key not in ("hostname", "display"):
-            die("%s: unknown 'match' key %r (expected 'hostname' or 'display')."
+        if key == "display":
+            # Named explicitly rather than folded into the generic
+            # unknown-key error: a config written for 0.3 would otherwise
+            # fail with a message that does not explain what happened.
+            die("%s: matching on 'display' was removed in version 0.4. "
+                "Use 'hostname' instead." % (context,))
+        if key != "hostname":
+            die("%s: unknown 'match' key %r (expected 'hostname')."
                 % (context, key))
-        if not isinstance(value, str):
-            die("%s: 'match.%s' must be a string, got %r." % (context, key, value))
+        for pattern in _match_patterns(value):
+            if not isinstance(pattern, str):
+                die("%s: 'match.hostname' must be a string or a list of "
+                    "strings, got %r." % (context, pattern))
+            if not pattern:
+                die("%s: 'match.hostname' patterns must not be empty."
+                    % (context,))
+    if not _match_patterns(entry.get("hostname")):
+        die("%s: 'match' needs a non-empty 'hostname'." % (context,))
+
+
+def _match_patterns(value: Any) -> List[Any]:
+    """Normalise a 'hostname' value to a list of patterns.
+
+    Accepting both a bare string and a list keeps the common
+    single-machine case uncluttered while allowing one profile to cover
+    several machines.
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
+def profile_is_visible(profile: Any, host: Optional[str] = None) -> bool:
+    """Whether a profile belongs on this machine.
+
+    Global profiles (no 'match' block) are visible everywhere. A
+    machine-specific one is visible only where its hostname patterns fit,
+    so that a laptop's layouts do not clutter the workstation.
+    """
+    if not isinstance(profile, dict):
+        return True   # malformed profiles stay visible so they can be fixed
+    criteria = profile.get("match")
+    if not isinstance(criteria, dict) or not criteria:
+        return True
+    # A malformed block is treated as visible rather than as "belongs to
+    # some other machine". Hiding it would strand the profile behind a
+    # misleading message: a typo such as `platform:` instead of
+    # `hostname:` would make the profile vanish, and the user would be
+    # told to use --all rather than that the key is wrong.
+    if any(key != "hostname" for key in criteria):
+        return True
+    patterns = _match_patterns(criteria.get("hostname"))
+    if not patterns or not all(isinstance(p, str) and p for p in patterns):
+        return True
+    if host is None:
+        host = short_hostname()
+    for pattern in patterns:
+        if fnmatch.fnmatch(host, pattern):
+            return True
+    return False
+
+
+def visible_profile_names(config: ConfigDict, include_all: bool = False
+                          ) -> List[str]:
+    """Names of the profiles usable on this machine, in sorted order."""
+    profiles = config.get("profiles", {})
+    if include_all:
+        return sorted(profiles)
+    host = short_hostname()
+    return sorted(name for name, profile in profiles.items()
+                  if profile_is_visible(profile, host))
 
 
 def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
@@ -913,19 +1058,115 @@ def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
 
     validate_geometry(profile["stack"], "profile %r stack" % (name,),
                       require_offsets=True)
+    if "prefix" in profile:
+        validate_prefix(profile["prefix"], "profile %r" % (name,))
+    if "on_switch" in profile:
+        validate_switch_mode(profile["on_switch"], "profile %r" % (name,))
+    if "title" in profile:
+        if not isinstance(profile["title"], str):
+            die("profile %r: 'title' must be a string, got %r."
+                % (name, profile["title"]))
+        validate_title_template(profile["title"], "profile %r" % (name,))
     if "match" in profile:
+        if name == DEFAULT_PROFILE_NAME:
+            die("Profile %r is reserved and must stay global, so it cannot "
+                "have a 'match' block. Remove it, or use a differently named "
+                "profile for machine-specific layouts." % (name,))
         validate_match(profile["match"], "profile %r" % (name,))
     for sess_name, sess_cfg in profile["sessions"].items():
         validate_session_name(sess_name)
         if not isinstance(sess_cfg, dict):
-            die("Profile %r session %r must be a mapping, got %s."
+            die("Profile %r slot %r must be a mapping, got %s."
                 % (name, sess_name, type(sess_cfg).__name__))
-        validate_session_entry(sess_cfg, "profile %r session %r" % (name, sess_name))
+        validate_session_entry(sess_cfg, "profile %r slot %r" % (name, sess_name))
+
+    # Two slots resolving to one session would fight over the same window
+    # on every reset, so it is rejected rather than left to surprise the
+    # user later.
+    seen = {}  # type: Dict[str, str]
+    for slot, session in profile_slots(profile):
+        validate_session_name(session)
+        if session in seen:
+            die("Profile %r: slots %r and %r both resolve to session %r. "
+                "Give one of them a different 'session'."
+                % (name, seen[session], slot, session))
+        seen[session] = slot
     return profile
 
 
 # Kept as the historical name used across the command implementations.
 get_profile = validate_profile
+
+
+def resolve_session_name(profile: ProfileDict, slot: str) -> str:
+    """Tmux session name for one slot of a profile.
+
+    A slot is a position on screen; the session is what gets attached to
+    it. An explicit 'session' on the slot is used verbatim and is never
+    prefixed, which is what lets two profiles name the same session and
+    genuinely share it. Otherwise the profile's 'prefix' is prepended to
+    the slot name, so a profile owns its sessions by default and two
+    profiles cannot collide by accident.
+    """
+    slot_cfg = profile.get("sessions", {}).get(slot)
+    if isinstance(slot_cfg, dict) and slot_cfg.get("session"):
+        return str(slot_cfg["session"])
+    return "%s%s" % (profile.get("prefix", ""), slot)
+
+
+def resolve_window_title(profile: ProfileDict, profile_name: str,
+                         slot: str, session: str) -> str:
+    """Window title for one slot.
+
+    Order of preference: the slot's own 'title', then the profile's
+    'title' template, then the built-in default. Templates may use
+    {slot}, {session} and {profile}.
+
+    The title is cosmetic: windows are identified by their instance name
+    (WM_CLASS), which is not configurable, so a custom title cannot break
+    window discovery.
+    """
+    slot_cfg = profile.get("sessions", {}).get(slot)
+    template = None
+    if isinstance(slot_cfg, dict) and slot_cfg.get("title"):
+        template = str(slot_cfg["title"])
+    elif profile.get("title"):
+        template = str(profile["title"])
+    if template is None:
+        template = DEFAULT_TITLE_TEMPLATE
+    try:
+        return template.format(slot=slot, session=session, profile=profile_name)
+    except (KeyError, IndexError, ValueError) as e:
+        # Validation catches this up front; reaching it here means a
+        # template arrived by some other route, and a usable window with
+        # a plain title beats no window at all.
+        logger.warning("Invalid title template %r (%s); using the default.",
+                       template, e)
+        return DEFAULT_TITLE_TEMPLATE.format(session=session)
+
+
+def profile_slots(profile: ProfileDict) -> List[Tuple[str, str]]:
+    """(slot, session) for every slot in the profile, in config order."""
+    return [(slot, resolve_session_name(profile, slot))
+            for slot in profile.get("sessions", {})]
+
+
+def profile_sessions(profile: ProfileDict) -> List[str]:
+    """Session names this profile owns or shares, in config order."""
+    return [session for _slot, session in profile_slots(profile)]
+
+
+def slot_for_session(profile: ProfileDict, session: str) -> Optional[str]:
+    """The slot a session occupies in this profile, if any."""
+    for slot, name in profile_slots(profile):
+        if name == session:
+            return slot
+    return None
+
+
+def switch_mode(profile: ProfileDict) -> str:
+    """What happens to a profile's windows when the user switches away."""
+    return str(profile.get("on_switch", DEFAULT_SWITCH_MODE))
 
 
 def session_geometry(sess_cfg: GeometryDict) -> GeometryDict:
@@ -1002,53 +1243,61 @@ def write_current_profile_state(name: str) -> None:
 
 
 def match_profile(config: ConfigDict) -> Optional[str]:
-    """Pick a profile whose optional 'match' block fits this machine.
+    """Pick a machine-specific profile whose 'match' block fits this host.
 
-    Patterns are shell globs tested against the short hostname and
-    against $DISPLAY, which together identify "which desk am I sitting
-    at" well enough to select a layout without being told. Profiles are
-    considered in sorted order so the choice is deterministic when more
-    than one matches; a profile with no 'match' block never matches.
+    Patterns are shell globs tested against the short hostname. Profiles
+    are considered in sorted name order so the choice is deterministic
+    when more than one matches; a global profile (no 'match' block) is
+    never auto-selected, since it gives no signal that it belongs to this
+    machine in particular.
     """
     host = short_hostname()
-    display = os.environ.get("DISPLAY", "")
     for name in sorted(config.get("profiles", {})):
         profile = config["profiles"][name]
         if not isinstance(profile, dict):
             continue
         criteria = profile.get("match")
         if not isinstance(criteria, dict) or not criteria:
+            continue   # a global profile is never auto-selected
+        if not profile_is_visible(profile, host):
             continue
-        if "hostname" in criteria and not fnmatch.fnmatch(host, criteria["hostname"]):
-            continue
-        if "display" in criteria and not fnmatch.fnmatch(display, criteria["display"]):
-            continue
-        logger.debug("Profile %r matched host=%r display=%r", name, host, display)
+        logger.debug("Profile %r matched host=%r", name, host)
         return name
     return None
 
 
 def resolve_profile_name(config: ConfigDict, explicit: Optional[str],
-                         auto: bool = False) -> str:
+                         auto: bool = False, include_all: bool = False,
+                         switch_override: Optional[str] = None) -> str:
     """Decide which profile this invocation uses.
 
     Order of precedence:
-      1. --profile NAME, which is also persisted as the new current profile.
+      1. An explicitly named profile, from the positional argument or
+         --profile, which is also persisted as the new current profile.
+         Switching away from a different profile disposes of that
+         profile's windows according to its 'on_switch' setting.
       2. The persisted current profile for this machine, unless --auto
          was given.
-      3. A profile whose 'match' block fits this hostname and $DISPLAY.
-      4. The profile literally named "default".
+      3. A machine-specific profile whose 'match' block fits this host.
+      4. The reserved "default" profile.
 
-    Step 4 is what makes a bare `xtm` with no arguments work on a fresh
-    install: the auto-created config always contains a "default" profile.
+    Step 4 is what makes a bare `xtm` work on any machine: "default"
+    always exists, so resolution can never come up empty.
+
+    Only profiles visible on this machine can be selected, so a layout
+    belonging to another host cannot be reached by accident. `include_all`
+    lifts that restriction for commands run with --all.
     """
     profiles = config.get("profiles", {})
+    visible = visible_profile_names(config, include_all)
     if explicit:
-        if explicit not in profiles:
-            die("Profile %r does not exist. Known profiles: %s"
-                % (explicit, ", ".join(sorted(profiles)) or "(none)"))
+        if explicit not in visible:
+            die(_unknown_profile_message(config, explicit, include_all))
+        previous = read_current_profile_state()
+        if previous and previous != explicit:
+            apply_switch_action(config, previous, explicit, switch_override)
         write_current_profile_state(explicit)
-        logger.debug("Using profile %r (explicit --profile)", explicit)
+        logger.debug("Using profile %r (named explicitly)", explicit)
         return explicit
 
     if not auto:
@@ -1056,23 +1305,102 @@ def resolve_profile_name(config: ConfigDict, explicit: Optional[str],
         if current:
             if current not in profiles:
                 die("Current profile %r (from %s) no longer exists in %s. "
-                    "Choose a valid one with --profile NAME."
+                    "Choose a valid one with 'xtm NAME'."
                     % (current, STATE_FILE, CONFIG_FILE))
+            if current not in visible:
+                # Reached by moving a saved profile to another machine, or
+                # by editing its 'match' block. Falling through silently
+                # would be worse than saying what happened.
+                die("Current profile %r belongs to another machine and cannot "
+                    "be used on %s. Choose one with 'xtm NAME' (see "
+                    "--list-profiles)." % (current, short_hostname()))
             logger.debug("Using profile %r (persisted current profile)", current)
             return current
 
     matched = match_profile(config)
     if matched:
-        logger.info("Auto-selected profile %r for host %s / DISPLAY %s",
-                    matched, short_hostname(), os.environ.get("DISPLAY", "(unset)"))
+        logger.info("Auto-selected profile %r for host %s",
+                    matched, short_hostname())
         return matched
 
     if DEFAULT_PROFILE_NAME in profiles:
-        logger.debug("Using profile %r (built-in default)", DEFAULT_PROFILE_NAME)
+        logger.debug("Using profile %r (reserved default)", DEFAULT_PROFILE_NAME)
         return DEFAULT_PROFILE_NAME
-    return die("No current profile is set and no profile named %r exists. "
-               "Choose one with --profile NAME (see --list-profiles)."
-               % (DEFAULT_PROFILE_NAME,))
+    return die("No current profile is set and the reserved %r profile is "
+               "missing from %s. Name one with 'xtm NAME' (see "
+               "--list-profiles)." % (DEFAULT_PROFILE_NAME, CONFIG_FILE))
+
+
+def apply_switch_action(config: ConfigDict, old_profile_name: str,
+                        new_profile_name: str, mode_override: Optional[str]
+                        ) -> None:
+    """Dispose of the previous profile's windows when switching profiles.
+
+    Sessions that the new profile also lays claim to are deliberately
+    left alone: they are about to be repositioned into their new slot,
+    and closing them only to reopen them would throw away the running
+    window for no reason. That is what makes an explicitly shared
+    'session' persist across a switch while profile-owned sessions come
+    and go with the profile.
+    """
+    profiles = config.get("profiles", {})
+    old_profile = profiles.get(old_profile_name)
+    new_profile = profiles.get(new_profile_name)
+    if not isinstance(old_profile, dict):
+        return
+    mode = mode_override or switch_mode(old_profile)
+    if mode == "leave":
+        logger.debug("Leaving profile %s windows alone on switch.",
+                     old_profile_name)
+        return
+    keep = set(profile_sessions(new_profile)) if isinstance(new_profile, dict) else set()
+    live = tmux_list_sessions()
+    targets = [s for s in profile_sessions(old_profile)
+               if live.get(s) and s not in keep]
+    if not targets:
+        logger.debug("No windows from profile %s need %sing.",
+                     old_profile_name, mode)
+        return
+    action = tmux_detach_session if mode == "detach" else tmux_kill_session
+    done, failed = [], []
+    for session in targets:
+        (done if action(session) else failed).append(session)
+    if done:
+        logger.info("%s %d window(s) from profile %s: %s",
+                    "Detached" if mode == "detach" else "Closed",
+                    len(done), old_profile_name, ", ".join(done))
+    if failed:
+        # Not fatal: the switch itself succeeded, and leaving a window
+        # open is a cosmetic problem rather than a broken state.
+        logger.warning("Could not %s: %s", mode, ", ".join(failed))
+
+
+def _unknown_profile_message(config: ConfigDict, name: str,
+                             include_all: bool) -> str:
+    """Explain why a named profile could not be used.
+
+    A bare name is now the ordinary way to switch profiles, so the two
+    likeliest mistakes are naming a session by accident and naming a
+    profile that belongs to another machine. Both get a specific hint
+    rather than a bare list of valid names.
+    """
+    profiles = config.get("profiles", {})
+    visible = visible_profile_names(config, include_all)
+    known = ", ".join(visible) or "(none)"
+    if name in profiles:
+        return ("Profile %r belongs to another machine and is not available "
+                "on %s. Use --all to work with it anyway."
+                % (name, short_hostname()))
+    sessions = set()
+    for profile in profiles.values():
+        if isinstance(profile, dict) and isinstance(profile.get("sessions"), dict):
+            sessions.update(profile["sessions"])
+    if name in sessions or name in tmux_list_sessions():
+        return ("There is no profile named %r, but there is a session with "
+                "that name. Did you mean 'xtm --open %s' or "
+                "'xtm --focus %s'? Known profiles: %s"
+                % (name, name, name, known))
+    return "Profile %r does not exist. Known profiles: %s" % (name, known)
 
 
 # --------------------------------------------------------------------------
@@ -1122,6 +1450,25 @@ def tmux_kill_session(name: str) -> bool:
     res = run(["tmux", "kill-session", "-t", name])
     if res is None or res.returncode != 0:
         logger.debug("kill-session %r failed: %s", name,
+                     _truncate(res.stderr if res else ""))
+        return False
+    return True
+
+
+def tmux_detach_session(name: str) -> bool:
+    """Detach every client from a session, closing its window.
+
+    The window closes as a consequence rather than being killed: the
+    xterm's `tmux new-session -A` command returns when its client
+    detaches, so the terminal exits on its own. The session, its windows,
+    its panes and everything running in them stay alive.
+    """
+    if DRY_RUN:
+        logger.info("[dry-run] would detach tmux session %r", name)
+        return True
+    res = run(["tmux", "detach-client", "-s", name])
+    if res is None or res.returncode != 0:
+        logger.debug("detach-client %r failed: %s", name,
                      _truncate(res.stderr if res else ""))
         return False
     return True
@@ -1684,7 +2031,8 @@ def stack_slot(stack_cfg: GeometryDict, index: int) -> GeometryDict:
 # Opening sessions
 # --------------------------------------------------------------------------
 
-def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict]) -> List[str]:
+def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict],
+                        title: Optional[str] = None) -> List[str]:
     """Assemble the xterm argument vector for one session.
 
     Every window gets allowWindowOps (required for placement to work at
@@ -1692,6 +2040,10 @@ def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict]) -> List[
     per-session xterm_args are inserted before -e, so a profile can set
     fonts or colours -- colour-coding a production cluster differently
     from a development one, for example.
+
+    The title is cosmetic and may be overridden by the profile; the
+    instance name is the identity and is always derived from the session
+    name, so a custom title can never break window discovery.
 
     The tmux side uses `new-session -A`, which attaches to the session
     when it already exists and creates it otherwise. Note that -c and the
@@ -1703,7 +2055,7 @@ def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict]) -> List[
         "xterm",
         "-xrm", "XTerm*allowWindowOps: true",
         "-name", window_instance(session),
-        "-T", window_title(session),
+        "-T", title if title is not None else window_title(session),
     ]
     for arg in sess_cfg.get("xterm_args") or []:
         argv.append(str(arg))
@@ -1721,8 +2073,8 @@ def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict]) -> List[
     return argv + ["-e"] + tmux_argv
 
 
-def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None
-                ) -> Optional[subprocess.Popen]:
+def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None,
+                title: Optional[str] = None) -> Optional[subprocess.Popen]:
     """Launch a new xterm attached to `session` and return the process.
 
     Does not wait for the tmux client to attach; see wait_for_client_tty.
@@ -1738,7 +2090,7 @@ def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None
         die("$DISPLAY is not set, so xterm has nowhere to open a window. Make "
             "sure this shell has a working X display (an X-forwarded or local "
             "session rather than a plain non-X SSH login).")
-    argv = build_xterm_command(session, sess_cfg)
+    argv = build_xterm_command(session, sess_cfg, title)
     logger.debug("Spawning: %s", " ".join(argv))
     if DRY_RUN:
         logger.info("[dry-run] would launch: %s", " ".join(argv))
@@ -1754,13 +2106,14 @@ def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None
 
 
 def open_session(session: str, geometry: GeometryDict,
-                 sess_cfg: Optional[GeometryDict] = None) -> None:
+                 sess_cfg: Optional[GeometryDict] = None,
+                 title: Optional[str] = None) -> None:
     """Open one session in a new window and place it. Errors if the
     session already has a window attached."""
     validate_session_name(session)
     if tmux_session_attached(session):
         die("tmux session %r is already attached to a window." % (session,))
-    proc = spawn_xterm(session, sess_cfg)
+    proc = spawn_xterm(session, sess_cfg, title)
     if DRY_RUN:
         logger.info("[dry-run] would place %r at x=%s y=%s %sx%s", session,
                     geometry["x"], geometry["y"], geometry["width"],
@@ -1777,7 +2130,8 @@ def open_session(session: str, geometry: GeometryDict,
 
 def reposition_or_open(session: str, geometry: GeometryDict,
                        sess_cfg: Optional[GeometryDict] = None,
-                       attached: Optional[bool] = None) -> None:
+                       attached: Optional[bool] = None,
+                       title: Optional[str] = None) -> None:
     """Move an already-open session's window, or open it if it is not up.
 
     `attached` lets a caller pass in a session snapshot it already has,
@@ -1796,7 +2150,7 @@ def reposition_or_open(session: str, geometry: GeometryDict,
         logger.info("Repositioned %s to x=%s y=%s %sx%s", session, geometry["x"],
                     geometry["y"], geometry["width"], geometry["height"])
     else:
-        open_session(session, geometry, sess_cfg)
+        open_session(session, geometry, sess_cfg, title)
 
 
 def count_unnamed_open(profile: ProfileDict,
@@ -1810,7 +2164,7 @@ def count_unnamed_open(profile: ProfileDict,
     however many are already out there. Both are self-consistent, they
     just serve different purposes.
     """
-    named = set(profile["sessions"])
+    named = set(profile_sessions(profile))
     live = tmux_list_sessions() if live is None else live
     return sum(1 for name, attached in live.items()
                if attached and name not in named)
@@ -1823,16 +2177,28 @@ def count_unnamed_open(profile: ProfileDict,
 def cmd_open(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
     """Open one session, at its configured position or the next stack slot."""
     profile = get_profile(config, profile_name)
-    session = validate_session_name(args.open)
-    sess_cfg = profile["sessions"].get(session)
-    if sess_cfg:
-        geometry = session_geometry(sess_cfg)
+    name = validate_session_name(args.open)
+    # The argument may name a slot in the profile or a session directly,
+    # so that both `xtm --open work1` (the slot) and `xtm --open
+    # desk-work1` (what tmux calls it) do the obvious thing.
+    slot_cfg = profile["sessions"].get(name)
+    if slot_cfg is not None:
+        slot_name = name
     else:
-        slot = count_unnamed_open(profile)
-        geometry = stack_slot(profile["stack"], slot)
+        slot_name = slot_for_session(profile, name)
+        slot_cfg = profile["sessions"].get(slot_name) if slot_name else None
+    if slot_cfg is not None:
+        session = resolve_session_name(profile, slot_name)
+        geometry = session_geometry(slot_cfg)
+        title = resolve_window_title(profile, profile_name, slot_name, session)
+    else:
+        session = name
+        index = count_unnamed_open(profile)
+        geometry = stack_slot(profile["stack"], index)
+        title = None
         logger.info("%s has no configured position in profile %s; using stacked "
-                    "slot #%d.", session, profile_name, slot)
-    open_session(session, geometry, sess_cfg)
+                    "slot #%d.", session, profile_name, index)
+    open_session(session, geometry, slot_cfg, title)
     return EXIT_OK
 
 
@@ -1840,14 +2206,17 @@ def cmd_reset(args: argparse.Namespace, config: ConfigDict, profile_name: str) -
     """Reposition, or open, every named session in the profile."""
     profile = get_profile(config, profile_name)
     if not profile["sessions"]:
-        logger.info("Profile %s has no named sessions configured.", profile_name)
+        logger.info("Profile %s has no slots configured.", profile_name)
         return EXIT_OK
     live = tmux_list_sessions()
     failures = []
-    for session, sess_cfg in profile["sessions"].items():
+    for slot, session in profile_slots(profile):
+        slot_cfg = profile["sessions"][slot]
         try:
-            reposition_or_open(session, session_geometry(sess_cfg), sess_cfg,
-                               attached=live.get(session, False))
+            reposition_or_open(
+                session, session_geometry(slot_cfg), slot_cfg,
+                attached=live.get(session, False),
+                title=resolve_window_title(profile, profile_name, slot, session))
         except XtmError as e:
             logger.warning("%s: %s", session, e)
             failures.append(session)
@@ -1864,7 +2233,7 @@ def cmd_reset_all(args: argparse.Namespace, config: ConfigDict,
     profile = get_profile(config, profile_name)
     status = cmd_reset(args, config, profile_name)
 
-    named = set(profile["sessions"])
+    named = set(profile_sessions(profile))
     strays = sorted(name for name, attached in tmux_list_sessions().items()
                     if attached and name not in named)
     failures = []
@@ -1886,9 +2255,23 @@ def cmd_reset_all(args: argparse.Namespace, config: ConfigDict,
     return status
 
 
+def _resolve_target_session(profile: ProfileDict, name: str) -> str:
+    """Accept either a slot name or a session name from the command line.
+
+    A user thinks in terms of the names written in their profile, but
+    tmux knows the prefixed name. Accepting both means neither has to be
+    memorised.
+    """
+    if name in profile.get("sessions", {}):
+        return resolve_session_name(profile, name)
+    return name
+
+
 def cmd_close(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
     """Kill one tmux session, which closes its window with it."""
-    session = validate_session_name(args.close)
+    profile = get_profile(config, profile_name)
+    session = _resolve_target_session(profile,
+                                      validate_session_name(args.close))
     live = tmux_list_sessions()
     if session not in live:
         logger.error("No tmux session named %r is running.", session)
@@ -1897,6 +2280,31 @@ def cmd_close(args: argparse.Namespace, config: ConfigDict, profile_name: str) -
         logger.error("Could not kill tmux session %r.", session)
         return EXIT_ERROR
     logger.info("Closed %s", session)
+    return EXIT_OK
+
+
+def cmd_detach(args: argparse.Namespace, config: ConfigDict,
+               profile_name: str) -> int:
+    """Close one session's window while leaving the session running.
+
+    The distinction from --close matters: detaching tidies the screen and
+    keeps every tab, pane and running job alive, while closing destroys
+    them. Detaching is the reversible one.
+    """
+    profile = get_profile(config, profile_name)
+    session = _resolve_target_session(profile,
+                                      validate_session_name(args.detach))
+    live = tmux_list_sessions()
+    if session not in live:
+        logger.error("No tmux session named %r is running.", session)
+        return EXIT_ERROR
+    if not live[session]:
+        logger.info("Session %s has no window attached.", session)
+        return EXIT_OK
+    if not tmux_detach_session(session):
+        logger.error("Could not detach tmux session %r.", session)
+        return EXIT_ERROR
+    logger.info("Detached %s; the session is still running.", session)
     return EXIT_OK
 
 
@@ -1910,20 +2318,36 @@ def cmd_close_all(args: argparse.Namespace, config: ConfigDict,
     """
     profile = get_profile(config, profile_name)
     live = tmux_list_sessions()
-    targets = [s for s in profile["sessions"] if s in live]
+    if args.all:
+        # Every session any visible profile lays claim to, so that
+        # sessions left behind by an earlier profile can be cleaned up
+        # without switching back to it first.
+        wanted = set()
+        for name in visible_profile_names(config, include_all=False):
+            candidate = config["profiles"][name]
+            if isinstance(candidate, dict):
+                wanted.update(profile_sessions(candidate))
+        scope = "every profile"
+    else:
+        wanted = set(profile_sessions(profile))
+        scope = "profile %s" % (profile_name,)
+    targets = sorted(s for s in wanted if s in live)
+    verb = "Detach" if args.detach_mode else "Close"
     if not targets:
-        logger.info("No sessions from profile %s are running.", profile_name)
+        logger.info("No sessions from %s are running.", scope)
         return EXIT_OK
-    if not confirm("Close %d session(s) from profile %s (%s)?"
-                   % (len(targets), profile_name, ", ".join(targets)), args.yes):
+    if not confirm("%s %d session(s) from %s (%s)?"
+                   % (verb, len(targets), scope, ", ".join(targets)), args.yes):
         logger.info("Cancelled.")
         return EXIT_OK
-    failures = [s for s in targets if not tmux_kill_session(s)]
+    action = tmux_detach_session if args.detach_mode else tmux_kill_session
+    failures = [s for s in targets if not action(s)]
     for session in targets:
         if session not in failures:
-            logger.info("Closed %s", session)
+            logger.info("%s %s", "Detached" if args.detach_mode else "Closed",
+                        session)
     if failures:
-        logger.error("Could not close: %s", ", ".join(failures))
+        logger.error("Could not %s: %s", verb.lower(), ", ".join(failures))
         return EXIT_ERROR
     return EXIT_OK
 
@@ -1984,23 +2408,41 @@ def cmd_update_profile(args: argparse.Namespace, config: ConfigDict,
     if not layout:
         logger.info("No xtm-managed windows are currently open; nothing to update.")
         return EXIT_OK
-    updated = added = 0
+    updated = added = skipped = 0
     for session, geometry in layout.items():
-        existing = profile["sessions"].get(session)
+        slot = slot_for_session(profile, session)
+        existing = profile["sessions"].get(slot) if slot else None
         if isinstance(existing, dict):
-            # Preserve command/cwd/xterm_args: only placement is captured
-            # from the screen, and silently dropping launch settings would
-            # be a destructive surprise.
+            # Preserve command/cwd/xterm_args/session/title: only
+            # placement is captured from the screen, and silently
+            # dropping the rest would be a destructive surprise.
             existing.update(geometry)
             updated += 1
-        else:
-            profile["sessions"][session] = geometry
+        elif args.capture_new:
+            # An unrecognised window is recorded under its own name with
+            # an explicit 'session', so the entry means exactly the
+            # session that was captured regardless of any prefix.
+            entry = dict(geometry)
+            if session != "%s%s" % (profile.get("prefix", ""), session):
+                entry["session"] = session
+            profile["sessions"][session] = entry
             added += 1
+        else:
+            # Windows belonging to another profile are left out by
+            # default: capturing them would quietly graft one profile's
+            # sessions onto another.
+            skipped += 1
+            logger.debug("Skipping %s: not part of profile %s.",
+                         session, profile_name)
+            continue
         logger.debug("Captured %s at x=%s y=%s %sx%s", session, geometry["x"],
                      geometry["y"], geometry["width"], geometry["height"])
     save_config(config)
-    logger.info("Profile %s updated: %d session(s) updated, %d added. Saved to %s",
+    logger.info("Profile %s updated: %d slot(s) updated, %d added. Saved to %s",
                 profile_name, updated, added, CONFIG_FILE)
+    if skipped:
+        logger.info("%d open window(s) are not part of this profile and were "
+                    "left out; use --capture-new to add them.", skipped)
     return EXIT_OK
 
 
@@ -2024,29 +2466,46 @@ def cmd_new_profile(args: argparse.Namespace, config: ConfigDict,
         if isinstance(existing, dict) and isinstance(existing.get("stack"), dict):
             base_stack = dict(existing["stack"])
 
-    config["profiles"][new_name] = {"stack": base_stack, "sessions": layout}
+    # New profiles own their sessions by default, so the prefix is written
+    # out explicitly rather than being implied. Captured windows keep an
+    # explicit 'session', because those sessions already exist under the
+    # names they were captured with and must not be renamed by the prefix.
+    prefix = "%s-" % (new_name,)
+    slots = {}
+    for session, geometry in layout.items():
+        entry = dict(geometry)
+        entry["session"] = session
+        slots[session] = entry
+
+    config["profiles"][new_name] = {
+        "prefix": prefix,
+        "stack": base_stack,
+        "sessions": slots,
+    }
     save_config(config)
-    logger.info("Created profile %s with %d session(s) captured from the current "
-                "layout. Saved to %s", new_name, len(layout), CONFIG_FILE)
+    logger.info("Created profile %s with %d slot(s) captured from the current "
+                "layout, and prefix %r for new slots. Saved to %s",
+                new_name, len(slots), prefix, CONFIG_FILE)
     return EXIT_OK
 
 
 def cmd_set(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
-    """Add or update one session's position in the profile."""
+    """Add or update one slot's position in the profile."""
     profile = get_profile(config, profile_name)
-    session = validate_session_name(args.set[0])
+    slot = validate_session_name(args.set[0])
     geometry = parse_geometry_spec(args.set[1])
-    existing = profile["sessions"].get(session)
+    existing = profile["sessions"].get(slot)
     if isinstance(existing, dict):
         existing.update(geometry)
         action = "Updated"
     else:
-        profile["sessions"][session] = geometry
+        profile["sessions"][slot] = geometry
         action = "Added"
     save_config(config)
-    logger.info("%s %s in profile %s: x=%s y=%s %sx%s", action, session,
-                profile_name, geometry["x"], geometry["y"],
-                geometry["width"], geometry["height"])
+    session = resolve_session_name(profile, slot)
+    logger.info("%s slot %s (session %s) in profile %s: x=%s y=%s %sx%s",
+                action, slot, session, profile_name, geometry["x"],
+                geometry["y"], geometry["width"], geometry["height"])
     return EXIT_OK
 
 
@@ -2058,22 +2517,39 @@ def cmd_delete_session(args: argparse.Namespace, config: ConfigDict,
     keeps running; use --close to kill it.
     """
     profile = get_profile(config, profile_name)
-    session = args.delete_session
-    if session not in profile["sessions"]:
-        logger.error("Session %r is not configured in profile %s.",
-                     session, profile_name)
+    name = args.delete_session
+    # Accept a slot name or the session name it resolves to, matching
+    # every other command that takes one.
+    slot = name if name in profile["sessions"] else slot_for_session(profile, name)
+    if not slot or slot not in profile["sessions"]:
+        logger.error("Slot %r is not configured in profile %s.",
+                     name, profile_name)
         return EXIT_ERROR
-    del profile["sessions"][session]
+    session = resolve_session_name(profile, slot)
+    del profile["sessions"][slot]
     save_config(config)
-    logger.info("Removed %s from profile %s. Any running session of that name is "
-                "untouched; use --close to end it.", session, profile_name)
+    logger.info("Removed slot %s from profile %s. Session %s keeps running if "
+                "it is up; use --close to end it.", slot, profile_name, session)
     return EXIT_OK
+
+
+def _refuse_reserved(name: str, what: str) -> None:
+    """Block an operation that would remove or replace "default".
+
+    Resolution falls back to this profile, and the CLI treats it as the
+    baseline layout, so it has to be present under exactly that name.
+    Its contents remain fully editable.
+    """
+    if name == DEFAULT_PROFILE_NAME:
+        die("Profile %r is reserved and cannot be %s. Its contents can still "
+            "be edited freely." % (name, what))
 
 
 def cmd_delete_profile(args: argparse.Namespace, config: ConfigDict,
                        profile_name: str) -> int:
     """Delete a whole profile from the config."""
     name = validate_profile_name(args.delete_profile)
+    _refuse_reserved(name, "deleted")
     profiles = config.get("profiles", {})
     if name not in profiles:
         logger.error("Profile %r does not exist.", name)
@@ -2114,6 +2590,7 @@ def cmd_copy_profile(args: argparse.Namespace, config: ConfigDict,
     source, target = args.copy_profile
     validate_profile_name(source)
     validate_profile_name(target)
+    _refuse_reserved(target, "replaced by a copy")
     profiles = config.get("profiles", {})
     if source not in profiles:
         logger.error("Profile %r does not exist.", source)
@@ -2137,6 +2614,8 @@ def cmd_rename_profile(args: argparse.Namespace, config: ConfigDict,
     old, new = args.rename_profile
     validate_profile_name(old)
     validate_profile_name(new)
+    _refuse_reserved(old, "renamed")
+    _refuse_reserved(new, "replaced by a rename")
     profiles = config.get("profiles", {})
     if old not in profiles:
         logger.error("Profile %r does not exist.", old)
@@ -2152,6 +2631,33 @@ def cmd_rename_profile(args: argparse.Namespace, config: ConfigDict,
     if read_current_profile_state() == old:
         write_current_profile_state(new)
     logger.info("Renamed profile %s to %s", old, new)
+    return EXIT_OK
+
+
+def cmd_make_global(args: argparse.Namespace, config: ConfigDict,
+                    profile_name: str) -> int:
+    """Remove a profile's machine binding, making it usable everywhere.
+
+    Deliberately one-way: there is no command to bind a global profile
+    back to a machine. Re-binding would silently hide a profile that
+    other machines may already be relying on, so it is left as an
+    explicit edit of the config file.
+    """
+    name = validate_profile_name(args.make_global)
+    profiles = config.get("profiles", {})
+    if name not in profiles:
+        logger.error("Profile %r does not exist.", name)
+        return EXIT_ERROR
+    profile = profiles[name]
+    if not isinstance(profile, dict) or "match" not in profile:
+        logger.info("Profile %s is already global.", name)
+        return EXIT_OK
+    if DRY_RUN:
+        logger.info("[dry-run] would make profile %s global", name)
+        return EXIT_OK
+    profile.pop("match")
+    save_config(config)
+    logger.info("Profile %s is now global and available on every machine.", name)
     return EXIT_OK
 
 
@@ -2257,9 +2763,13 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
     live = tmux_list_sessions()
 
     sessions = []
-    for session, cfg in profile["sessions"].items():
+    for slot, session in profile_slots(profile):
+        cfg = profile["sessions"][slot]
         entry = {
-            "name": session,
+            "name": slot,
+            "session": session,
+            "shared": bool(cfg.get("session")),
+            "title": resolve_window_title(profile, profile_name, slot, session),
             "status": session_status(session, live),
             "configured": session_geometry(cfg),
             "command": cfg.get("command"),
@@ -2270,22 +2780,37 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
             entry["live"] = get_window_geometry(session, tool)
         sessions.append(entry)
 
-    named = set(profile["sessions"])
+    named = set(profile_sessions(profile))
     strays = sorted(name for name, attached in live.items()
                     if attached and name not in named)
+    # Say which other profile a stray belongs to, so an accumulation left
+    # behind by an earlier profile is recognisable rather than mysterious.
+    owners = {}
+    for other in visible_profile_names(config, include_all=True):
+        if other == profile_name:
+            continue
+        candidate = config["profiles"][other]
+        if not isinstance(candidate, dict):
+            continue
+        for name in profile_sessions(candidate):
+            if name in strays:
+                owners.setdefault(name, other)
     return {
         "profile": profile_name,
+        "prefix": profile.get("prefix", ""),
+        "on_switch": switch_mode(profile),
         "config": str(CONFIG_FILE),
         "state_file": str(STATE_FILE),
         "geometry_tool": tool,
         "frame_compensation": FRAME_COMPENSATION,
         "sessions": sessions,
         "strays": strays,
+        "stray_owners": owners,
     }
 
 
 def cmd_list(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
-    """Show the status of every session in the profile."""
+    """Show the status of every slot in the current profile."""
     status = collect_status(config, profile_name)
     if args.json:
         emit_json(status)
@@ -2293,8 +2818,10 @@ def cmd_list(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
 
     print("Profile: %s" % (status["profile"],))
     print("Config:  %s" % (status["config"],))
+    if status["prefix"]:
+        print("Prefix:  %s" % (status["prefix"],))
     print("")
-    print("Named sessions:")
+    print("Slots:")
     if not status["sessions"]:
         print("  (none configured)")
     for entry in status["sessions"]:
@@ -2308,18 +2835,104 @@ def cmd_list(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
                 geometry["x"], geometry["y"], geometry["width"], geometry["height"])
         print("  %-20s %-12s configured: %s%s"
               % (entry["name"], entry["status"], position, live_text))
+        # Worth a line whenever the session name is not simply the slot
+        # name, or whenever it is shared -- being shared changes what a
+        # profile switch will do to it, so it should never be invisible.
+        if entry["session"] != entry["name"] or entry["shared"]:
+            print("  %-20s %-12s session:    %s%s"
+                  % ("", "", entry["session"],
+                     "  (shared, kept on profile switch)"
+                     if entry["shared"] else ""))
+        # Launch settings are shown only when set, on their own lines, so
+        # the common case stays a single line per session while a session
+        # that does something unusual on startup says so.
         if entry["command"]:
             print("  %-20s %-12s command:    %s" % ("", "", entry["command"]))
+        if entry["cwd"]:
+            print("  %-20s %-12s cwd:        %s" % ("", "", entry["cwd"]))
     print("")
     print("Stray attached sessions (no configured position):")
     if not status["strays"]:
         print("  (none)")
     for session in status["strays"]:
-        print("  %s" % (session,))
+        owner = status["stray_owners"].get(session)
+        print("  %s%s" % (session,
+                          "  (belongs to profile %s)" % (owner,) if owner else ""))
+    owned = sum(1 for s in status["strays"] if s in status["stray_owners"])
+    if owned:
+        logger.info("%d stray session(s) belong to another profile; switch to "
+                    "it, or use --all --close-all to clean them up.", owned)
     if not status["geometry_tool"]:
         print("")
         print("(Install or locate %s to show live window positions here.)"
               % (", ".join(GEOMETRY_TOOLS),))
+    return EXIT_OK
+
+
+def _list_profiles_verbose(args: argparse.Namespace, config: ConfigDict,
+                           profile_name: str) -> int:
+    """Report every profile, its slots and their running state.
+
+    Deliberately part of --list-profiles rather than --list: --list
+    reports one profile, and --all already means "widen the scope",
+    which would collide with naming a specific profile to look at.
+    """
+    live = tmux_list_sessions()
+    names = visible_profile_names(config, args.all)
+    report = []
+    for name in names:
+        profile = config["profiles"][name]
+        if not isinstance(profile, dict):
+            continue
+        slots = []
+        for slot, session in profile_slots(profile):
+            cfg = profile["sessions"][slot]
+            slots.append({
+                "name": slot,
+                "session": session,
+                "shared": bool(cfg.get("session")),
+                "status": session_status(session, live),
+            })
+        report.append({
+            "name": name,
+            "current": name == profile_name,
+            "prefix": profile.get("prefix", ""),
+            "on_switch": switch_mode(profile),
+            "slots": slots,
+        })
+
+    claimed = set()
+    for entry in report:
+        claimed.update(slot["session"] for slot in entry["slots"])
+    unclaimed = sorted(name for name, attached in live.items()
+                       if attached and name not in claimed)
+
+    if args.json:
+        emit_json({"profiles": report, "unclaimed": unclaimed,
+                   "config": str(CONFIG_FILE)})
+        return EXIT_OK
+
+    print("Config: %s" % (CONFIG_FILE,))
+    for entry in report:
+        header = entry["name"] + (" *" if entry["current"] else "")
+        details = []
+        if entry["prefix"]:
+            details.append("prefix %s" % (entry["prefix"],))
+        details.append("on_switch %s" % (entry["on_switch"],))
+        print("")
+        print("%s  (%s)" % (header, ", ".join(details)))
+        if not entry["slots"]:
+            print("  (no slots configured)")
+        for slot in entry["slots"]:
+            print("  %-18s %-14s %-12s%s"
+                  % (slot["name"], slot["session"], slot["status"],
+                     "  shared" if slot["shared"] else ""))
+    print("")
+    print("Sessions claimed by no profile:")
+    if not unclaimed:
+        print("  (none)")
+    for session in unclaimed:
+        print("  %s" % (session,))
     return EXIT_OK
 
 
@@ -2345,9 +2958,13 @@ def cmd_list_profiles(args: argparse.Namespace, config: ConfigDict,
     the effective profile answers the question the listing is really
     being asked.
     """
+    if args.verbose:
+        return _list_profiles_verbose(args, config, profile_name)
     current = read_current_profile_state()
     effective = current or profile_name
     profiles = config.get("profiles", {})
+    names = visible_profile_names(config, args.all)
+    hidden = len(profiles) - len(names)
     if args.json:
         emit_json({
             "current": current,
@@ -2361,13 +2978,20 @@ def cmd_list_profiles(args: argparse.Namespace, config: ConfigDict,
                     if isinstance(profiles[name], dict) else 0,
                     "match": profiles[name].get("match")
                     if isinstance(profiles[name], dict) else None,
+                    "global": profile_is_visible(profiles[name])
+                    and not (isinstance(profiles[name], dict)
+                             and profiles[name].get("match")),
                 }
-                for name in sorted(profiles)
+                for name in names
             ],
+            "hidden": hidden,
         })
         return EXIT_OK
-    for name in sorted(profiles):
+    for name in names:
         print(name + (" *" if name == effective else ""))
+    if hidden:
+        logger.info("%d profile(s) belonging to other machines are hidden; "
+                    "use --all to include them.", hidden)
     return EXIT_OK
 
 
@@ -2397,6 +3021,8 @@ COMMANDS = (
     ("delete_profile", cmd_delete_profile, True, False),
     ("copy_profile", cmd_copy_profile, True, False),
     ("rename_profile", cmd_rename_profile, True, False),
+    ("detach", cmd_detach, False, True),
+    ("make_global", cmd_make_global, True, False),
     ("edit", cmd_edit, True, False),
     ("validate", cmd_validate, False, False),
 )
@@ -2447,13 +3073,38 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", "-version", action="version",
                         version="xtm %s" % (__version__,))
 
+    # Switching profiles is by far the most common thing the tool is asked
+    # to do, so it gets the shortest possible spelling: `xtm desk`. The
+    # --profile flag remains as an equivalent alias for existing scripts.
+    parser.add_argument("profile_positional", nargs="?", metavar="PROFILE",
+                        help="Profile to switch to, for example 'xtm desk'. "
+                             "Equivalent to --profile NAME.")
+
     general = parser.add_argument_group("general options")
     general.add_argument("-p", "--profile", "-profile", metavar="NAME",
                          help="Use profile NAME and persist it as this "
-                              "machine's current profile.")
+                              "machine's current profile. Same as giving the "
+                              "name as a positional argument.")
     general.add_argument("-a", "--auto", action="store_true",
                          help="Ignore the saved current profile and select one "
-                              "by matching hostname/DISPLAY instead.")
+                              "by matching the hostname instead.")
+    general.add_argument("-A", "--all", action="store_true",
+                         help="Widen the scope: include profiles belonging to "
+                              "other machines, report every profile with "
+                              "--list, and cover every profile with "
+                              "--close-all.")
+    general.add_argument("--on-switch", choices=SWITCH_MODES,
+                         help="Override what happens to the previous profile's "
+                              "windows when switching profiles.")
+    general.add_argument("--capture-new", action="store_true",
+                         help="With --update-profile, also add open windows "
+                              "that are not part of the current profile.")
+    general.add_argument("-v", "--verbose", action="store_true",
+                         help="With --list-profiles, also show each profile's "
+                              "slots, session names and running state.")
+    general.add_argument("--detach-mode", action="store_true",
+                         help="With --close-all, detach the windows instead of "
+                              "killing the sessions.")
     general.add_argument("-c", "--config", metavar="PATH",
                          help="Path to the config file (default: "
                               "$XTM_CONFIG_DIR/config.yaml).")
@@ -2533,6 +3184,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Copy an existing profile to a new name.")
     action.add_argument("--rename-profile", nargs=2, metavar=("OLD", "NEW"),
                         help="Rename an existing profile.")
+    action.add_argument("-t", "--detach", metavar="SESSION",
+                        help="Close a session's window but leave the session, "
+                             "its tabs and its panes running.")
+    action.add_argument("--make-global", metavar="NAME",
+                        help="Remove a profile's machine binding so it is "
+                             "available on every machine. One-way.")
     action.add_argument("-e", "--edit", action="store_true",
                         help="Open the config in $EDITOR, then validate it.")
     action.add_argument("-V", "--validate", action="store_true",
@@ -2552,6 +3209,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """Parse arguments, resolve the profile, and run the chosen action."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    _merge_positional_profile(parser, args)
 
     setup_logging(console_level_from_args(args), args.log_file)
     apply_runtime_flags(args)
@@ -2575,6 +3233,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     return _run_action(args, handler, needs_profile)
 
 
+def _merge_positional_profile(parser: argparse.ArgumentParser,
+                              args: argparse.Namespace) -> None:
+    """Fold the positional PROFILE argument into args.profile.
+
+    Supplying both spellings is rejected rather than resolved in favour
+    of one, even when they name the same profile: silently picking a
+    winner would hide a mistake in a script that builds its arguments
+    programmatically.
+    """
+    positional = getattr(args, "profile_positional", None)
+    if positional is None:
+        return
+    if args.profile is not None:
+        parser.error("give the profile either as a positional argument or "
+                     "with --profile, not both")
+    args.profile = positional
+
+
 def _run_action(args: argparse.Namespace, handler: Any,
                 needs_profile: bool) -> int:
     """Load the config, resolve the profile and invoke one command.
@@ -2590,7 +3266,8 @@ def _run_action(args: argparse.Namespace, handler: Any,
     """
     config = load_config()
     try:
-        profile_name = resolve_profile_name(config, args.profile, args.auto)
+        profile_name = resolve_profile_name(config, args.profile, args.auto,
+                                            args.all, args.on_switch)
     except XtmError:
         if needs_profile or args.profile:
             raise

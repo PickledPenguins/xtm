@@ -1,6 +1,6 @@
 # xtm — xterm + tmux workspace manager
 
-**Version 0.3**
+**Version 0.5**
 
 `xtm` manages a set of `xterm` windows, each attached to a named `tmux`
 session, and positions them on screen according to a named *profile* stored
@@ -20,6 +20,19 @@ workstation, and `xtm` can pick the right one automatically.
 ---
 
 # Part 1 — User guide
+
+## Vocabulary
+
+Three words are used precisely throughout this document, the tool's messages
+and its source, because "window" otherwise means two different things:
+
+| Term | Meaning |
+|---|---|
+| **slot** | A position on screen, and the key of an entry under `sessions:` in a profile. |
+| **session** | The tmux session attached to a slot. Its name comes from the profile's `prefix` plus the slot name, or from an explicit `session:` on the slot. |
+| **tab** and **pane** | tmux windows and splits *inside* a session. `xtm` never touches these. |
+
+A slot is where a terminal sits; a session is what is running in it.
 
 ## Scope
 
@@ -60,11 +73,21 @@ installed system-wide.
 ./install.sh                 # installs to ~/bin by default
 ./install.sh --prefix /usr/local/bin
 ./install.sh --completion    # also install the bash completion file
+./install.sh --uninstall     # remove a previous installation
 ```
 
-The installer copies `xtm.py` to `<prefix>/xtm`, makes it executable, and
-checks that the target directory is on `PATH`. Manual installation is
-equivalent:
+| Option | Argument | Effect |
+|---|---|---|
+| `--prefix` | `DIR` | Install into `DIR` (default `$HOME/bin`). |
+| `--completion` | — | Also install the bash completion file. |
+| `--completion-dir` | `DIR` | Completion target (default `$HOME/.local/share/bash-completion/completions`). Implies `--completion`. |
+| `--uninstall` | — | Remove the installed program and completion file. Configuration and state are left in place. |
+| `-h`, `--help` | — | Show usage. |
+
+The installer verifies that `python3` is present and at least 3.6 before
+copying anything, copies `xtm.py` to `<prefix>/xtm`, makes it executable, and
+warns without failing if the target directory is not on `PATH`. It needs only
+a POSIX shell and no network access. Manual installation is equivalent:
 
 ```bash
 mkdir -p ~/bin
@@ -77,12 +100,21 @@ xtm --help
 
 ```bash
 xtm                          # status of the current profile (default action)
-xtm --profile desk           # switch to the "desk" profile and show its status
-xtm --reset-all              # open/position everything, and stack strays
+xtm desk                     # switch to the "desk" profile and show its status
+xtm desk --reset-all         # switch, then open/position everything
+xtm --reset-all              # same, using whichever profile is current
 ```
 
-On first run, a default configuration is created at
-`~/.config/xtm/config.yaml` containing a single profile named `default`.
+Naming a profile is the most common thing xtm is asked to do, so it needs no
+flag: `xtm desk` is exactly equivalent to `xtm --profile desk`, and the
+selection is remembered until changed. Supplying both spellings at once is a
+usage error rather than one silently winning.
+
+On first run, a configuration is created at `~/.config/xtm/config.yaml`
+containing a profile named `default`. That profile is **reserved**: it always
+exists, is available on every machine, and is what xtm falls back to when
+nothing else applies. Its contents are yours to edit freely; it simply cannot
+be deleted or renamed, so the fallback can never silently move.
 
 ## Commands
 
@@ -97,7 +129,8 @@ with none, `xtm` prints the status of the current profile.
 | `-o` | `--open` | `SESSION` | Open one tmux session in a new xterm and place it. |
 | `-r` | `--reset` | — | Reposition, or open if missing, every named session in the profile. |
 | `-R` | `--reset-all` | — | As `--reset`, and also stack any stray sessions. |
-| `-k` | `--close` | `SESSION` | Kill one tmux session, closing its window. |
+| `-k` | `--close` | `SLOT` or `SESSION` | Kill one session, closing its window and destroying its tabs and panes. |
+| `-t` | `--detach` | `SLOT` or `SESSION` | Close a session's window but leave the session, its tabs and its panes running. |
 | `-K` | `--close-all` | — | Kill every running session named in the profile. Asks for confirmation. |
 | `-f` | `--focus` | `SESSION` | Raise and focus one session's window. |
 | `-u` | `--update-profile` | — | Save current window positions into the profile. |
@@ -107,17 +140,24 @@ with none, `xtm` prints the status of the current profile.
 | `-P` | `--list-profiles` | — | List every profile in the config. |
 | `-C` | `--current-profile` | — | Print this machine's current profile. |
 | `-V` | `--validate` | — | Check every profile in the config file. |
-| `-e` | `--edit` | — | Open the config in `$EDITOR`, then validate it. |
+| `-e` | `--edit` | — | Open the config in `$VISUAL`/`$EDITOR`, then validate it. |
 | — | `--delete-profile` | `NAME` | Delete a profile from the config. |
 | — | `--copy-profile` | `SOURCE TARGET` | Copy an existing profile to a new name. |
 | — | `--rename-profile` | `OLD NEW` | Rename an existing profile. |
+| — | `--make-global` | `NAME` | Remove a profile's machine binding so it is usable everywhere. One-way. |
 
 ### General options
 
 | Short | Long | Argument | Description |
 |---|---|---|---|
+| — | *(positional)* | `PROFILE` | Switch to a profile: `xtm desk`. Equivalent to `--profile`. |
 | `-p` | `--profile` | `NAME` | Use profile `NAME` and persist it as this machine's current profile. |
-| `-a` | `--auto` | — | Ignore the saved current profile; select one by matching hostname and `$DISPLAY`. |
+| `-a` | `--auto` | — | Ignore the saved current profile; select one by matching the hostname. |
+| `-A` | `--all` | — | Widen the scope: include profiles belonging to other machines, and cover every profile with `--close-all`. |
+| `-v` | `--verbose` | — | With `--list-profiles`, also show each profile's slots, session names and running state. |
+| — | `--on-switch` | `MODE` | Override the previous profile's `on_switch` for this run: `leave`, `detach` or `kill`. |
+| — | `--capture-new` | — | With `--update-profile`, also add open windows that are not part of the current profile. |
+| — | `--detach-mode` | — | With `--close-all`, detach the windows instead of killing the sessions. |
 | `-c` | `--config` | `PATH` | Path to the config file. |
 | — | `--state-dir` | `PATH` | Directory holding the current-profile state file. |
 | `-j` | `--json` | — | Emit JSON from `--list`, `--list-profiles`, `--current-profile` and `--validate`. |
@@ -159,15 +199,23 @@ This is what `xtm` prints with no arguments.
 ```
 Profile: desk
 Config:  /home/user/.config/xtm/config.yaml
+Prefix:  desk-
 
-Named sessions:
+Slots:
   work1                attached     configured: x=0 y=0 960x1180  [live: x=0 y=0 960x1180]
+                                    session:    desk-work1
   logs                 attached     configured: x=960 y=0 960x580  [live: x=964 y=2 960x580]
+                                    session:    desk-logs
                                     command:    journalctl -f
+  notes                attached     configured: x=0 y=1180 960x400
+                                    session:    notes  (shared, kept on profile switch)
   cluster              not running  configured: x=960 y=600 960x580
+                                    session:    desk-cluster
                                     command:    ssh headnode
+                                    cwd:        ~/projects
 
 Stray attached sessions (no configured position):
+  lab-build  (belongs to profile lab)
   scratch
 ```
 
@@ -177,13 +225,15 @@ Field by field:
 |---|---|
 | `Profile:` | The profile in effect for this invocation. |
 | `Config:` | Absolute path of the config file actually being used. |
-| Session name | The tmux session name, left-aligned in a 20-column field. |
+| `Prefix:` | The profile's session-name prefix. Omitted when the profile has none. |
+| Slot name | The key from the profile, left-aligned in a 20-column field. |
 | Status | `attached` — running with a window; `detached` — the tmux session exists but nothing is attached; `not running` — no such tmux session. |
 | `configured:` | The position recorded in the profile, as `x=<x> y=<y> <width>x<height>` in pixels. |
 | `[live: …]` | The position read off the screen right now, shown only when the session is attached and a geometry tool is available. A difference from `configured` means the window has been moved or resized since the profile was saved. |
-| `command:` | The session's configured launch command, shown only when one is set. |
-| `cwd:` | The session's configured working directory, shown only when one is set. |
-| Stray sessions | Attached tmux sessions that are not named in this profile. `--reset` ignores them; `--reset-all` stacks them. |
+| `session:` | The tmux session name this slot resolves to. Shown when it differs from the slot name, or when it is shared. `(shared, kept on profile switch)` marks a slot with an explicit `session:`. |
+| `command:` | The slot's configured launch command, shown only when one is set. |
+| `cwd:` | The slot's configured working directory, shown only when one is set. |
+| Stray sessions | Attached sessions matching no slot in this profile. Those belonging to another profile are labelled with its name. `--reset` ignores strays; `--reset-all` stacks them. |
 
 A trailing note appears when no geometry tool is installed, explaining that
 live positions cannot be shown.
@@ -249,7 +299,42 @@ each entry has:
 | `current` | boolean | Whether this is the saved current profile. |
 | `effective` | boolean | Whether this is the profile in force for this run. |
 | `sessions` | number | How many sessions the profile defines. |
-| `match` | object or null | The auto-selection block, if the profile has one. |
+| `match` | object or null | The machine-binding block, if the profile has one. |
+
+### The cross-profile view (`--list-profiles --verbose`)
+
+Answers "what is running, and which profile owns it" in one command:
+
+```
+Config: /home/user/.config/xtm/config.yaml
+
+default  (on_switch detach)
+  (no slots configured)
+
+desk *  (prefix desk-, on_switch detach)
+  work1              desk-work1     attached
+  notes              notes          attached      shared
+
+lab  (prefix lab-, on_switch leave)
+  work1              lab-work1      detached
+  notes              notes          attached      shared
+
+Sessions claimed by no profile:
+  scratch
+```
+
+| Field | Meaning |
+|---|---|
+| Profile line | The profile name, `*` if it is the one in effect, then its `prefix` (omitted when it has none) and its `on_switch` mode. |
+| Slot name | The key from the profile. |
+| Session name | What the slot resolves to. |
+| Status | `attached`, `detached` or `not running`. |
+| `shared` | The slot has an explicit `session:`, so it is not owned by the profile. |
+| Sessions claimed by no profile | Running sessions that match no slot in any visible profile. |
+
+`--all` extends this to profiles bound to other machines. With `--json`, the
+same data is emitted as `{"profiles": [...], "unclaimed": [...], "config": ...}`,
+each profile carrying `name`, `current`, `prefix`, `on_switch` and `slots`.
 
 ### The validation report (`--validate`)
 
@@ -269,8 +354,11 @@ reported with the reason on the same line, and the command exits 1.
 ```yaml
 profiles:
   desk:
-    match:                 # optional: auto-select this profile
+    match:                 # optional: bind this profile to a machine
       hostname: workstation*
+    prefix: desk-          # optional: session names for this profile's slots
+    on_switch: detach      # optional: leave | detach | kill
+    title: "{profile}: {slot}"   # optional: window title template
     stack:                 # default slot for sessions with no position
       x: 40
       y: 40
@@ -290,6 +378,13 @@ profiles:
         width: 960
         height: 580
         command: journalctl -f
+        title: Logs          # optional: overrides the profile template
+      notes:
+        session: notes       # explicit: never prefixed, so it can be shared
+        x: 0
+        y: 1180
+        width: 960
+        height: 400
       cluster:
         x: 960
         y: 600
@@ -300,7 +395,7 @@ profiles:
         xterm_args: [-bg, "#2a1a1a"]
 
   laptop:
-    match: {hostname: thinkpad*, display: ":0*"}
+    match: {hostname: [thinkpad, thinkpad-dock]}
     stack: {x: 20, y: 20, width: 700, height: 900, offset_x: 30, offset_y: 30}
     sessions:
       work1: {x: 0, y: 0, width: 1000, height: 1400}
@@ -319,6 +414,8 @@ line.
 | `command` | string | No | Shell command run in the session when it is **created**. Ignored when attaching to a session that already exists. |
 | `cwd` | string | No | Working directory for a newly created session. `~` is expanded. |
 | `xterm_args` | list of strings | No | Extra arguments appended to the `xterm` command line, for fonts, colours, scrollback and so on. |
+| `session` | string | No | Tmux session name, used verbatim and **never prefixed**. This is how two profiles deliberately share one session. |
+| `title` | string | No | Window title for this slot. Overrides the profile's template. |
 
 ### Profile keys
 
@@ -326,7 +423,10 @@ line.
 |---|---|---|---|
 | `stack` | mapping | No | Placement for sessions with no recorded position. Needs `x`, `y`, `width`, `height`, `offset_x`, `offset_y`. Defaults are supplied if absent. |
 | `sessions` | mapping | No | Session name to session settings. Defaults to empty. |
-| `match` | mapping | No | Auto-selection criteria: `hostname` and/or `display`, each a shell glob. |
+| `match` | mapping | No | Machine binding: a `hostname` glob, or a list of them. Present means machine-specific; absent means global. |
+| `prefix` | string | No | Prepended to a slot name to form its session name. Absent means no prefix, so the session is named after the slot. |
+| `on_switch` | string | No | What happens to this profile's windows when switching away: `leave`, `detach` or `kill`. Defaults to `detach`. |
+| `title` | string | No | Window title template for every slot, using `{slot}`, `{session}` and `{profile}`. Defaults to `xtm:{session}`. |
 
 Session and profile names may contain only letters, digits, `.`, `_` and `-`.
 
@@ -403,7 +503,8 @@ xtm() {
 | `XTM_CONFIG_DIR` | Directory holding `config.yaml`. Overridden by `--config`. |
 | `XTM_STATE_DIR` | Directory holding the current-profile state file. Overridden by `--state-dir`. |
 | `DISPLAY` | Required to open windows; also used for profile auto-selection. |
-| `EDITOR` | Used by `--edit`. Falls back to `vi`. |
+| `VISUAL` | Editor used by `--edit`, checked before `EDITOR`. |
+| `EDITOR` | Editor used by `--edit` when `VISUAL` is unset. With neither set, `--edit` falls back to `vi`. |
 
 ---
 
@@ -439,9 +540,11 @@ many shell prompts, rewrite the terminal title at runtime, which would make
 `xtm` lose track of its own windows. A running program cannot change the
 instance name, so it survives.
 
-`xwininfo` can only search by title. On a system where it is the only
-geometry tool available, enabling `set-titles` in tmux will break
-`--update-profile` and `--new-profile`.
+All three tools identify windows by instance name, so `set-titles on` in
+`.tmux.conf` and custom `title:` templates are both safe. `xwininfo` has no
+search verb, so it enumerates the whole window tree and filters it; the tree
+dump carries the instance name alongside the title, and geometry is then read
+with `xwininfo -id`, never by title.
 
 ## Frame compensation
 
@@ -471,7 +574,7 @@ first one found on `PATH` is used for the whole run. They differ:
 
 | Capability | `xdotool` | `wmctrl` | `xwininfo` |
 |---|---|---|---|
-| Find windows by instance name | Yes | Yes (`-lx`) | No — title only |
+| Find windows by instance name | Yes | Yes (`-lx`) | Yes (`-root -tree`) |
 | Read geometry | Yes | Yes | Yes |
 | Raise and focus a window | Yes | Yes | No |
 | Subprocess calls to enumerate N windows | 2 + 2N | 1 | 1 |
@@ -498,7 +601,8 @@ Options fall into three groups by their effect.
 which files are consulted, before anything else happens. `--profile` selects
 a profile *and writes* it to the state file as a side effect; `--auto`
 suppresses the state file for this run so that the `match` blocks decide
-instead.
+instead. `--all` widens every command to include profiles bound to other
+machines, which are otherwise hidden.
 
 **Options that change what is written.** `--dry-run` intercepts every write:
 config saves, state-file writes, window placement, xterm launches and session
@@ -517,7 +621,9 @@ stream, never stdout.
 
 Every invocation runs the same pipeline, in this order:
 
-1. **Parse arguments.** A usage error exits 2 before anything is read.
+1. **Parse arguments.** A usage error exits 2 before anything is read. A
+   positional profile name is folded into `--profile` here, and supplying
+   both spellings is rejected at this point.
 2. **Configure logging.** `--log-level`, then `--debug`, then `--quiet`,
    otherwise INFO. The log file, if requested, is always opened at DEBUG.
 3. **Resolve paths.** `--config` beats `XTM_CONFIG_DIR` beats the default;
@@ -526,9 +632,14 @@ Every invocation runs the same pipeline, in this order:
 4. **Set run modes.** `--dry-run`, `--verify` and `--no-frame-compensation`
    take effect from here on.
 5. **Take the config lock**, for actions that write to the config file.
-6. **Load and sanity-check the config**, creating a default one if missing.
+6. **Load and sanity-check the config**, creating one if it does not exist,
+   and adding the reserved `default` profile if the file lacks it. That
+   addition is saved immediately, so the first run against a config written
+   by an older version modifies it.
 7. **Resolve the profile:** `--profile`, then the saved current profile
-   (unless `--auto`), then a `match` block, then `default`.
+   (unless `--auto`), then a `match` block, then the reserved `default`
+   profile. Only profiles visible on this machine are eligible, unless
+   `--all` was given.
 8. **Validate that profile** in full, injecting default `stack` and
    `sessions` sections if absent.
 9. **Run the action.**
@@ -545,15 +656,23 @@ point, and moving last guarantees the requested final position either way.
 | Option | Edge-case behaviour |
 |---|---|
 | `--profile` | A name that is not in the config is an error, and the state file is left unchanged. |
-| `--auto` | With no matching `match` block, falls through to the `default` profile; if that does not exist either, exits 1. |
+| `--auto` | With no matching `match` block, falls through to the reserved `default` profile, which always exists. |
+| `--all` | Affects visibility only. It never changes what a command does to a profile it can already see. |
+| `--detach` | Accepts a slot name or a session name. A session with no window attached reports so and exits 0; a session that is not running exits 1. |
+| `--capture-new` | Only meaningful with `--update-profile`. Captured windows are recorded with an explicit `session:`, because those sessions already exist under the names they were captured with and must not be renamed by the profile's prefix. |
+| `--on-switch` | Applies to the profile being left, not the one being entered. Has no effect when the profile is not actually changing. |
+| `--detach-mode` | Only meaningful with `--close-all`. |
+| `--verbose` | Only meaningful with `--list-profiles`. |
+| `--make-global` | A profile that is already global reports so and exits 0. One-way: there is no command to re-bind a global profile to a machine. |
+| *(positional)* | Giving both a positional profile and `--profile` is a usage error even when they name the same profile. An unknown name that matches a session suggests `--open`/`--focus` instead. |
 | `--open` | An already-attached session is an error, not a silent no-op. An unconfigured session is placed in the next stack slot, counted from the number of currently attached strays. |
 | `--reset` | A profile with no named sessions logs a notice and exits 0. Individual failures are collected, reported per session, and the command exits 1 at the end; other sessions are still processed. |
 | `--reset-all` | Runs `--reset` first, then stacks strays. A failure in either phase exits 1, but neither phase aborts the other. |
 | `--close` | A session that is not running is an error, since silently succeeding would hide a typo. |
-| `--close-all` | Scoped to sessions named in the profile; strays are never killed. With nothing running, logs a notice and exits 0. When stdin is not a terminal, the confirmation prompt is skipped, because a scripted caller has already opted in and cannot answer. |
+| `--close-all` | Scoped to the current profile's sessions unless `--all` widens it to every visible profile's; sessions belonging to no profile are never touched. With nothing running, logs a notice and exits 0. When stdin is not a terminal, the confirmation prompt is skipped, because a scripted caller has already opted in and cannot answer. |
 | `--focus` | Requires `xdotool` or `wmctrl`; with only `xwininfo` present, fails with an explanation. A session with no window exits 1. |
-| `--update-profile` | With no xtm windows open, logs a notice and changes nothing. Windows whose geometry cannot be read are skipped with a warning, and the rest are still saved. Sessions in the profile with no window on screen keep their recorded position. New windows are added to the profile. |
-| `--new-profile` | An existing name is an error. Stack settings are inherited from the current profile, falling back to the built-in defaults. Capturing an empty screen creates an empty profile and says so. |
+| `--update-profile` | Captures only windows whose session belongs to the current profile; others are counted and reported, and added only with `--capture-new`. With no xtm windows open, logs a notice and changes nothing. Windows whose geometry cannot be read are skipped with a warning, and the rest are still saved. Sessions in the profile with no window on screen keep their recorded position. New windows are added to the profile. |
+| `--new-profile` | An existing name is an error. The new profile gets `prefix: <name>-` written explicitly, and every captured window is recorded with an explicit `session:` so that the sessions already running are not renamed out from under it. Stack settings are inherited from the current profile, falling back to the built-in defaults. Capturing an empty screen creates an empty profile and says so. |
 | `--set` | Creates the session entry if it does not exist, and preserves `command`, `cwd` and `xterm_args` if it does. Rejects non-integer, non-finite and non-positive sizes. |
 | `--delete-session` | A name that is not in the profile is an error. A running session is not killed; only its recorded position is removed. |
 | `--delete-profile` | Deleting the current profile also clears the state file, so the next run falls back to matching or `default`. Deleting the last remaining profile is allowed. |
@@ -626,6 +745,8 @@ xtm --update-profile
 | `--open` vs `--reset` | `--open` handles exactly one session and refuses if it is already attached. `--reset` is idempotent: it repositions what is running and opens what is not. |
 | `--update-profile` vs `--new-profile` | Both capture the screen. The first overwrites the current profile in place; the second creates a new one and fails if the name exists. Use `--new-profile` when the current layout is worth keeping alongside the old one. |
 | `--set` vs `--update-profile` | `--set` writes one exact position from the command line and needs no geometry tool. `--update-profile` captures every window at once and does. |
+| `--close` vs `--detach` | `--close` kills the session, destroying its tabs, panes and running jobs. `--detach` closes only the window and leaves everything running, so it is the reversible one. Use `--detach` to tidy the screen, `--close` to finish with a session. |
+| `prefix:` vs `session:` | `prefix:` makes a slot's session belong to the profile, so two profiles never collide. An explicit `session:` opts one slot out of that and names the session outright, which is how two profiles share one. |
 | `--close` vs `--delete-session` | `--close` kills a running session and its window, leaving the profile untouched. `--delete-session` removes the profile entry and leaves the running session alone. |
 | `--dry-run` vs `--verify` | `--dry-run` runs before the fact and changes nothing. `--verify` runs after the fact and checks that what was requested actually happened. They can be combined, though `--verify` has nothing to check under `--dry-run`. |
 | `--profile` vs `--auto` | `--profile` names a profile and remembers it. `--auto` forgets the remembered one for this run and re-derives the choice from hostname and `$DISPLAY`. |
@@ -638,23 +759,158 @@ xtm --update-profile
 | Restore the whole desktop | `xtm --reset-all` |
 | Restore without touching unrelated terminals | `xtm --reset` |
 | Set up a new machine's layout by hand | `xtm --new-profile thismachine` then `xtm --set …` per window |
-| Make a profile follow the machine automatically | Add `match: {hostname: …}`, then use `xtm --auto` |
+| Switch profile | `xtm desk` |
+| Bind a profile to one machine | Add `match: {hostname: …}` to it |
+| Bind one profile to several machines | `match: {hostname: [box-a, box-b]}` |
+| Make a machine-specific profile universal | `xtm --make-global desk` |
+| See profiles belonging to other machines | `xtm --all --list-profiles` |
 | See what a reset would do first | `xtm --dry-run --reset-all --debug` |
 | Find out why a window lands in the wrong place | `xtm --reset --verify --debug --log-file /tmp/xtm.log` |
 | Save the layout after rearranging by hand | `xtm --update-profile` |
 | Copy a layout to a second machine | `xtm --copy-profile desk desk-remote`, then edit positions |
 | Script over the session list | `xtm --list --json --quiet \| jq …` |
+| Tidy the screen, keep everything running | `xtm --close-all --detach-mode` |
 | Tear down the day's work | `xtm --close-all` |
+| Clean up sessions left by other profiles | `xtm --close-all --all` |
+| See every profile and what is running | `xtm --list-profiles --verbose` |
+| Share one session between two profiles | Give the slot the same `session:` in both |
+| Switch without closing the old windows | `xtm lab --on-switch leave` |
+| Adopt a window opened outside the profile | `xtm --update-profile --capture-new` |
 | Recover from a broken config | `xtm --validate`, then `xtm --edit` |
 | Work with a throwaway config | `xtm --config /tmp/test.yaml --state-dir /tmp/state --list` |
 
 ## Profile auto-selection
 
-A profile may carry a `match` block naming a `hostname` glob, a `display`
-glob, or both. When no profile has been chosen explicitly and none is
-remembered — or when `--auto` is given — profiles are examined in sorted name
-order and the first whose criteria all match is used. A profile without a
-`match` block never matches automatically.
+### Machine-specific and global profiles
+
+A profile is **machine-specific** when it carries a `match` block, and
+**global** when it does not. There is one mechanism, not two: the `match`
+block *is* the binding.
+
+```yaml
+desk:
+  match:
+    hostname: workstation*          # one glob
+
+build:
+  match:
+    hostname: [build-1, build-2]    # or several
+```
+
+`hostname` accepts a single shell glob or a list of them, and the profile is
+bound to any machine matching at least one. That lets a single profile serve
+several machines with the same screen layout, without duplicating it.
+
+Binding has two consequences:
+
+- **Visibility.** A profile bound to another machine is hidden: it does not
+  appear in `--list-profiles` and cannot be selected by name. `--all` reveals
+  it for listing and for management commands, so a profile is never stranded
+  somewhere you cannot reach it. `--validate` ignores visibility entirely and
+  always checks every profile, since a config that is broken for another
+  machine is still broken.
+- **Auto-selection.** When nothing has been chosen explicitly and nothing is
+  remembered — or under `--auto` — profiles are examined in sorted name order
+  and the first whose hostname fits is used. A global profile is never
+  auto-selected: being available everywhere is not evidence that it belongs
+  *here*.
+
+`--make-global NAME` removes the binding. It is deliberately one-way: there
+is no command to re-bind a global profile, because doing so would hide a
+profile that other machines may already be relying on. Add a `match` block by
+hand if that is genuinely what you want.
+
+A `match` block that is malformed — an unknown key, an empty or non-string
+hostname — leaves the profile **visible** rather than hidden, so that the
+validation error is what you see instead of the profile silently vanishing.
+
+Matching is case-sensitive on Linux, and compares against the short hostname:
+`workstation.corp.example.com` is matched as `workstation`.
+
+### How profiles and sessions relate
+
+By default a profile **owns** its sessions. Slot `work1` in a profile with
+`prefix: desk-` is the session `desk-work1`, and the same slot name in a
+profile prefixed `lab-` is a different session entirely. Two profiles
+therefore cannot collide by accident, and switching between them is
+unambiguous.
+
+A slot with an explicit `session:` is the exception. That name is used
+verbatim, never prefixed, so two profiles that both write `session: notes`
+land on the same tmux session. That is the supported way to keep one session
+alive across profiles:
+
+```yaml
+desk:
+  prefix: desk-
+  sessions:
+    work1: {x: 0, y: 0, width: 960, height: 1180}      # → desk-work1
+    notes: {session: notes, x: 960, y: 0, ...}         # → notes
+
+lab:
+  prefix: lab-
+  sessions:
+    work1: {x: 0, y: 0, width: 900, height: 700}       # → lab-work1
+    notes: {session: notes, x: 900, y: 0, ...}         # → notes, the same one
+```
+
+The rule in one sentence: **profile-owned sessions come and go with the
+profile; explicitly named sessions persist across switches.**
+
+Two slots in one profile resolving to the same session is rejected by
+validation, since they would fight over the same window on every reset.
+
+### Switching profiles
+
+Switching away from a profile disposes of its windows according to its
+`on_switch` setting:
+
+| Mode | Effect |
+|---|---|
+| `leave` | Windows stay exactly as they are. |
+| `detach` | **Default.** Each window closes, but its session, tabs, panes and running jobs stay alive. Reattaching restores everything. |
+| `kill` | Sessions are destroyed, taking their tabs and panes with them. |
+
+Sessions the *new* profile also claims are left attached rather than closed
+and immediately reopened, so a shared session simply moves to its new slot.
+
+`--on-switch MODE` overrides the setting for one run, which is the escape
+hatch when the default would close something you wanted to keep.
+
+### Sessions with tabs and splits
+
+`xtm` works one level above tmux's internals. It issues only four tmux
+commands — `new-session`, `list-sessions`, `list-clients` and `kill-session`,
+plus `detach-client` — and never touches windows or panes inside a session.
+That has four consequences worth knowing:
+
+- **`--update-profile` is pane-agnostic.** It captures four numbers per slot
+  and writes only those. A session split into six panes is saved exactly like
+  a session with one.
+- **Panes survive `--reset`.** The tmux server keeps running, so a session
+  reattaches with its tabs, panes, history and jobs intact — even across the
+  X session restarting.
+- **`--close` destroys them.** Killing a session takes every tab and pane with
+  it. `--detach` is the non-destructive alternative.
+- **Resizing reflows them.** Placing a window sends a resize before a move, so
+  tmux receives a `SIGWINCH` and reflows the session's panes to the new size.
+  Nothing is lost, but a hand-tuned split will shift if the new slot is a
+  different size.
+
+### The reserved `default` profile
+
+`default` is created with the config and recreated if it goes missing. It
+cannot be deleted, renamed, renamed onto or copied onto, and it may not carry
+a `match` block — it is always global. Its contents are ordinary and fully
+editable.
+
+The point is stability: because resolution ends at a profile that is
+guaranteed to exist under a fixed name, the fallback can never silently
+change when the config is edited or reordered.
+
+Matching on `$DISPLAY`, supported in 0.3, was removed in 0.4; a config still
+using it fails validation with an explanation rather than silently never
+matching.
 
 ## Concurrency and durability
 
@@ -688,6 +944,36 @@ failing.
 The built-in parser requires indentation in multiples of two spaces and
 rejects tabs, both with an explicit message naming the offending line.
 
+### What a config rewrite changes
+
+Any command that writes the config — `--set`, `--update-profile`,
+`--delete-session`, `--make-global` and the profile management commands —
+rewrites the whole file. Two things do not survive that:
+
+- **Flow style becomes block style.** `work1: {x: 0, y: 0}` is read
+  correctly, but is written back expanded over four lines. The values and
+  their meaning are identical; only the layout changes.
+- **Comments are dropped.** Neither backend preserves them.
+
+Both are worth knowing before hand-formatting a config, and neither affects
+reading: flow style and comments are fully supported as input.
+
+## Upgrading from an earlier version
+
+Existing configs keep working unchanged. A profile with no `prefix` behaves
+exactly as before: slot names are used as session names directly.
+
+Two things to be aware of when adopting the new keys:
+
+- **Adding a `prefix:` renames a profile's sessions.** Sessions already
+  running under the old names match no slot afterwards, so they appear as
+  strays until closed or reattached. Either close them first, or give the
+  affected slots an explicit `session:` naming what is already running.
+- **`on_switch` defaults to `detach`**, so the first profile switch after
+  upgrading will close the previous profile's windows. Nothing is destroyed —
+  every session, tab, pane and job stays alive — but set `on_switch: leave`
+  on a profile to keep the old behaviour.
+
 ## Assumptions and limitations
 
 - **Linux.** Matching a tmux client to the xterm that spawned it reads
@@ -712,8 +998,10 @@ rejects tabs, both with an explicit message naming the offending line.
   `bash -lc 'cmd; exec bash'` to keep the pane alive afterwards.
 - **`command` is executed by a shell**, so it supports pipes and `&&`, and
   should be treated with the same care as any line in a shell profile.
-- **Windows opened by hand are invisible to xtm**, since they carry neither
-  the `xtm:` title nor the `xtm-` instance name.
+- **Windows opened by hand are invisible to xtm**, since they do not carry an
+  `xtm-` instance name.
+- **`xtm` manages sessions, not their contents.** Tabs, panes and layouts
+  inside a session are tmux's business; see "Sessions with tabs and splits".
 
 ---
 
@@ -744,7 +1032,9 @@ config + profile  ─┘
 | YAML | PyYAML with a complete dependency-free fallback | `dump_yaml`, `load_yaml`, `_simple_yaml_load`, `_simple_yaml_dump` |
 | Config | Load, normalise, validate, save | `resolve_paths`, `load_config`, `save_config`, `validate_profile` |
 | State | Per-machine current profile and selection rules | `read_current_profile_state`, `match_profile`, `resolve_profile_name` |
-| tmux | Session and client queries | `tmux_list_sessions`, `tmux_client_tty_for_pid`, `tmux_kill_session` |
+| Naming | Slot-to-session and title resolution | `resolve_session_name`, `resolve_window_title`, `profile_slots`, `slot_for_session` |
+| tmux | Session and client queries | `tmux_list_sessions`, `tmux_client_tty_for_pid`, `tmux_kill_session`, `tmux_detach_session` |
+| Switching | Disposing of the previous profile's windows | `apply_switch_action`, `switch_mode` |
 | X read-back | Window discovery, geometry, decorations, focus | `find_all_xtm_sessions`, `get_window_geometry`, `get_frame_extents`, `focus_window` |
 | Placement | Escape sequences, verification, stacking | `place_window`, `verify_placement`, `stack_slot` |
 | Actions | Spawning and opening | `spawn_xterm`, `open_session`, `capture_layout` |
@@ -772,6 +1062,78 @@ config + profile  ─┘
 - **Commands return exit codes** rather than calling `sys.exit`, so they are
   directly testable.
 
+## Extending the tool
+
+### Adding a command
+
+`COMMANDS` near the bottom of the file is the single source of truth for
+dispatch. Each entry is `(argparse dest, handler, mutates_config,
+needs_profile)`:
+
+```python
+COMMANDS = (
+    ("open", cmd_open, False, True),
+    ...
+)
+```
+
+- **dest** must match the argparse destination of the option that triggers
+  it, so `--make-global` pairs with `make_global`.
+- **mutates_config** decides whether the run holds the config lock across
+  load, modify and save. Set it for anything that calls `save_config`.
+- **needs_profile** decides whether an unresolvable profile is fatal.
+  Commands that operate on the config as a whole (listing, validating,
+  renaming) set it `False` so they still work when no profile can be
+  resolved.
+
+A handler takes `(args, config, profile_name)` and returns an exit code; it
+must not call `sys.exit`, which is what makes it directly testable. Raise
+`XtmError` via `die()` for user-facing failures — `main` turns that into a
+single-line message with the traceback available under `--debug`.
+
+`DEFAULT_ACTION` names the entry used when no action flag is given.
+
+### Adding a config key
+
+1. Accept and validate it in `validate_session_entry` or `validate_profile`,
+   with a message naming the profile, session and field.
+2. Consume it where it applies — `build_xterm_command` for launch settings,
+   `place_window` for placement.
+3. Make sure it survives a round trip through **both** YAML backends; the
+   built-in writer must be able to emit it and the built-in reader to read it
+   back.
+4. Document it in the session or profile key table above, and add it to
+   `config.yaml.example`.
+
+### House rules
+
+- **Single file, standard library only.** The tool is deployed by copying it
+  to machines where nothing can be installed.
+- **Python 3.6 syntax and API only.** See the module docstring for the
+  specific constructs this rules out.
+- **stdout is data, stderr is logs.** Anything a script might parse goes
+  through `print`; everything else through `logger`.
+- **Every external command goes through `run()`**, which supplies the
+  timeout, the C locale, debug logging and clean errors for a missing
+  program.
+- **Comment intent, not mechanism.** Explain why a non-obvious choice was
+  made; the code already says what it does.
+- **Version bump per release**, incrementing the last component only
+  (`0.9` → `0.10`), with a matching `CHANGELOG.md` entry.
+
+### Before releasing
+
+```bash
+python3 -m py_compile xtm.py test_xtm.py
+python3 -m pyflakes xtm.py test_xtm.py
+python3 -m unittest test_xtm
+xtm --help                      # confirm the README's option tables still match
+```
+
+Check that every option in the parser appears in the README and that no
+README option is absent from the parser; a mismatch there is the failure mode
+this document is most prone to.
+
 ## Data structures
 
 The config is a plain nested dictionary throughout:
@@ -780,13 +1142,17 @@ The config is a plain nested dictionary throughout:
 {
   "profiles": {
     "<profile>": {
-      "match":    {"hostname": str, "display": str},      # optional
-      "stack":    {"x": int, "y": int, "width": int, "height": int,
-                   "offset_x": int, "offset_y": int},
-      "sessions": {
-        "<session>": {"x": int, "y": int, "width": int, "height": int,
-                      "command": str, "cwd": str,          # optional
-                      "xterm_args": [str]},                # optional
+      "match":     {"hostname": str or [str]},            # optional
+      "prefix":    str,                                   # optional
+      "on_switch": "leave" | "detach" | "kill",           # optional
+      "title":     str,                                   # optional template
+      "stack":     {"x": int, "y": int, "width": int, "height": int,
+                    "offset_x": int, "offset_y": int},
+      "sessions": {                                       # slots, keyed by name
+        "<slot>": {"x": int, "y": int, "width": int, "height": int,
+                   "session": str, "title": str,          # optional
+                   "command": str, "cwd": str,            # optional
+                   "xterm_args": [str]},                  # optional
       },
     },
   },
@@ -794,18 +1160,28 @@ The config is a plain nested dictionary throughout:
 ```
 
 A *geometry* is any mapping with `x`, `y`, `width` and `height`.
-`session_geometry()` extracts one from a session entry, dropping the launch
+`session_geometry()` extracts one from a slot entry, dropping the launch
 settings, so placement code never has to know about `command` or `cwd`.
+
+Slot-to-session resolution is centralised in four functions, and no other
+code should construct a session name by hand:
+
+| Function | Returns |
+|---|---|
+| `resolve_session_name(profile, slot)` | The tmux session name for one slot. |
+| `resolve_window_title(profile, profile_name, slot, session)` | The window title, slot override before profile template before default. |
+| `profile_slots(profile)` | `(slot, session)` pairs in config order. |
+| `slot_for_session(profile, session)` | The slot a session occupies, or `None`. |
 
 ## Testing
 
-`test_xtm.py` contains 341 tests and requires no display, no window manager,
+`test_xtm.py` contains 420 tests and requires no display, no window manager,
 no tmux and no X server.
 
 ```bash
 python3 -m unittest test_xtm            # run everything
 python3 -m unittest test_xtm -v         # per-test output
-python3 -m unittest test_xtm.TestPlacementEscapeSequences
+python3 -m unittest test_xtm.TestPlacementSequences
 ```
 
 Two strategies are combined:
@@ -847,6 +1223,34 @@ Beyond those two strategies, specific classes of risk get their own groups:
   than the config itself, that it is genuinely exclusive between processes,
   that it is released on both normal exit and an exception, and that an
   unusable lock path degrades to an unlocked run instead of an error.
+- **Positional profile** (`TestPositionalProfile`): that `xtm desk` matches
+  `--profile desk` exactly, that it intermixes with value-taking actions in
+  either order without swallowing their arguments, that giving both spellings
+  is a usage error even when they agree, and that an unknown name matching a
+  session suggests `--open`/`--focus`.
+- **The reserved profile** (`TestReservedDefaultProfile`): creation,
+  recreation when missing, refusal to delete, rename, rename onto or copy
+  onto, refusal of a `match` block, editability of its contents, and its role
+  as the last resort of resolution.
+- **Machine visibility** (`TestMachineVisibility`): hidden profiles absent
+  from listing and unselectable, `--all` revealing them, the hidden count in
+  both output formats, `--validate` ignoring visibility, and the explanation
+  given when a saved profile becomes hidden.
+- **Machine binding** (`TestMakeGlobal`): removing a binding, the resulting
+  visibility change, already-global being a no-op rather than an error,
+  dry-run safety, and global profiles never being auto-selected.
+- **Slot naming** (`TestSessionNaming`, `TestSlotIntegration`): prefix
+  application, explicit `session:` never being prefixed, two profiles sharing
+  one session by naming it, two profiles not colliding without an override,
+  title resolution and template validation, and the rejection of two slots
+  resolving to one session.
+- **Detaching and switching** (`TestDetachAndSwitch`): detach leaving the
+  session alive, all three `on_switch` modes, `--on-switch` overriding the
+  profile setting, a shared session surviving a switch, reselecting the same
+  profile being a no-op, and `--close-all` under `--detach-mode` and `--all`.
+- **Capture scope** (`TestCaptureScope`): foreign windows skipped by default
+  and added with `--capture-new`, known slots still updated, stray
+  attribution, and the verbose profile listing in both output formats.
 - **Documented behaviours** (`TestDocumentedBehaviours`): claims made in this
   README that no other test covered, including all three session statuses,
   that `--delete-session` leaves a running session alone while `--close`
@@ -873,11 +1277,11 @@ tests:
 
 | Metric | Result |
 |---|---|
-| Statements | 1320 |
-| Line coverage | **95.4%** (1259 / 1320) |
-| Branches | 556 |
-| Branch coverage | **92.8%** (516 / 556) |
-| Tests | 341, all passing |
+| Statements | 1649 |
+| Line coverage | **95.0%** (1566 / 1649) |
+| Branches | 734 |
+| Branch coverage | **92.1%** (676 / 734) |
+| Tests | 420, all passing |
 
 ```bash
 pip install coverage
@@ -888,8 +1292,15 @@ python3 -m coverage combine && python3 -m coverage report -m
 ```
 
 The `sitecustomize.py` step is what makes the subprocess integration tests
-count toward coverage; without it the measured figure drops to about 68%,
-because most command code runs in a child process.
+count toward coverage; without it the measured figure drops sharply, because
+most command code runs in a child process.
+
+The suite takes roughly 50 seconds, or about 2.5 minutes under coverage. The
+fake terminal deliberately outlives the xtm process that spawned it, as a real
+xterm does, but it redirects its inherited stdout and stderr to `/dev/null`
+before doing so: otherwise the harness would wait on those pipes rather than
+on xtm, and every test that opens a window would block for the fake
+terminal's full lifetime.
 
 The uncovered remainder is almost entirely defensive error handling that
 cannot be triggered without breaking the filesystem underneath a running
@@ -949,11 +1360,20 @@ CHANGELOG.md           Release history.
   terminal emulators other than xterm.
 - Z-order control, so overlapping windows come out in a defined stacking
   order.
+- Renaming the `match:` block to `machine:`, now that it is hostname-only and
+  its purpose is binding rather than general matching.
+- A tmux server per profile (`tmux -L <name>`), for hard isolation between
+  contexts rather than the namespacing a `prefix` provides.
+- Per-slot tmux tab names (`new-session -n`), distinct from the window title.
+- Further ways to bind a profile to a context beyond the hostname, once
+  real-world use shows which are actually wanted.
 
 ## Version history
 
 | Version | Summary |
 |---|---|
+| 0.5 | Slots separated from sessions: per-profile `prefix`, explicit `session:` for deliberate sharing, and configurable window `title:`. `on_switch` disposal on profile change with `--detach`, `--detach-mode` and `--on-switch`. `--update-profile` scoped to the profile with `--capture-new`. `--list-profiles --verbose` cross-profile view, and stray attribution. |
+| 0.4 | Profile name as a positional argument (`xtm desk`); reserved global `default` profile; `match:` reduced to hostname only, accepting a list; machine-specific profiles hidden on other machines with `-A/--all` to reveal; `--make-global`. |
 | 0.3 | Production release: Python 3.6 compatibility fixed, old-PyYAML fallback, inline comments and flow mappings in the built-in parser, frame compensation, `WM_CLASS` identification, per-machine state, short options throughout, INFO logging by default, session `command`/`cwd`/`xterm_args`, profile auto-selection, close/focus/set/delete/copy/rename/edit/validate, `--json`, `--dry-run`, `--verify`, config locking, and a 283-test suite. |
 | 0.2 | `xwininfo` accepted for read-back; PID-aware client selection at open time; `--debug` and `--log-file`. |
 | 0.1 | Initial version: open, reset, reset-all, update-profile, new-profile, list. |

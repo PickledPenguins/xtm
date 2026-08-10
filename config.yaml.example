@@ -13,11 +13,38 @@
 
 profiles:
 
-  # A two-monitor desk. The 'match' block lets xtm select this profile
-  # automatically on any host whose short name starts with "workstation".
+  # The reserved profile. It always exists, is available on every machine,
+  # and is what xtm falls back to when nothing else applies. It cannot be
+  # deleted or renamed and must not have a 'match' block, but its contents
+  # are ordinary and can be edited freely.
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions: {}
+
+  # A two-monitor desk. The 'match' block binds this profile to a machine:
+  # it is only visible and selectable on hosts whose short name starts with
+  # "workstation". Remove the block (or run 'xtm --make-global desk') to make
+  # it available everywhere. 'hostname' also accepts a list, for example
+  #   hostname: [workstation, workstation-spare]
+  # so one profile can serve several machines with the same layout.
   desk:
     match:
       hostname: workstation*
+
+    # Session names for this profile's slots: slot "work1" below becomes the
+    # tmux session "desk-work1". The prefix is what makes a profile own its
+    # sessions, so two profiles using the same slot names never collide.
+    prefix: desk-
+
+    # What happens to this profile's windows when switching to another
+    # profile: leave, detach or kill. "detach" closes the windows but keeps
+    # the sessions, their tabs, their panes and their running jobs alive.
+    on_switch: detach
+
+    # Window title template for every slot. {slot}, {session} and {profile}
+    # are available. Titles are cosmetic; windows are identified by their
+    # instance name, which is not configurable.
+    title: "{profile}: {slot}"
 
     # Where sessions with no recorded position are placed. Each additional
     # stacked window is offset diagonally by offset_x / offset_y.
@@ -48,6 +75,16 @@ profiles:
         height: 580
         command: journalctl -f
 
+      # A slot with an explicit session name. The name is used verbatim and
+      # is NEVER prefixed, so any profile naming the same session shares it.
+      # A shared session is also left alone when switching profiles.
+      notes:
+        session: notes
+        x: 0
+        y: 1180
+        width: 960
+        height: 400
+
       # A session that opens straight onto a remote host, starting in a
       # chosen directory, with a distinct background so it is obvious at a
       # glance which windows are remote. 'xterm_args' is appended verbatim
@@ -61,17 +98,18 @@ profiles:
         command: ssh headnode
         xterm_args: [-bg, "#2a1a1a", -fa, Monospace, -fs, "11"]
 
-  # A single-screen laptop, matched on both hostname and DISPLAY. The
-  # compact style is used here; it is equivalent to the indented style above.
+  # A single-screen laptop. The compact style is used here; it is equivalent
+  # to the indented style above.
   laptop:
-    match: {hostname: thinkpad*, display: ":0*"}
+    match: {hostname: thinkpad*}
     stack: {x: 20, y: 20, width: 700, height: 900, offset_x: 30, offset_y: 30}
     sessions:
       work1: {x: 0, y: 0, width: 1000, height: 1400}
       logs:  {x: 1000, y: 0, width: 900, height: 700}
 
-  # A profile with no 'match' block is never selected automatically; it is
-  # used only when named with --profile.
+  # A profile with no 'match' block is global: available on every machine,
+  # but never selected automatically, since being available everywhere is no
+  # evidence that it belongs here. Use it by name: 'xtm presentation'.
   presentation:
     stack: {x: 100, y: 100, width: 1200, height: 800, offset_x: 50, offset_y: 50}
     sessions:
