@@ -136,9 +136,47 @@ def tool_tmux(argv):
                    [w for w in read_rows("windows.txt")
                     if w[2] != "xtm-" + target])
         return
+    if verb == "detach-client":
+        # Detaching closes the window (the xterm's tmux command returns)
+        # but leaves the session, its windows and its panes running, so
+        # the row stays and only its attached flag is cleared.
+        target = argv[argv.index("-s") + 1] if "-s" in argv else None
+        found = False
+        updated = []
+        for r in rows:
+            if r[0] == target:
+                found = True
+                updated.append([r[0], "0"] + list(r[2:]))
+            else:
+                updated.append(r)
+        if not found:
+            sys.stderr.write("session not found\n")
+            fail()
+        write_rows("sessions.txt", updated)
+        write_rows("windows.txt",
+                   [w for w in read_rows("windows.txt")
+                    if w[2] != "xtm-" + target])
+        return
     if verb == "new-session":
         return
     fail()
+
+
+def detach_stdio():
+    """Release the stdout/stderr pipes inherited from the test harness.
+
+    The fake terminal deliberately outlives the xtm process that spawned
+    it, exactly as a real xterm does. But it inherits xtm's pipes, and
+    subprocess.run() in the harness waits for those to close, not for xtm
+    to exit -- so every test that opens a window would block for the fake
+    terminal's whole lifetime. Redirecting to /dev/null closes the last
+    reference to the pipe and lets the harness return as soon as xtm is
+    actually done.
+    """
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    os.close(devnull)
 
 
 def tool_xterm(argv):
@@ -153,6 +191,7 @@ def tool_xterm(argv):
     if os.environ.get("XTM_FAKE_XTERM_NO_ATTACH"):
         # Stand in for a terminal that starts but never gets as far as
         # attaching, so the caller's wait loop can be interrupted.
+        detach_stdio()
         time.sleep(float(os.environ.get("XTM_FAKE_XTERM_LIFETIME", "8")))
         return
     tty = os.environ.get("XTM_FAKE_TTY", "/dev/null")
@@ -170,6 +209,7 @@ def tool_xterm(argv):
     write_rows("windows.txt", windows)
     # Stand in for a long-running terminal so that the caller's
     # wait-for-attach poll sees a live process, not an instant exit.
+    detach_stdio()
     time.sleep(float(os.environ.get("XTM_FAKE_XTERM_LIFETIME", "8")))
 
 
@@ -552,13 +592,30 @@ class TestSessionEntryValidation(unittest.TestCase):
                 dict(self.BASE, xterm_args=["-fa", {"a": 1}]), "ctx")
 
     def test_match_validation(self):
-        xtm.validate_match({"hostname": "desk*", "display": ":0*"}, "ctx")
+        xtm.validate_match({"hostname": "desk*"}, "ctx")
+        xtm.validate_match({"hostname": ["desk*", "build-1"]}, "ctx")
         with self.assertRaises(xtm.XtmError):
             xtm.validate_match({"hostnam": "typo"}, "ctx")
         with self.assertRaises(xtm.XtmError):
             xtm.validate_match({"hostname": 5}, "ctx")
         with self.assertRaises(xtm.XtmError):
+            xtm.validate_match({"hostname": ["ok", 5]}, "ctx")
+        with self.assertRaises(xtm.XtmError):
+            xtm.validate_match({"hostname": ""}, "ctx")
+        with self.assertRaises(xtm.XtmError):
+            xtm.validate_match({"hostname": []}, "ctx")
+        with self.assertRaises(xtm.XtmError):
+            xtm.validate_match({}, "ctx")
+        with self.assertRaises(xtm.XtmError):
             xtm.validate_match("desk1", "ctx")
+
+    def test_display_matching_was_removed(self):
+        # A 0.3 config must fail with an explanation, not a generic
+        # unknown-key error that leaves the user guessing.
+        with self.assertRaises(xtm.XtmError) as caught:
+            xtm.validate_match({"display": ":0*"}, "ctx")
+        self.assertIn("display", str(caught.exception))
+        self.assertIn("0.4", str(caught.exception))
 
 
 class TestGeometrySpec(unittest.TestCase):
@@ -845,19 +902,42 @@ class TestProfileResolution(PathIsolationMixin):
         with self.assertRaises(xtm.XtmError):
             xtm.resolve_profile_name(config, None)
 
-    def test_match_on_display(self):
-        config = {"profiles": {"remote": {"sessions": {},
-                                          "match": {"display": "localhost:*"}}}}
-        os.environ["DISPLAY"] = "localhost:10.0"
-        try:
-            self.assertEqual(xtm.match_profile(config), "remote")
-        finally:
-            os.environ.pop("DISPLAY", None)
+    def test_match_on_a_hostname_list(self):
+        # One profile can serve several machines, so any pattern in the
+        # list matching is enough.
+        config = {"profiles": {"shared": {
+            "sessions": {},
+            "match": {"hostname": ["nowhere", xtm.short_hostname()]}}}}
+        self.assertEqual(xtm.match_profile(config), "shared")
 
-    def test_match_requires_all_criteria(self):
-        config = {"profiles": {"p": {"match": {"hostname": "nosuchhost-xyz",
-                                               "display": "*"}}}}
+    def test_hostname_list_that_matches_nothing(self):
+        config = {"profiles": {"shared": {
+            "sessions": {},
+            "match": {"hostname": ["nowhere", "elsewhere"]}}}}
         self.assertIsNone(xtm.match_profile(config))
+
+    def test_hostname_that_does_not_fit_never_matches(self):
+        config = {"profiles": {"p": {"match": {"hostname": "nosuchhost-xyz"}}}}
+        self.assertIsNone(xtm.match_profile(config))
+
+    def test_a_malformed_match_block_leaves_the_profile_visible(self):
+        # Otherwise a typo would hide the profile behind "belongs to
+        # another machine" instead of surfacing the real validation error.
+        for criteria in ({"platform": "linux"},
+                         {"hostname": ""},
+                         {"hostname": []},
+                         {"hostname": ["ok", 5]}):
+            profile = {"match": criteria, "sessions": {}}
+            self.assertTrue(xtm.profile_is_visible(profile, "anyhost"),
+                            "%r should stay visible" % (criteria,))
+
+    def test_a_well_formed_non_matching_block_hides_the_profile(self):
+        profile = {"match": {"hostname": ["a*", "b*"]}, "sessions": {}}
+        self.assertFalse(xtm.profile_is_visible(profile, "zebra"))
+        self.assertTrue(xtm.profile_is_visible(profile, "apple"))
+
+    def test_a_global_profile_is_visible_everywhere(self):
+        self.assertTrue(xtm.profile_is_visible({"sessions": {}}, "anyhost"))
 
     def test_profile_without_match_never_matches(self):
         self.assertIsNone(xtm.match_profile({"profiles": {"p": {"sessions": {}}}}))
@@ -1184,6 +1264,11 @@ class TestSubprocessHelpers(unittest.TestCase):
 # Integration tests
 # --------------------------------------------------------------------------
 
+def socket_hostname():
+    """This machine's short hostname, sanitised the way xtm sanitises it."""
+    return xtm.short_hostname()
+
+
 class IntegrationBase(unittest.TestCase):
     """Run xtm as a subprocess against fake external tools."""
 
@@ -1338,7 +1423,7 @@ class TestProfileManagement(IntegrationBase):
         self.assertIn("work1", self.config_text())
         result = self.run_xtm("-s", "work1", "30,40,800,600")
         self.assertEqual(result.returncode, 0)
-        self.assertIn("Updated work1", result.stderr)
+        self.assertIn("Updated slot work1", result.stderr)
         self.assertIn("800", self.config_text())
 
     def test_set_preserves_launch_settings(self):
@@ -1399,8 +1484,9 @@ class TestProfileManagement(IntegrationBase):
 
     def test_rename_updates_current_profile_state(self):
         self.run_xtm("-l")
-        self.run_xtm("-p", "default", "-C")
-        self.run_xtm("--rename-profile", "default", "renamed")
+        self.run_xtm("--copy-profile", "default", "spare")
+        self.run_xtm("-p", "spare", "-C")
+        self.run_xtm("--rename-profile", "spare", "renamed")
         result = self.run_xtm("-C")
         self.assertEqual(result.stdout.strip(), "renamed")
 
@@ -1444,13 +1530,18 @@ class TestProfileManagement(IntegrationBase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("onlyone", result.stdout)
 
-    def test_list_without_resolvable_profile_exits_one(self):
+    def test_missing_reserved_profile_is_recreated(self):
+        # A config without "default" (written by 0.3, or edited by hand)
+        # gains it on load, so resolution always has a last resort.
         self.write_config("""\
             profiles:
               onlyone:
                 sessions: {}
             """)
-        self.assertEqual(self.run_xtm("-l").returncode, 1)
+        result = self.run_xtm("-l")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("default", self.config_text())
+        self.assertIn("Profile: default", result.stdout)
 
     def test_auto_profile_selection_by_hostname(self):
         self.write_config("""\
@@ -1605,7 +1696,7 @@ class TestWindowActions(IntegrationBase):
     def test_reset_with_no_named_sessions_is_a_no_op(self):
         result = self.run_xtm("-r")
         self.assertEqual(result.returncode, 0)
-        self.assertIn("no named sessions", result.stderr)
+        self.assertIn("no slots configured", result.stderr)
 
     def test_reset_all_stacks_strays(self):
         self.add_session("stray1")
@@ -1661,7 +1752,7 @@ class TestCapture(IntegrationBase):
         self.run_xtm("-l")
         self.add_session("work1")
         self.add_window("work1", 100, 200, 900, 700)
-        result = self.run_xtm("-u")
+        result = self.run_xtm("-u", "--capture-new")
         self.assertEqual(result.returncode, 0, result.stderr)
         config = self.config_text()
         self.assertIn("work1", config)
@@ -1670,7 +1761,8 @@ class TestCapture(IntegrationBase):
     def test_update_profile_applies_frame_compensation(self):
         self.run_xtm("-l")
         self.add_window("work1", 105, 233, 900, 700)
-        result = self.run_xtm("-u", env={"XTM_FAKE_FRAME_EXTENTS": "5, 5, 33, 5"})
+        result = self.run_xtm("-u", "--capture-new",
+                              env={"XTM_FAKE_FRAME_EXTENTS": "5, 5, 33, 5"})
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(self.run_xtm("-l", "-j").stdout)
         entry = [s for s in payload["sessions"] if s["name"] == "work1"][0]
@@ -1680,7 +1772,7 @@ class TestCapture(IntegrationBase):
     def test_frame_compensation_can_be_disabled(self):
         self.run_xtm("-l")
         self.add_window("work1", 105, 233, 900, 700)
-        self.run_xtm("-u", "--no-frame-compensation",
+        self.run_xtm("-u", "--capture-new", "--no-frame-compensation",
                      env={"XTM_FAKE_FRAME_EXTENTS": "5, 5, 33, 5"})
         payload = json.loads(self.run_xtm("-l", "-j").stdout)
         entry = [s for s in payload["sessions"] if s["name"] == "work1"][0]
@@ -1695,13 +1787,13 @@ class TestCapture(IntegrationBase):
                   logs: {x: 0, y: 0, width: 100, height: 100, command: htop}
             """)
         self.add_window("logs", 400, 500, 900, 700)
-        self.run_xtm("-u")
+        self.run_xtm("-u", "--capture-new")
         self.assertIn("htop", self.config_text())
         self.assertIn("400", self.config_text())
 
     def test_update_profile_with_no_windows(self):
         self.run_xtm("-l")
-        result = self.run_xtm("-u")
+        result = self.run_xtm("-u", "--capture-new")
         self.assertEqual(result.returncode, 0)
         self.assertIn("nothing to update", result.stderr)
 
@@ -1729,7 +1821,7 @@ class TestCapture(IntegrationBase):
         rows = self.rows("windows.txt")
         rows.append(["0x900", "xtm:legacy", "", 10, 10, 800, 600])
         self.write_rows("windows.txt", rows)
-        self.run_xtm("-u")
+        self.run_xtm("-u", "--capture-new")
         self.assertIn("legacy", self.config_text())
 
     def test_unrelated_windows_are_ignored(self):
@@ -1737,7 +1829,7 @@ class TestCapture(IntegrationBase):
         rows = self.rows("windows.txt")
         rows.append(["0x901", "Firefox", "Navigator", 0, 0, 800, 600])
         self.write_rows("windows.txt", rows)
-        result = self.run_xtm("-u")
+        result = self.run_xtm("-u", "--capture-new")
         self.assertNotIn("Navigator", self.config_text())
         self.assertIn("nothing to update", result.stderr)
 
@@ -1805,6 +1897,32 @@ class TestReporting(IntegrationBase):
         result = self.run_xtm("-l")
         self.assertIn("live: x=111 y=222 800x600", result.stdout)
 
+    def test_list_shows_cwd(self):
+        # cwd is part of the JSON view, so the text view must show it too;
+        # otherwise the two views disagree about what is configured.
+        self.write_config("""\
+            profiles:
+              desk:
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  cluster: {x: 0, y: 0, width: 900, height: 700, cwd: "~/projects"}
+            """)
+        result = self.run_xtm("--profile", "desk", "--list")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cwd:", result.stdout)
+        self.assertIn("~/projects", result.stdout)
+
+    def test_list_omits_cwd_when_unset(self):
+        self.write_config("""\
+            profiles:
+              desk:
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  plain: {x: 0, y: 0, width: 900, height: 700}
+            """)
+        result = self.run_xtm("--profile", "desk", "--list")
+        self.assertNotIn("cwd:", result.stdout)
+
     def test_list_shows_command(self):
         self.write_config("""\
             profiles:
@@ -1848,7 +1966,7 @@ class TestDegradedEnvironments(IntegrationBase):
 
     def test_update_profile_explains_the_missing_tool(self):
         self.run_xtm("-l")
-        result = self.run_xtm("-u")
+        result = self.run_xtm("-u", "--capture-new")
         self.assertEqual(result.returncode, 1)
         self.assertIn("xdotool", result.stderr)
 
@@ -1882,7 +2000,7 @@ class TestAlternateGeometryTools(IntegrationBase):
                 (self.bin / name).unlink()
         self.run_xtm("-l")
         self.add_window("work1", 321, 654, 800, 600)
-        result = self.run_xtm("-u")
+        result = self.run_xtm("-u", "--capture-new")
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(self.run_xtm("-l", "-j").stdout)
         return [s for s in payload["sessions"] if s["name"] == "work1"][0]
@@ -2754,7 +2872,7 @@ class TestCliCombinations(IntegrationBase):
         self.env["XTM_FAKE_FRAME_EXTENTS"] = "4, 4, 20, 4"
         self.add_session("work1", tty="/dev/null", attached="1", pid=1)
         self.add_window("work1", 104, 120, 960, 1180)
-        self.run_xtm("-p", "desk", "--update-profile")
+        self.run_xtm("-p", "desk", "--update-profile", "--capture-new")
         compensated = self.config_text()
         self.run_xtm("-p", "desk", "--update-profile",
                      "--no-frame-compensation")
@@ -2871,6 +2989,7 @@ class TestMalformedConfig(IntegrationBase):
             """)
         result = self.assert_clean_failure("--profile", "desk", "--list")
         self.assertIn("match", result.stderr)
+        self.assertIn("hostname", result.stderr)
 
     def test_match_value_is_not_a_string(self):
         self.write_config("""\
@@ -2932,6 +3051,10 @@ class TestMalformedConfig(IntegrationBase):
               desk:
                 sessions: {}
             """)
+        # Warm up first: the reserved "default" profile is added on the
+        # first load, and that legitimate change must not be mistaken for
+        # the command having touched the config.
+        self.run_xtm("--profile", "desk", "--list")
         before = self.config_text()
         for spec in ("1,2,3", "a,b,c,d", "1,2,0,400", "1,2,300", ""):
             result = self.run_xtm("--profile", "desk", "--set", "s", spec)
@@ -3062,7 +3185,7 @@ class TestDocumentedBehaviours(IntegrationBase):
         self.desk("offscreen: {x: 700, y: 800, width: 640, height: 480}")
         self.add_session("work1", tty="/dev/null", attached="1", pid=1)
         self.add_window("work1", 5, 6, 960, 1180)
-        result = self.run_xtm("--profile", "desk", "--update-profile")
+        result = self.run_xtm("--profile", "desk", "--update-profile", "--capture-new")
         self.assertEqual(result.returncode, 0, result.stderr)
         text = self.config_text()
         self.assertIn("offscreen", text)
@@ -3092,8 +3215,12 @@ class TestDocumentedBehaviours(IntegrationBase):
                               env={"EDITOR": str(editor)})
         self.assertEqual(result.returncode, 1)
         # The edit is preserved rather than rolled back, so the work is not
-        # lost and the file can be corrected on a second pass.
-        self.assertEqual(self.config_text(), broken)
+        # lost and the file can be corrected on a second pass. The reserved
+        # "default" profile is re-added, because the edit removed it.
+        text = self.config_text()
+        self.assertIn("desk", text)
+        self.assertIn("x: 0", text)
+        self.assertIn("default", text)
 
     def test_delete_session_leaves_a_running_session_alone(self):
         self.desk()
@@ -3131,6 +3258,712 @@ class TestDocumentedBehaviours(IntegrationBase):
         self.assertIn("desk", result.stdout)
         self.assertIn("[DEBUG", result.stderr)
         self.assertNotIn("[DEBUG", result.stdout)
+
+
+
+
+class TestPositionalProfile(IntegrationBase):
+    """`xtm desk` as the primary way to switch profiles."""
+
+    def two_profiles(self):
+        self.write_config("""\
+            profiles:
+              default:
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions: {}
+              desk:
+                stack: {x: 10, y: 10, width: 800, height: 600, offset_x: 20, offset_y: 20}
+                sessions:
+                  work1: {x: 0, y: 0, width: 900, height: 700}
+            """)
+
+    def test_positional_switches_and_persists(self):
+        self.two_profiles()
+        result = self.run_xtm("desk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Profile: desk", result.stdout)
+        self.assertEqual(self.run_xtm("--current-profile").stdout.strip(), "desk")
+
+    def test_positional_matches_the_profile_flag_exactly(self):
+        self.two_profiles()
+        positional = self.run_xtm("desk", "--list")
+        flag = self.run_xtm("--profile", "desk", "--list")
+        self.assertEqual(positional.stdout, flag.stdout)
+
+    def test_positional_combines_with_an_action(self):
+        self.two_profiles()
+        result = self.run_xtm("desk", "--set", "logs", "1,2,300,400")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("logs", self.config_text())
+        self.assertEqual(self.run_xtm("--current-profile").stdout.strip(), "desk")
+
+    def test_positional_before_or_after_a_value_taking_action(self):
+        # argparse intermixing is the risk here: the positional must not
+        # be swallowed as one of the action's own arguments.
+        self.two_profiles()
+        first = self.run_xtm("desk", "--set", "a", "1,2,300,400")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        second = self.run_xtm("--set", "b", "1,2,300,400", "desk")
+        self.assertEqual(second.returncode, 0, second.stderr)
+        text = self.config_text()
+        self.assertIn("a:", text)
+        self.assertIn("b:", text)
+
+    def test_positional_with_two_argument_actions(self):
+        self.two_profiles()
+        result = self.run_xtm("desk", "--copy-profile", "desk", "clone")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("clone", self.config_text())
+
+    def test_both_spellings_together_is_a_usage_error(self):
+        self.two_profiles()
+        result = self.run_xtm("desk", "--profile", "default")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not both", result.stderr)
+
+    def test_both_spellings_rejected_even_when_they_agree(self):
+        self.two_profiles()
+        result = self.run_xtm("desk", "--profile", "desk")
+        self.assertEqual(result.returncode, 2)
+
+    def test_unknown_name_suggests_a_session_when_one_matches(self):
+        self.two_profiles()
+        result = self.run_xtm("work1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--open work1", result.stderr)
+        self.assertIn("--focus work1", result.stderr)
+
+    def test_unknown_name_lists_the_known_profiles(self):
+        self.two_profiles()
+        result = self.run_xtm("nosuch")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("desk", result.stderr)
+        self.assertIn("default", result.stderr)
+
+
+class TestReservedDefaultProfile(IntegrationBase):
+    """The "default" profile is created, kept, and always global."""
+
+    def test_created_on_first_run(self):
+        result = self.run_xtm("--list-profiles")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("default", result.stdout)
+
+    def test_recreated_when_missing(self):
+        self.write_config("profiles:\n  desk:\n    sessions: {}\n")
+        result = self.run_xtm("--list-profiles")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("default", self.config_text())
+
+    def test_cannot_be_deleted(self):
+        self.run_xtm("--list")
+        result = self.run_xtm("--yes", "--delete-profile", "default")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("reserved", result.stderr)
+        self.assertIn("default", self.config_text())
+
+    def test_cannot_be_renamed(self):
+        self.run_xtm("--list")
+        result = self.run_xtm("--rename-profile", "default", "other")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("reserved", result.stderr)
+
+    def test_cannot_be_renamed_onto(self):
+        self.run_xtm("--list")
+        self.run_xtm("--copy-profile", "default", "spare")
+        result = self.run_xtm("--rename-profile", "spare", "default")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("reserved", result.stderr)
+
+    def test_cannot_be_copied_onto(self):
+        self.run_xtm("--list")
+        self.run_xtm("--copy-profile", "default", "spare")
+        result = self.run_xtm("--copy-profile", "spare", "default")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("reserved", result.stderr)
+
+    def test_cannot_be_machine_specific(self):
+        self.write_config("""\
+            profiles:
+              default:
+                match: {hostname: "*"}
+                sessions: {}
+            """)
+        result = self.run_xtm("--validate")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("reserved", result.stdout + result.stderr)
+
+    def test_contents_remain_editable(self):
+        self.run_xtm("--list")
+        result = self.run_xtm("default", "--set", "work1", "1,2,300,400")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("work1", self.config_text())
+
+    def test_is_the_last_resort_of_resolution(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              elsewhere:
+                match: {hostname: nosuchhost-xyz}
+                sessions: {}
+            """)
+        result = self.run_xtm("--list")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Profile: default", result.stdout)
+
+
+class TestMachineVisibility(IntegrationBase):
+    """Profiles bound to other machines are hidden unless --all is given."""
+
+    def mixed_config(self):
+        self.write_config("""\
+            profiles:
+              default:
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions: {}
+              mine:
+                match: {hostname: "%s"}
+                stack: {x: 10, y: 10, width: 800, height: 600, offset_x: 20, offset_y: 20}
+                sessions: {}
+              theirs:
+                match: {hostname: nosuchhost-xyz}
+                sessions: {}
+            """ % (socket_hostname(),))
+
+    def test_other_machines_profiles_are_hidden(self):
+        self.mixed_config()
+        result = self.run_xtm("--list-profiles")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mine", result.stdout)
+        self.assertIn("default", result.stdout)
+        self.assertNotIn("theirs", result.stdout)
+
+    def test_hidden_count_is_reported(self):
+        self.mixed_config()
+        result = self.run_xtm("--list-profiles")
+        self.assertIn("hidden", result.stderr)
+
+    def test_all_reveals_them(self):
+        self.mixed_config()
+        result = self.run_xtm("--all", "--list-profiles")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("theirs", result.stdout)
+
+    def test_hidden_profile_cannot_be_selected(self):
+        self.mixed_config()
+        result = self.run_xtm("theirs")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("another machine", result.stderr)
+        self.assertIn("--all", result.stderr)
+
+    def test_all_allows_selecting_a_hidden_profile(self):
+        self.mixed_config()
+        result = self.run_xtm("--all", "theirs", "--list")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Profile: theirs", result.stdout)
+
+    def test_json_listing_reports_hidden_count_and_global_flag(self):
+        self.mixed_config()
+        payload = json.loads(self.run_xtm("--list-profiles", "--json").stdout)
+        self.assertEqual(payload["hidden"], 1)
+        names = dict((p["name"], p) for p in payload["profiles"])
+        self.assertTrue(names["default"]["global"])
+        self.assertFalse(names["mine"]["global"])
+
+    def test_validate_checks_hidden_profiles_too(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              theirs:
+                match: {hostname: nosuchhost-xyz}
+                sessions:
+                  bad: {x: 0, y: 0, width: 0, height: 10}
+            """)
+        result = self.run_xtm("--validate")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("theirs", result.stdout)
+
+    def test_a_saved_profile_that_became_hidden_is_explained(self):
+        self.mixed_config()
+        self.run_xtm("mine", "--current-profile")
+        # Re-bind the saved profile to a machine that is not this one, as
+        # would happen after editing the config or moving it to a new host.
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              mine:
+                match: {hostname: nosuchhost-xyz}
+                sessions: {}
+            """)
+        result = self.run_xtm("--list")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("another machine", result.stderr)
+
+
+class TestMakeGlobal(IntegrationBase):
+    """Removing a profile's machine binding."""
+
+    def bound_config(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                match: {hostname: "%s"}
+                stack: {x: 10, y: 10, width: 800, height: 600, offset_x: 20, offset_y: 20}
+                sessions: {}
+            """ % (socket_hostname(),))
+
+    def test_removes_the_match_block(self):
+        self.bound_config()
+        result = self.run_xtm("--make-global", "desk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("match", self.config_text())
+        self.assertNotIn("hostname", self.config_text())
+
+    def test_a_global_profile_is_visible_on_any_machine(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                match: {hostname: nosuchhost-xyz}
+                sessions: {}
+            """)
+        self.assertNotIn("desk", self.run_xtm("--list-profiles").stdout)
+        self.run_xtm("--all", "--make-global", "desk")
+        self.assertIn("desk", self.run_xtm("--list-profiles").stdout)
+
+    def test_already_global_is_not_an_error(self):
+        self.bound_config()
+        self.run_xtm("--make-global", "desk")
+        result = self.run_xtm("--make-global", "desk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("already global", result.stderr)
+
+    def test_missing_profile_exits_one(self):
+        self.bound_config()
+        result = self.run_xtm("--make-global", "nosuch")
+        self.assertEqual(result.returncode, 1)
+
+    def test_dry_run_changes_nothing(self):
+        self.bound_config()
+        before = self.config_text()
+        result = self.run_xtm("--dry-run", "--make-global", "desk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(before, self.config_text())
+
+    def test_a_global_profile_is_never_auto_selected(self):
+        # Auto-selection needs a positive signal that a profile belongs
+        # here; being available everywhere is not one.
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              everywhere:
+                sessions: {}
+            """)
+        result = self.run_xtm("--auto", "--list")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Profile: default", result.stdout)
+
+
+
+
+class TestSessionNaming(unittest.TestCase):
+    """Slot-to-session resolution: prefixes, overrides and titles."""
+
+    def test_prefix_is_applied_to_a_plain_slot(self):
+        profile = {"prefix": "desk-", "sessions": {"work1": {}}}
+        self.assertEqual(xtm.resolve_session_name(profile, "work1"), "desk-work1")
+
+    def test_no_prefix_means_the_slot_name(self):
+        profile = {"sessions": {"work1": {}}}
+        self.assertEqual(xtm.resolve_session_name(profile, "work1"), "work1")
+
+    def test_explicit_session_is_used_verbatim(self):
+        # The override is literal: no prefix is applied to it, which is
+        # what makes it usable for sharing a session between profiles.
+        profile = {"prefix": "desk-", "sessions": {"notes": {"session": "notes"}}}
+        self.assertEqual(xtm.resolve_session_name(profile, "notes"), "notes")
+
+    def test_explicit_session_may_differ_entirely_from_the_slot(self):
+        profile = {"prefix": "desk-",
+                   "sessions": {"left": {"session": "anything-i-want"}}}
+        self.assertEqual(xtm.resolve_session_name(profile, "left"),
+                         "anything-i-want")
+
+    def test_two_profiles_share_one_session_by_naming_it(self):
+        a = {"prefix": "desk-", "sessions": {"notes": {"session": "notes"}}}
+        b = {"prefix": "lab-", "sessions": {"notes": {"session": "notes"}}}
+        self.assertEqual(xtm.resolve_session_name(a, "notes"),
+                         xtm.resolve_session_name(b, "notes"))
+
+    def test_two_profiles_do_not_collide_without_an_override(self):
+        a = {"prefix": "desk-", "sessions": {"work1": {}}}
+        b = {"prefix": "lab-", "sessions": {"work1": {}}}
+        self.assertNotEqual(xtm.resolve_session_name(a, "work1"),
+                            xtm.resolve_session_name(b, "work1"))
+
+    def test_slot_lookup_by_session(self):
+        profile = {"prefix": "desk-", "sessions": {"work1": {}, "n": {"session": "x"}}}
+        self.assertEqual(xtm.slot_for_session(profile, "desk-work1"), "work1")
+        self.assertEqual(xtm.slot_for_session(profile, "x"), "n")
+        self.assertIsNone(xtm.slot_for_session(profile, "nope"))
+
+    def test_default_title(self):
+        profile = {"prefix": "desk-", "sessions": {"work1": {}}}
+        self.assertEqual(
+            xtm.resolve_window_title(profile, "desk", "work1", "desk-work1"),
+            "xtm:desk-work1")
+
+    def test_profile_title_template(self):
+        profile = {"title": "{profile}: {slot}", "sessions": {"work1": {}}}
+        self.assertEqual(
+            xtm.resolve_window_title(profile, "desk", "work1", "work1"),
+            "desk: work1")
+
+    def test_slot_title_overrides_the_profile_template(self):
+        profile = {"title": "{profile}: {slot}",
+                   "sessions": {"work1": {"title": "Editor"}}}
+        self.assertEqual(
+            xtm.resolve_window_title(profile, "desk", "work1", "work1"), "Editor")
+
+    def test_invalid_template_is_rejected_by_validation(self):
+        with self.assertRaises(xtm.XtmError):
+            xtm.validate_title_template("{nosuchfield}", "ctx")
+        with self.assertRaises(xtm.XtmError):
+            xtm.validate_title_template("{unclosed", "ctx")
+
+    def test_prefix_validation(self):
+        xtm.validate_prefix("desk-", "ctx")
+        xtm.validate_prefix("", "ctx")
+        with self.assertRaises(xtm.XtmError):
+            xtm.validate_prefix("bad prefix ", "ctx")
+        with self.assertRaises(xtm.XtmError):
+            xtm.validate_prefix(7, "ctx")
+
+    def test_switch_mode_validation(self):
+        for mode in ("leave", "detach", "kill"):
+            xtm.validate_switch_mode(mode, "ctx")
+        with self.assertRaises(xtm.XtmError):
+            xtm.validate_switch_mode("destroy", "ctx")
+
+    def test_switch_mode_defaults_to_detach(self):
+        self.assertEqual(xtm.switch_mode({}), "detach")
+        self.assertEqual(xtm.switch_mode({"on_switch": "leave"}), "leave")
+
+
+class TestSlotIntegration(IntegrationBase):
+    """Prefixes, sharing and titles end to end."""
+
+    def two_profiles(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                prefix: desk-
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  work1: {x: 0, y: 0, width: 960, height: 1180}
+                  notes: {session: notes, x: 960, y: 0, width: 960, height: 580}
+              lab:
+                prefix: lab-
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  work1: {x: 0, y: 0, width: 900, height: 700}
+                  notes: {session: notes, x: 900, y: 0, width: 900, height: 700}
+            """)
+
+    def launched_argv(self):
+        path = self.state / "launched.log"
+        if not path.exists():
+            return []
+        return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+
+    def test_reset_opens_prefixed_sessions(self):
+        self.two_profiles()
+        result = self.run_xtm("desk", "--reset")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        names = [r[0] for r in self.rows("sessions.txt")]
+        self.assertIn("desk-work1", names)
+        self.assertIn("notes", names)
+        self.assertNotIn("work1", names)
+
+    def test_the_same_slot_in_two_profiles_is_two_sessions(self):
+        self.two_profiles()
+        self.run_xtm("desk", "--reset")
+        self.run_xtm("lab", "--on-switch", "leave", "--reset")
+        names = [r[0] for r in self.rows("sessions.txt")]
+        self.assertIn("desk-work1", names)
+        self.assertIn("lab-work1", names)
+
+    def test_a_shared_session_is_reused_not_duplicated(self):
+        self.two_profiles()
+        self.run_xtm("desk", "--reset")
+        self.run_xtm("lab", "--reset")
+        names = [r[0] for r in self.rows("sessions.txt")]
+        self.assertEqual(names.count("notes"), 1)
+
+    def test_title_template_reaches_the_xterm_command(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                prefix: desk-
+                title: "{profile} :: {slot}"
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  work1: {x: 0, y: 0, width: 900, height: 700}
+            """)
+        self.run_xtm("desk", "--reset")
+        argv = self.launched_argv()[0]
+        self.assertIn("desk :: work1", argv)
+        # The instance name stays derived from the session, so a custom
+        # title cannot break window discovery.
+        self.assertIn("xtm-desk-work1", argv)
+
+    def test_two_slots_resolving_to_one_session_is_rejected(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                sessions:
+                  a: {session: same, x: 0, y: 0, width: 900, height: 700}
+                  b: {session: same, x: 1, y: 1, width: 900, height: 700}
+            """)
+        result = self.run_xtm("desk", "--validate")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("both resolve", result.stdout + result.stderr)
+
+    def test_close_accepts_a_slot_name_or_a_session_name(self):
+        self.two_profiles()
+        self.run_xtm("desk", "--reset")
+        result = self.run_xtm("--close", "work1")     # the slot name
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("desk-work1", [r[0] for r in self.rows("sessions.txt")])
+        self.run_xtm("--reset")
+        result = self.run_xtm("--close", "desk-work1")  # the session name
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_list_reports_slot_and_session(self):
+        self.two_profiles()
+        payload = json.loads(self.run_xtm("desk", "--list", "--json").stdout)
+        entries = dict((e["name"], e) for e in payload["sessions"])
+        self.assertEqual(entries["work1"]["session"], "desk-work1")
+        self.assertFalse(entries["work1"]["shared"])
+        self.assertEqual(entries["notes"]["session"], "notes")
+        self.assertTrue(entries["notes"]["shared"])
+
+    def test_set_creates_a_slot_using_the_prefix(self):
+        self.two_profiles()
+        self.run_xtm("desk", "--set", "extra", "1,2,300,400")
+        payload = json.loads(self.run_xtm("--list", "--json").stdout)
+        entry = next(e for e in payload["sessions"] if e["name"] == "extra")
+        self.assertEqual(entry["session"], "desk-extra")
+
+
+class TestDetachAndSwitch(IntegrationBase):
+    """Detaching windows, and what a profile switch does to them."""
+
+    def two_profiles(self, on_switch="detach"):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                prefix: desk-
+                on_switch: %s
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  work1: {x: 0, y: 0, width: 960, height: 1180}
+                  notes: {session: notes, x: 960, y: 0, width: 960, height: 580}
+              lab:
+                prefix: lab-
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  work1: {x: 0, y: 0, width: 900, height: 700}
+                  notes: {session: notes, x: 900, y: 0, width: 900, height: 700}
+            """ % (on_switch,))
+
+    def attached(self, name):
+        for row in self.rows("sessions.txt"):
+            if row[0] == name:
+                return row[1] == "1"
+        return None
+
+    def test_detach_keeps_the_session_alive(self):
+        self.two_profiles()
+        self.run_xtm("desk", "--reset")
+        result = self.run_xtm("--detach", "work1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Still present, but no longer attached: the window is gone and
+        # everything inside the session survives.
+        self.assertFalse(self.attached("desk-work1"))
+        self.assertIn("desk-work1", [r[0] for r in self.rows("sessions.txt")])
+
+    def test_detach_of_a_session_with_no_window_is_not_an_error(self):
+        self.two_profiles()
+        self.add_session("desk-work1", tty="/dev/null", attached="0", pid=1)
+        result = self.run_xtm("desk", "--detach", "work1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_detach_of_a_missing_session_exits_one(self):
+        self.two_profiles()
+        result = self.run_xtm("desk", "--detach", "nosuch")
+        self.assertEqual(result.returncode, 1)
+
+    def test_switching_detaches_the_previous_profile(self):
+        self.two_profiles()
+        self.run_xtm("desk", "--reset")
+        self.assertTrue(self.attached("desk-work1"))
+        self.run_xtm("lab")
+        self.assertFalse(self.attached("desk-work1"))
+        self.assertIn("desk-work1", [r[0] for r in self.rows("sessions.txt")])
+
+    def test_switching_leaves_a_shared_session_attached(self):
+        # It is about to be repositioned into its new slot, so closing it
+        # only to reopen it would throw the window away for nothing.
+        self.two_profiles()
+        self.run_xtm("desk", "--reset")
+        self.assertTrue(self.attached("notes"))
+        self.run_xtm("lab")
+        self.assertTrue(self.attached("notes"))
+
+    def test_on_switch_leave_keeps_windows(self):
+        self.two_profiles(on_switch="leave")
+        self.run_xtm("desk", "--reset")
+        self.run_xtm("lab")
+        self.assertTrue(self.attached("desk-work1"))
+
+    def test_on_switch_kill_destroys_sessions(self):
+        self.two_profiles(on_switch="kill")
+        self.run_xtm("desk", "--reset")
+        self.run_xtm("lab")
+        self.assertNotIn("desk-work1", [r[0] for r in self.rows("sessions.txt")])
+
+    def test_on_switch_flag_overrides_the_profile_setting(self):
+        self.two_profiles(on_switch="leave")
+        self.run_xtm("desk", "--reset")
+        self.run_xtm("lab", "--on-switch", "detach")
+        self.assertFalse(self.attached("desk-work1"))
+
+    def test_reselecting_the_same_profile_does_nothing(self):
+        self.two_profiles()
+        self.run_xtm("desk", "--reset")
+        self.run_xtm("desk")
+        self.assertTrue(self.attached("desk-work1"))
+
+    def test_close_all_detach_mode(self):
+        self.two_profiles()
+        self.run_xtm("desk", "--reset")
+        result = self.run_xtm("--close-all", "--detach-mode", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.attached("desk-work1"))
+        self.assertIn("desk-work1", [r[0] for r in self.rows("sessions.txt")])
+
+    def test_close_all_covers_every_profile_with_all(self):
+        self.two_profiles(on_switch="leave")
+        self.run_xtm("desk", "--reset")
+        self.run_xtm("lab", "--reset")
+        result = self.run_xtm("--close-all", "--all", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.rows("sessions.txt"), [])
+
+    def test_close_all_without_all_is_scoped_to_the_profile(self):
+        self.two_profiles(on_switch="leave")
+        self.run_xtm("desk", "--reset")
+        self.run_xtm("lab", "--reset")
+        self.run_xtm("--close-all", "--yes")
+        names = [r[0] for r in self.rows("sessions.txt")]
+        self.assertIn("desk-work1", names)
+        self.assertNotIn("lab-work1", names)
+
+
+class TestCaptureScope(IntegrationBase):
+    """--update-profile no longer grafts other profiles' sessions on."""
+
+    def setup_two(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                prefix: desk-
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  work1: {x: 0, y: 0, width: 960, height: 1180}
+            """)
+
+    def test_foreign_windows_are_skipped_by_default(self):
+        self.setup_two()
+        self.add_session("desk-work1", tty="/dev/null", attached="1", pid=1)
+        self.add_window("desk-work1", 5, 6, 960, 1180)
+        self.add_session("other-thing", tty="/dev/null", attached="1", pid=2)
+        self.add_window("other-thing", 7, 8, 400, 300)
+        result = self.run_xtm("desk", "--update-profile")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("other-thing", self.config_text())
+        self.assertIn("left out", result.stderr)
+
+    def test_capture_new_adds_them(self):
+        self.setup_two()
+        self.add_session("other-thing", tty="/dev/null", attached="1", pid=2)
+        self.add_window("other-thing", 7, 8, 400, 300)
+        result = self.run_xtm("desk", "--update-profile", "--capture-new")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("other-thing", self.config_text())
+
+    def test_known_slots_are_still_updated(self):
+        self.setup_two()
+        self.add_session("desk-work1", tty="/dev/null", attached="1", pid=1)
+        self.add_window("desk-work1", 11, 22, 500, 400)
+        self.run_xtm("desk", "--update-profile")
+        payload = json.loads(self.run_xtm("--list", "--json").stdout)
+        entry = next(e for e in payload["sessions"] if e["name"] == "work1")
+        self.assertEqual(entry["configured"]["x"], 11)
+
+    def test_strays_are_attributed_to_their_owning_profile(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                prefix: desk-
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  work1: {x: 0, y: 0, width: 900, height: 700}
+              lab:
+                prefix: lab-
+                sessions:
+                  work1: {x: 0, y: 0, width: 900, height: 700}
+            """)
+        self.add_session("lab-work1", tty="/dev/null", attached="1", pid=3)
+        result = self.run_xtm("desk", "--list")
+        self.assertIn("lab-work1", result.stdout)
+        self.assertIn("belongs to profile lab", result.stdout)
+
+    def test_verbose_profile_listing_shows_slots_and_state(self):
+        self.setup_two()
+        self.add_session("desk-work1", tty="/dev/null", attached="1", pid=1)
+        result = self.run_xtm("desk", "--list-profiles", "--verbose")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("desk-work1", result.stdout)
+        self.assertIn("attached", result.stdout)
+
+    def test_verbose_profile_listing_json(self):
+        self.setup_two()
+        payload = json.loads(
+            self.run_xtm("--list-profiles", "--verbose", "--json").stdout)
+        desk = next(p for p in payload["profiles"] if p["name"] == "desk")
+        self.assertEqual(desk["prefix"], "desk-")
+        self.assertEqual(desk["slots"][0]["session"], "desk-work1")
 
 
 if __name__ == "__main__":

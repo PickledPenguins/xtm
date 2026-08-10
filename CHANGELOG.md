@@ -3,6 +3,138 @@
 Versioning scheme: `0.<N>`, with `N` incrementing by one per release
 (`0.9` is followed by `0.10`, never by `1.0`).
 
+## 0.5
+
+Slots separated from sessions, and profile switching given a defined
+lifecycle.
+
+### Added
+
+- **A profile now owns its sessions by default.** A `prefix` on the profile is
+  prepended to a slot name to form the tmux session name, so slot `work1` in a
+  profile prefixed `desk-` is the session `desk-work1`, and the same slot name
+  in another profile is a different session. Two profiles can no longer
+  collide by accident. A profile with no `prefix` behaves exactly as before.
+- **An explicit `session:` on a slot is used verbatim and never prefixed.**
+  This is the supported way to share one session between profiles: both write
+  the same name and land on the same session. The rule is that profile-owned
+  sessions come and go with the profile, while explicitly named sessions
+  persist across switches.
+- **Configurable window titles.** `title:` on a slot, or a profile-level
+  template using `{slot}`, `{session}` and `{profile}`, defaulting to
+  `xtm:{session}`. Invalid templates are caught by `--validate` rather than at
+  window-open time. The instance name (`WM_CLASS`) is unchanged and not
+  configurable, so a custom title cannot break window discovery.
+- **`on_switch: leave | detach | kill`**, defaulting to `detach`: switching
+  away from a profile now disposes of its windows instead of leaving them
+  mixed in with the new profile's. Sessions the new profile also claims are
+  left attached and repositioned rather than closed and reopened.
+  `--on-switch MODE` overrides it for one run.
+- **`-t/--detach`**, closing a session's window while leaving the session, its
+  tabs, its panes and its running jobs alive; and `--detach-mode`, which makes
+  `--close-all` tidy rather than destroy.
+- **`--close-all --all`**, covering every visible profile's sessions rather
+  than only the current profile's, so sessions left behind by an earlier
+  profile can be cleaned up without switching back to it.
+- **`--list-profiles --verbose`**, reporting every profile with its slots,
+  resolved session names and running state, plus the sessions claimed by no
+  profile. Answers "what is running and who owns it" in one command.
+- Strays in `--list` are now labelled with the profile they belong to.
+
+### Changed
+
+- **`--update-profile` no longer captures windows that are not part of the
+  current profile.** Previously, switching profiles and then updating would
+  silently graft the previous profile's sessions onto the new one. Foreign
+  windows are now counted and reported, and added only with `--capture-new`.
+- **`--new-profile` writes an explicit `prefix` and an explicit `session:` for
+  every captured window**, because those sessions already exist under the
+  names they were captured with and must not be renamed by the new prefix.
+- `--close`, `--detach` and `--delete-session` accept either a slot name or
+  the session name it resolves to.
+- Two slots in one profile resolving to the same session is now a validation
+  error; they would otherwise fight over the same window on every reset.
+- `--list` reports the resolved session name whenever it differs from the slot
+  name or is shared, and shows the profile's prefix.
+- Messages and documentation now distinguish a **slot** (a position on screen)
+  from a **session** (what is attached to it) throughout.
+
+### Fixed
+
+- The README claimed `xwininfo` could only find windows by title, and that
+  `set-titles on` in `.tmux.conf` would therefore break `--update-profile` on
+  a system where it is the only geometry tool. Neither was true: `xwininfo
+  -root -tree` reports the instance name alongside the title, the code has
+  always preferred it, and geometry is read with `-id` rather than by name.
+- Documented that writing the config rewrites flow-style mappings as block
+  style and drops comments. Both were already true and neither was mentioned.
+- The test suite ran roughly four times slower than it needed to. The fake
+  terminal inherited the harness's stdout and stderr pipes, so every test that
+  opened a window waited for the fake terminal's whole lifetime instead of for
+  xtm to exit. Runtime dropped from 210 seconds to about 50.
+
+### Testing
+
+- 420 tests at 95.0% line and 92.1% branch coverage, with new groups for slot
+  naming, detaching and switching, and capture scope.
+
+## 0.4
+
+Profile selection made direct, and machine binding made explicit.
+
+### Fixed
+
+- The status view did not show a session's configured `cwd`, although the
+  JSON view did and the documentation described it. The two views now agree.
+
+### Added
+
+- **The profile name is now a positional argument**: `xtm desk` is equivalent
+  to `xtm --profile desk`. Switching profiles is the tool's most common
+  operation, so it no longer needs a flag. `--profile` remains as an alias so
+  existing scripts and shell functions keep working. Supplying both spellings
+  in one command is a usage error, even when they name the same profile,
+  rather than one silently winning.
+- **A reserved `default` profile.** It is created with the config, recreated
+  if it goes missing, and cannot be deleted, renamed, renamed onto or copied
+  onto. It is always global and may not carry a `match` block. Its contents
+  remain fully editable. Because resolution now ends at a profile guaranteed
+  to exist under a fixed name, the fallback can never silently change when the
+  config is edited or reordered.
+- **`match.hostname` accepts a list of globs**, so one profile can serve
+  several machines with the same layout instead of being duplicated.
+- **Machine-specific profiles are hidden on other machines.** A profile
+  carrying a `match` block no longer appears in `--list-profiles` and cannot
+  be selected by name on a machine it is not bound to. `-A/--all` reveals them
+  for listing and management, so a profile is never unreachable. `--validate`
+  ignores visibility and always checks every profile.
+- **`--make-global NAME`** removes a profile's machine binding. One-way by
+  design: re-binding would hide a profile other machines may rely on, so it is
+  left as a deliberate edit of the config file.
+- A failed profile lookup now explains itself: naming a session by mistake
+  suggests `--open`/`--focus`, and naming a profile bound to another machine
+  says so and points at `--all`.
+
+### Changed
+
+- **Matching on `$DISPLAY` was removed.** A config still using `display:`
+  fails validation with a message naming the removal and the version, rather
+  than silently never matching. Machine binding covers what `match` is
+  actually used for, and hostname is the only criterion it needs.
+- An empty `match: {}` block is now a validation error, since it expressed
+  neither "bound" nor "global" clearly. Remove the block to make a profile
+  global.
+- A **malformed** `match` block — unknown key, empty or non-string hostname —
+  leaves the profile visible rather than hidden, so the validation error is
+  what the user sees. Previously a typo such as `platform:` instead of
+  `hostname:` would have made the profile silently disappear and produced a
+  misleading "belongs to another machine" message.
+- A saved current profile that has become hidden is now reported with an
+  explanation instead of being used or silently skipped.
+- Test suite expanded to 380 tests at 95.4% line and 93.0% branch coverage,
+  with new groups for the positional profile, the reserved profile, machine
+  visibility and machine binding.
+
 ## 0.3
 
 Production release. Correctness fixes, new commands, and a full test suite.
