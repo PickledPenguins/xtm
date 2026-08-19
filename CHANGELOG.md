@@ -43,6 +43,37 @@ independent of what happens to be installed on the machine running it.
   a run cannot kill sessions belonging to a different machine's layout. The
   help now says so.
 
+### Changed
+
+- **Seven module-level globals replaced by one `RunContext`.** `DRY_RUN`,
+  `VERIFY`, `FRAME_COMPENSATION`, `CONFIG_DIR`, `CONFIG_FILE`, `STATE_DIR`
+  and `STATE_FILE` are now fields of a single `CONTEXT` object, with
+  `config_dir` and `state_file` derived from their sources rather than
+  assigned alongside them, so they can no longer disagree with the paths
+  they come from. `scoped_context()` overrides settings for a block and
+  restores the whole context afterwards, replacing the hand-rolled
+  save-and-restore in the tests -- which saved five fields in one place and
+  a sixth in another, leaving a partial restore one edit away.
+
+- **`--edit` no longer holds the config lock across the editor session.**
+  The "modify" step there is a human typing, so an exclusive lock held for
+  its duration blocked every other xtm invocation on the machine for an
+  unbounded time, and protected nothing: xtm performs no read-modify-write
+  around the editor, which writes the file itself. The two short writes the
+  command really makes take the lock individually.
+
+- **Waiting for the config lock now says so.** A run that stopped silently
+  was indistinguishable from a hang.
+
+### Performance
+
+- **`--update-profile` was quadratic in the number of slots.** Each captured
+  window was resolved back to its slot with `slot_for_session()`, which
+  rebuilt the profile's entire slot list every time. Capturing 400 windows
+  against 400 slots cost 160,400 name resolutions; it now builds the index
+  once and costs 400. Stray attribution in `--list` had a smaller version of
+  the same problem, testing membership against a list rather than a set.
+
 ### Project structure
 
 - Split the single 4,500-line test file into a `tests/` package grouped by
@@ -83,6 +114,13 @@ independent of what happens to be installed on the machine running it.
 - Added `.gitignore`, `.coveragerc` with an enforced `fail_under`, a
   `Makefile`, and CI running the suite across Python versions crossed with
   PyYAML present and absent.
+- Added tests for `install.sh` and `xtm-completion.bash`, which shipped
+  untested. The completion tests check both directions: every option xtm
+  accepts is offered, and no option it no longer accepts is still suggested.
+- Added a load suite that budgets work in OPERATIONS rather than seconds. A
+  wall-clock assertion is unreliable on a loaded runner and stops meaning
+  anything once the code is fast enough that timer resolution dominates --
+  the first version of these tests skipped itself for exactly that reason.
 
 ## 0.5
 

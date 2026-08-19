@@ -35,6 +35,7 @@ not used at all.
 """
 
 import argparse
+import contextlib
 import fnmatch
 import json
 import logging
@@ -72,12 +73,91 @@ GeometryDict = Dict[str, Any]
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "xtm"
 DEFAULT_STATE_DIR = Path.home() / ".local" / "state" / "xtm"
 
-# Resolved during startup by resolve_paths(); module-level so every helper
-# can reach them without threading a context object through every call.
-CONFIG_DIR = DEFAULT_CONFIG_DIR
-CONFIG_FILE = CONFIG_DIR / "config.yaml"
-STATE_DIR = DEFAULT_STATE_DIR
-STATE_FILE = STATE_DIR / "current_profile"
+
+class RunContext(object):
+    """Everything one invocation needs to know that is not a direct argument.
+
+    These were seven loose module globals. Gathering them into one object
+    does not make them less global -- every helper still reaches for
+    CONTEXT rather than being handed it -- but it fixes the part that
+    actually caused trouble:
+
+      * There is one thing to save and restore, not seven. Tests previously
+        hand-rolled that, and PathIsolationMixin restored five of them while
+        TestFrameCompensation separately restored a sixth, so a partial
+        restore was one edit away at any time.
+      * Derived values cannot drift. config_dir and state_file are computed
+        from their sources rather than assigned alongside them, so they
+        cannot disagree with the paths they are derived from.
+      * Overriding for a scope is a supported operation (see
+        scoped_context) instead of an ad hoc save/assign/restore dance.
+
+    The alternative -- threading a context parameter through all 126
+    functions -- was considered and rejected: it would put an argument that
+    is never read at the call site into signatures like
+    _write_text_safe(path, content, description), making every one of them
+    worse to read in exchange for a purity that this program, a
+    single-invocation CLI, gets nothing from.
+    """
+
+    def __init__(self) -> None:
+        """Start from the defaults a bare invocation would use."""
+        self.config_file = DEFAULT_CONFIG_DIR / "config.yaml"
+        self.state_dir = DEFAULT_STATE_DIR
+        # Pretend mode: no window is opened, moved or closed and no file is
+        # written. Checked at every side-effecting call rather than at one
+        # gate, so a new side effect has to opt in deliberately.
+        self.dry_run = False
+        # Read each window's position back after placing it and report the
+        # difference from what was asked for.
+        self.verify = False
+        # Correct captured positions for window-manager decorations.
+        self.frame_compensation = True
+
+    @property
+    def config_dir(self) -> Path:
+        """Directory holding the config file."""
+        return self.config_file.parent
+
+    @property
+    def state_file(self) -> Path:
+        """This machine\'s current-profile state file.
+
+        Per-machine by construction: a shared or NFS-mounted home directory
+        would otherwise let two machines fight over one "current profile",
+        which defeats the entire point of per-machine profiles.
+        """
+        return self.state_dir / ("current_profile." + short_hostname())
+
+
+CONTEXT = RunContext()
+
+
+@contextlib.contextmanager
+def scoped_context(**overrides: Any) -> Any:
+    """Temporarily replace the active RunContext, restoring it afterwards.
+
+    The supported way to run something under different settings without
+    leaking them into whatever runs next:
+
+        with scoped_context(dry_run=True):
+            ...
+
+    Restores the whole context, so no field can be missed on the way back.
+    """
+    global CONTEXT
+    previous = CONTEXT
+    replacement = RunContext()
+    replacement.__dict__.update(previous.__dict__)
+    for key, value in overrides.items():
+        if not hasattr(replacement, key):
+            raise AttributeError("RunContext has no field %r" % (key,))
+        setattr(replacement, key, value)
+    CONTEXT = replacement
+    try:
+        yield replacement
+    finally:
+        CONTEXT = previous
 
 TITLE_PREFIX = "xtm:"
 DEFAULT_TITLE_TEMPLATE = "xtm:{session}"
@@ -135,9 +215,9 @@ logger = logging.getLogger(LOGGER_NAME)
 # cross-cutting concerns (a global "pretend" mode and a global "check the
 # result" mode) that would otherwise appear in a dozen unrelated
 # signatures purely to be forwarded.
-DRY_RUN = False
-VERIFY = False
-FRAME_COMPENSATION = True
+CONTEXT.dry_run = False
+CONTEXT.verify = False
+CONTEXT.frame_compensation = True
 
 # Exit codes. Documented in README.md; keep the two in sync.
 EXIT_OK = 0
@@ -381,7 +461,7 @@ def _write_text_safe(path: Path, content: str, context: str) -> None:
     Files are created with mkstemp's 0600 permissions, which is
     appropriate for per-user configuration and state.
     """
-    if DRY_RUN:
+    if CONTEXT.dry_run:
         logger.info("[dry-run] would write %s (%s), %d bytes",
                     path, context, len(content))
         return
@@ -448,13 +528,13 @@ class config_lock(object):
 
     def __init__(self, path: Optional[Path] = None) -> None:
         """Prepare a lock beside `path`, defaulting to the active config."""
-        self.path = (path or CONFIG_FILE).with_suffix(
-            (path or CONFIG_FILE).suffix + ".lock")
+        self.path = (path or CONTEXT.config_file).with_suffix(
+            (path or CONTEXT.config_file).suffix + ".lock")
         self._handle = None  # type: Any
 
     def __enter__(self) -> "config_lock":
         """Take the exclusive lock, degrading to no locking on failure."""
-        if DRY_RUN:
+        if CONTEXT.dry_run:
             # A dry run promises to touch nothing, and this was the one write
             # path that ignored it: creating the lock file (and its parent
             # directory) left `xtm -N` with a filesystem side effect. There is
@@ -469,7 +549,17 @@ class config_lock(object):
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self._handle = open(str(self.path), "w")
-            fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX)
+            # Try without blocking first, purely so that waiting can be
+            # reported. A run that simply stops with no output looks like a
+            # hang; saying what it is waiting for turns that into a fact the
+            # user can act on.
+            try:
+                fcntl.flock(self._handle.fileno(),
+                            fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (IOError, OSError):
+                logger.info("Waiting for another xtm to finish writing %s ...",
+                            CONTEXT.config_file)
+                fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX)
             logger.debug("Acquired config lock %s", self.path)
         except OSError as e:
             logger.debug("Could not acquire config lock %s: %s", self.path, e)
@@ -697,7 +787,7 @@ def _scan_for_ambiguous_scalars(text: str) -> None:
         line = _strip_inline_comment(raw_line).strip()
         if not line or line.startswith("#"):
             continue
-        context = "%s line %d" % (CONFIG_FILE, lineno)
+        context = "%s line %d" % (CONTEXT.config_file, lineno)
         if line == "-" or line.startswith("- "):
             # Block sequence item: the whole remainder is the value.
             _scan_value(line[1:].strip(), context)
@@ -946,7 +1036,7 @@ def load_yaml(text: str) -> Dict[str, Any]:
         try:
             return _pyyaml.safe_load(text) or {}
         except _pyyaml.YAMLError as e:
-            return die("%s is not valid YAML: %s" % (CONFIG_FILE, e))
+            return die("%s is not valid YAML: %s" % (CONTEXT.config_file, e))
     return _simple_yaml_load(text)
 
 
@@ -961,25 +1051,24 @@ def resolve_paths(config_path: Optional[str], state_dir: Optional[str]) -> None:
     then the XDG-style default. Both locations are overridable so that a
     machine-specific or throwaway configuration can be used without
     disturbing the real one.
+
+    Only the two source paths are set. config_dir and state_file are derived
+    from them by RunContext, so they cannot fall out of step with the paths
+    they come from.
     """
-    global CONFIG_DIR, CONFIG_FILE, STATE_DIR, STATE_FILE
     if config_path:
-        CONFIG_FILE = Path(os.path.expanduser(config_path))
-        CONFIG_DIR = CONFIG_FILE.parent
+        CONTEXT.config_file = Path(os.path.expanduser(config_path))
     else:
         env_dir = os.environ.get("XTM_CONFIG_DIR")
-        CONFIG_DIR = Path(os.path.expanduser(env_dir)) if env_dir else DEFAULT_CONFIG_DIR
-        CONFIG_FILE = CONFIG_DIR / "config.yaml"
+        base = Path(os.path.expanduser(env_dir)) if env_dir else DEFAULT_CONFIG_DIR
+        CONTEXT.config_file = base / "config.yaml"
 
     if state_dir:
-        STATE_DIR = Path(os.path.expanduser(state_dir))
+        CONTEXT.state_dir = Path(os.path.expanduser(state_dir))
     else:
         env_state = os.environ.get("XTM_STATE_DIR")
-        STATE_DIR = Path(os.path.expanduser(env_state)) if env_state else DEFAULT_STATE_DIR
-    # The current profile is per-machine: a shared or NFS-mounted home
-    # directory would otherwise let two machines fight over one "current
-    # profile", which defeats the entire point of per-machine profiles.
-    STATE_FILE = STATE_DIR / ("current_profile." + short_hostname())
+        CONTEXT.state_dir = (Path(os.path.expanduser(env_state)) if env_state
+                             else DEFAULT_STATE_DIR)
 
 
 def short_hostname() -> str:
@@ -1011,17 +1100,17 @@ def _normalize_config_keys(config: ConfigDict) -> None:
 def load_config(create_if_missing: bool = True) -> ConfigDict:
     """Read, sanity-check and return the whole config file, creating a
     default one on first run."""
-    if not CONFIG_FILE.exists():
+    if not CONTEXT.config_file.exists():
         if not create_if_missing:
-            die("No config file at %s." % (CONFIG_FILE,))
-        logger.info("No config file at %s; creating a default one.", CONFIG_FILE)
-        _write_text_safe(CONFIG_FILE, dump_yaml(DEFAULT_CONFIG), "config file")
-        if DRY_RUN:
+            die("No config file at %s." % (CONTEXT.config_file,))
+        logger.info("No config file at %s; creating a default one.", CONTEXT.config_file)
+        _write_text_safe(CONTEXT.config_file, dump_yaml(DEFAULT_CONFIG), "config file")
+        if CONTEXT.dry_run:
             return dict(DEFAULT_CONFIG)
-    raw_text = _read_text_safe(CONFIG_FILE, "config file")
+    raw_text = _read_text_safe(CONTEXT.config_file, "config file")
     data = load_yaml(raw_text)
     if not isinstance(data, dict) or "profiles" not in data:
-        die("%s does not look like an xtm config (no 'profiles' key)." % (CONFIG_FILE,))
+        die("%s does not look like an xtm config (no 'profiles' key)." % (CONTEXT.config_file,))
     # A bare "profiles:" with nothing under it reads as None through PyYAML
     # and as {} through the built-in parser. Both mean "no profiles yet", so
     # they are folded together here rather than being allowed to produce a
@@ -1030,7 +1119,7 @@ def load_config(create_if_missing: bool = True) -> ConfigDict:
         data["profiles"] = {}
     if not isinstance(data["profiles"], dict):
         die("%s: 'profiles' must be a mapping of profile name -> settings."
-            % (CONFIG_FILE,))
+            % (CONTEXT.config_file,))
     _normalize_config_keys(data)
     for name in data["profiles"]:
         # Validated on load as well as on input, because a hand-edited
@@ -1042,20 +1131,20 @@ def load_config(create_if_missing: bool = True) -> ConfigDict:
         # to exist. Recreating it keeps a config written by an older
         # version, or one whose default was removed by hand, working.
         logger.info("Adding the reserved %r profile to %s.",
-                    DEFAULT_PROFILE_NAME, CONFIG_FILE)
+                    DEFAULT_PROFILE_NAME, CONTEXT.config_file)
         data["profiles"][DEFAULT_PROFILE_NAME] = {
             "stack": dict(DEFAULT_STACK),
             "sessions": {},
         }
         save_config(data)
     logger.debug("Loaded config from %s with profiles: %s",
-                 CONFIG_FILE, ", ".join(sorted(data["profiles"])) or "(none)")
+                 CONTEXT.config_file, ", ".join(sorted(data["profiles"])) or "(none)")
     return data
 
 
 def save_config(config: ConfigDict) -> None:
     """Persist the whole config file."""
-    _write_text_safe(CONFIG_FILE, dump_yaml(config), "config file")
+    _write_text_safe(CONTEXT.config_file, dump_yaml(config), "config file")
 
 
 def _check_number(entry: GeometryDict, key: str, context: str) -> None:
@@ -1266,11 +1355,11 @@ def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
     profiles = config.setdefault("profiles", {})
     if name not in profiles:
         die("Profile %r does not exist in %s. Known profiles: %s"
-            % (name, CONFIG_FILE, ", ".join(sorted(profiles)) or "(none)"))
+            % (name, CONTEXT.config_file, ", ".join(sorted(profiles)) or "(none)"))
     profile = profiles[name]
     if not isinstance(profile, dict):
         die("Profile %r in %s must be a mapping, got %s."
-            % (name, CONFIG_FILE, type(profile).__name__))
+            % (name, CONTEXT.config_file, type(profile).__name__))
     profile.setdefault("stack", dict(DEFAULT_STACK))
     profile.setdefault("sessions", {})
     # Same fold as in load_config: an empty "stack:" or "sessions:" block is
@@ -1392,11 +1481,28 @@ def profile_sessions(profile: ProfileDict) -> List[str]:
 
 
 def slot_for_session(profile: ProfileDict, session: str) -> Optional[str]:
-    """The slot a session occupies in this profile, if any."""
-    for slot, name in profile_slots(profile):
-        if name == session:
-            return slot
-    return None
+    """The slot a session occupies in this profile, if any.
+
+    Fine for a single lookup. When looking up many sessions against the same
+    profile, build a session_slot_index() once instead: this walks every slot
+    per call, so a loop over it is quadratic in the number of slots.
+    """
+    return session_slot_index(profile).get(session)
+
+
+def session_slot_index(profile: ProfileDict) -> Dict[str, str]:
+    """{session name: slot name} for every slot in the profile.
+
+    Built once and reused by callers that resolve a whole screenful of
+    windows back to their slots. Earlier slots win on a duplicate, matching
+    the first-match behaviour a linear scan had; validate_profile() rejects
+    duplicates outright, so this only matters for a profile that has not
+    been validated yet.
+    """
+    index = {}  # type: Dict[str, str]
+    for slot, session in profile_slots(profile):
+        index.setdefault(session, slot)
+    return index
 
 
 def switch_mode(profile: ProfileDict) -> str:
@@ -1457,7 +1563,7 @@ def read_current_profile_state() -> Optional[str]:
     Falls back to the pre-0.3 machine-independent state file so that an
     existing setup keeps working after the upgrade.
     """
-    for candidate in (STATE_FILE, STATE_DIR / "current_profile"):
+    for candidate in (CONTEXT.state_file, CONTEXT.state_dir / "current_profile"):
         if not candidate.exists():
             continue
         raw = _read_text_safe(candidate, "current-profile state file")
@@ -1473,8 +1579,8 @@ def read_current_profile_state() -> Optional[str]:
 
 def write_current_profile_state(name: str) -> None:
     """Persist `name` as this machine's current profile."""
-    _write_text_safe(STATE_FILE, name + "\n", "current-profile state file")
-    logger.debug("Persisted current profile as %r in %s", name, STATE_FILE)
+    _write_text_safe(CONTEXT.state_file, name + "\n", "current-profile state file")
+    logger.debug("Persisted current profile as %r in %s", name, CONTEXT.state_file)
 
 
 def match_profile(config: ConfigDict) -> Optional[str]:
@@ -1541,7 +1647,7 @@ def resolve_profile_name(config: ConfigDict, explicit: Optional[str],
             if current not in profiles:
                 die("Current profile %r (from %s) no longer exists in %s. "
                     "Choose a valid one with 'xtm NAME'."
-                    % (current, STATE_FILE, CONFIG_FILE))
+                    % (current, CONTEXT.state_file, CONTEXT.config_file))
             if current not in visible:
                 # Reached by moving a saved profile to another machine, or
                 # by editing its 'match' block. Falling through silently
@@ -1563,7 +1669,7 @@ def resolve_profile_name(config: ConfigDict, explicit: Optional[str],
         return DEFAULT_PROFILE_NAME
     return die("No current profile is set and the reserved %r profile is "
                "missing from %s. Name one with 'xtm NAME' (see "
-               "--list-profiles)." % (DEFAULT_PROFILE_NAME, CONFIG_FILE))
+               "--list-profiles)." % (DEFAULT_PROFILE_NAME, CONTEXT.config_file))
 
 
 def apply_switch_action(config: ConfigDict, old_profile_name: str,
@@ -1679,7 +1785,7 @@ def tmux_session_attached(name: str) -> bool:
 
 def tmux_kill_session(name: str) -> bool:
     """Kill a tmux session. Returns False when it did not exist."""
-    if DRY_RUN:
+    if CONTEXT.dry_run:
         logger.info("[dry-run] would kill tmux session %r", name)
         return True
     res = run(["tmux", "kill-session", "-t", name])
@@ -1698,7 +1804,7 @@ def tmux_detach_session(name: str) -> bool:
     detaches, so the terminal exits on its own. The session, its windows,
     its panes and everything running in them stay alive.
     """
-    if DRY_RUN:
+    if CONTEXT.dry_run:
         logger.info("[dry-run] would detach tmux session %r", name)
         return True
     res = run(["tmux", "detach-client", "-s", name])
@@ -1850,7 +1956,7 @@ _CSI_RESIZE_WINDOW_PX_TEMPLATE = "\x1b[4;{height};{width}t"
 
 def send_window_op(tty_path: str, seq: str) -> None:
     """Write one window-control escape sequence to a client's pty."""
-    if DRY_RUN:
+    if CONTEXT.dry_run:
         logger.info("[dry-run] would send %r to %s", seq, tty_path)
         return
     logger.debug("Sending %r to %s", seq, tty_path)
@@ -1888,7 +1994,7 @@ def place_window(session: str, geometry: GeometryDict,
     send_window_op(tty, _CSI_RESIZE_WINDOW_PX_TEMPLATE.format(height=height,
                                                              width=width))
     send_window_op(tty, _CSI_MOVE_WINDOW_TEMPLATE.format(x=x, y=y))
-    if VERIFY:
+    if CONTEXT.verify:
         verify_placement(session, geometry)
 
 
@@ -1949,7 +2055,7 @@ def require_geometry_tool() -> str:
             "requires one of: %s. None were found on PATH. Either ask an "
             "administrator whether one is available under a different name, "
             "or edit %s by hand instead."
-            % (", ".join(GEOMETRY_TOOLS), CONFIG_FILE))
+            % (", ".join(GEOMETRY_TOOLS), CONTEXT.config_file))
     return tool
 
 
@@ -2158,7 +2264,7 @@ def get_window_geometry(session: str, tool: str,
     geometry = _read_raw_geometry(session, tool)
     if geometry is None:
         return None
-    if compensate and FRAME_COMPENSATION:
+    if compensate and CONTEXT.frame_compensation:
         win_id = find_window_id(session, tool)
         extents = get_frame_extents(win_id) if win_id else None
         if extents:
@@ -2226,7 +2332,7 @@ def focus_window(session: str, tool: str) -> bool:
     win_id = find_window_id(session, tool)
     if not win_id:
         return False
-    if DRY_RUN:
+    if CONTEXT.dry_run:
         logger.info("[dry-run] would focus window %s for session %r", win_id, session)
         return True
     if tool == "xdotool":
@@ -2327,7 +2433,7 @@ def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None,
             "session rather than a plain non-X SSH login).")
     argv = build_xterm_command(session, sess_cfg, title)
     logger.debug("Spawning: %s", " ".join(argv))
-    if DRY_RUN:
+    if CONTEXT.dry_run:
         logger.info("[dry-run] would launch: %s", " ".join(argv))
         return None
     try:
@@ -2349,7 +2455,7 @@ def open_session(session: str, geometry: GeometryDict,
     if tmux_session_attached(session):
         die("tmux session %r is already attached to a window." % (session,))
     proc = spawn_xterm(session, sess_cfg, title)
-    if DRY_RUN:
+    if CONTEXT.dry_run:
         logger.info("[dry-run] would place %r at x=%s y=%s %sx%s", session,
                     geometry["x"], geometry["y"], geometry["width"],
                     geometry["height"])
@@ -2376,7 +2482,7 @@ def reposition_or_open(session: str, geometry: GeometryDict,
     if attached is None:
         attached = tmux_session_attached(session)
     if attached:
-        if DRY_RUN:
+        if CONTEXT.dry_run:
             logger.info("[dry-run] would reposition %s to x=%s y=%s %sx%s",
                         session, geometry["x"], geometry["y"],
                         geometry["width"], geometry["height"])
@@ -2606,7 +2712,7 @@ def confirm(question: str, assume_yes: bool) -> bool:
     as --yes; anything scripted has already opted in by invoking a
     destructive command with no terminal attached.
     """
-    if assume_yes or DRY_RUN:
+    if assume_yes or CONTEXT.dry_run:
         return True
     if not sys.stdin.isatty():
         logger.debug("stdin is not a terminal; proceeding without confirmation.")
@@ -2644,8 +2750,12 @@ def cmd_update_profile(args: argparse.Namespace, config: ConfigDict,
         logger.info("No xtm-managed windows are currently open; nothing to update.")
         return EXIT_OK
     updated = added = skipped = 0
+    # Built once, not per window: this loop runs over every window on screen,
+    # and resolving each one with slot_for_session() would rescan every slot
+    # in the profile each time.
+    slot_index = session_slot_index(profile)
     for session, geometry in layout.items():
-        slot = slot_for_session(profile, session)
+        slot = slot_index.get(session)
         existing = profile["sessions"].get(slot) if slot else None
         if isinstance(existing, dict):
             # Preserve command/cwd/xterm_args/session/title: only
@@ -2674,7 +2784,7 @@ def cmd_update_profile(args: argparse.Namespace, config: ConfigDict,
                      geometry["y"], geometry["width"], geometry["height"])
     save_config(config)
     logger.info("Profile %s updated: %d slot(s) updated, %d added. Saved to %s",
-                profile_name, updated, added, CONFIG_FILE)
+                profile_name, updated, added, CONTEXT.config_file)
     if skipped:
         logger.info("%d open window(s) are not part of this profile and were "
                     "left out; use --capture-new to add them.", skipped)
@@ -2720,7 +2830,7 @@ def cmd_new_profile(args: argparse.Namespace, config: ConfigDict,
     save_config(config)
     logger.info("Created profile %s with %d slot(s) captured from the current "
                 "layout, and prefix %r for new slots. Saved to %s",
-                new_name, len(slots), prefix, CONFIG_FILE)
+                new_name, len(slots), prefix, CONTEXT.config_file)
     return EXIT_OK
 
 
@@ -2803,20 +2913,20 @@ def cmd_delete_profile(args: argparse.Namespace, config: ConfigDict,
         logger.warning("Profile %s was the current profile; clearing that "
                        "selection.", name)
         clear_current_profile_state()
-    logger.info("Deleted profile %s from %s", name, CONFIG_FILE)
+    logger.info("Deleted profile %s from %s", name, CONTEXT.config_file)
     return EXIT_OK
 
 
 def clear_current_profile_state() -> None:
     """Forget the persisted current profile for this machine."""
-    if DRY_RUN:
-        logger.info("[dry-run] would clear %s", STATE_FILE)
+    if CONTEXT.dry_run:
+        logger.info("[dry-run] would clear %s", CONTEXT.state_file)
         return
     try:
-        if STATE_FILE.exists():
-            STATE_FILE.unlink()
+        if CONTEXT.state_file.exists():
+            CONTEXT.state_file.unlink()
     except OSError as e:
-        logger.warning("Could not clear %s: %s", STATE_FILE, e)
+        logger.warning("Could not clear %s: %s", CONTEXT.state_file, e)
 
 
 def cmd_copy_profile(args: argparse.Namespace, config: ConfigDict,
@@ -2887,7 +2997,7 @@ def cmd_make_global(args: argparse.Namespace, config: ConfigDict,
     if not isinstance(profile, dict) or "match" not in profile:
         logger.info("Profile %s is already global.", name)
         return EXIT_OK
-    if DRY_RUN:
+    if CONTEXT.dry_run:
         logger.info("[dry-run] would make profile %s global", name)
         return EXIT_OK
     profile.pop("match")
@@ -2917,19 +3027,36 @@ def cmd_edit(args: argparse.Namespace, config: ConfigDict,
     The editor inherits the terminal directly rather than going through
     run(), which captures output and would leave a full-screen editor
     with nowhere to draw.
+
+    Deliberately registered as NOT config-mutating in COMMANDS, so main()
+    does not wrap the whole call in the config lock. The "modify" step here
+    is a human typing, which can take minutes or be left open indefinitely;
+    holding an exclusive lock for that long would block every other xtm
+    invocation on the machine with no bound on the wait. Nothing is gained
+    by it either, since xtm performs no read-modify-write cycle around the
+    editor -- the editor writes the file itself. The two short writes this
+    command really does make take the lock individually.
     """
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
-    if not CONFIG_FILE.exists():
-        _write_text_safe(CONFIG_FILE, dump_yaml(DEFAULT_CONFIG), "config file")
-    if DRY_RUN:
-        logger.info("[dry-run] would open %s in %s", CONFIG_FILE, editor)
+    if not CONTEXT.config_file.exists():
+        with config_lock():
+            # Re-check inside the lock: another xtm may have created the
+            # config between the test above and the lock being granted.
+            if not CONTEXT.config_file.exists():
+                _write_text_safe(CONTEXT.config_file, dump_yaml(DEFAULT_CONFIG),
+                                 "config file")
+    if CONTEXT.dry_run:
+        logger.info("[dry-run] would open %s in %s", CONTEXT.config_file, editor)
         return EXIT_OK
-    logger.debug("Opening %s in %s", CONFIG_FILE, editor)
+    logger.debug("Opening %s in %s", CONTEXT.config_file, editor)
     try:
-        subprocess.call([editor, str(CONFIG_FILE)])
+        subprocess.call([editor, str(CONTEXT.config_file)])
     except OSError as e:
         die("Could not start editor %r: %s" % (editor, e))
-    return validate_all(json_output=False)
+    # Held only for the reload: load_config() may rewrite the file to restore
+    # the reserved "default" profile if the edit removed it.
+    with config_lock():
+        return validate_all(json_output=False)
 
 
 def validate_all(json_output: bool) -> int:
@@ -2946,13 +3073,13 @@ def validate_all(json_output: bool) -> int:
     bad = [name for name, error in results if error]
     if json_output:
         emit_json({
-            "config": str(CONFIG_FILE),
+            "config": str(CONTEXT.config_file),
             "valid": not bad,
             "profiles": [{"name": name, "valid": error is None, "error": error}
                          for name, error in results],
         })
     else:
-        print("Config: %s" % (CONFIG_FILE,))
+        print("Config: %s" % (CONTEXT.config_file,))
         for name, error in results:
             print("  %-20s %s" % (name, "OK" if error is None else "INVALID: " + error))
         if not results:
@@ -3020,6 +3147,9 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
                     if attached and name not in named)
     # Say which other profile a stray belongs to, so an accumulation left
     # behind by an earlier profile is recognisable rather than mysterious.
+    # The membership test runs once per session of every visible profile, so
+    # it reads from a set rather than scanning the sorted list each time.
+    stray_set = set(strays)
     owners = {}
     for other in visible_profile_names(config, include_all=True):
         if other == profile_name:
@@ -3028,16 +3158,16 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
         if not isinstance(candidate, dict):
             continue
         for name in profile_sessions(candidate):
-            if name in strays:
+            if name in stray_set:
                 owners.setdefault(name, other)
     return {
         "profile": profile_name,
         "prefix": profile.get("prefix", ""),
         "on_switch": switch_mode(profile),
-        "config": str(CONFIG_FILE),
-        "state_file": str(STATE_FILE),
+        "config": str(CONTEXT.config_file),
+        "state_file": str(CONTEXT.state_file),
         "geometry_tool": tool,
-        "frame_compensation": FRAME_COMPENSATION,
+        "frame_compensation": CONTEXT.frame_compensation,
         "sessions": sessions,
         "strays": strays,
         "stray_owners": owners,
@@ -3144,10 +3274,10 @@ def _list_profiles_verbose(args: argparse.Namespace, config: ConfigDict,
 
     if args.json:
         emit_json({"profiles": report, "unclaimed": unclaimed,
-                   "config": str(CONFIG_FILE)})
+                   "config": str(CONTEXT.config_file)})
         return EXIT_OK
 
-    print("Config: %s" % (CONFIG_FILE,))
+    print("Config: %s" % (CONTEXT.config_file,))
     for entry in report:
         header = entry["name"] + (" *" if entry["current"] else "")
         details = []
@@ -3177,7 +3307,7 @@ def cmd_current_profile(args: argparse.Namespace, config: ConfigDict,
     current = read_current_profile_state()
     if args.json:
         emit_json({"current_profile": current, "resolved_profile": profile_name,
-                   "state_file": str(STATE_FILE)})
+                   "state_file": str(CONTEXT.state_file)})
         return EXIT_OK
     print(current or profile_name or "(no current profile set)")
     return EXIT_OK
@@ -3258,7 +3388,10 @@ COMMANDS = (
     ("rename_profile", cmd_rename_profile, True, False),
     ("detach", cmd_detach, False, True),
     ("make_global", cmd_make_global, True, False),
-    ("edit", cmd_edit, True, False),
+    # NOT marked config-mutating: cmd_edit takes the lock itself around
+    # its short writes rather than holding it across an interactive
+    # editor session. See its docstring.
+    ("edit", cmd_edit, False, False),
     ("validate", cmd_validate, False, False),
 )
 
@@ -3436,10 +3569,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def apply_runtime_flags(args: argparse.Namespace) -> None:
     """Publish the cross-cutting run modes taken from parsed arguments."""
-    global DRY_RUN, VERIFY, FRAME_COMPENSATION
-    DRY_RUN = bool(args.dry_run)
-    VERIFY = bool(args.verify)
-    FRAME_COMPENSATION = not args.no_frame_compensation
+    CONTEXT.dry_run = bool(args.dry_run)
+    CONTEXT.verify = bool(args.verify)
+    CONTEXT.frame_compensation = not args.no_frame_compensation
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -3454,8 +3586,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger.debug("xtm %s starting on python %s; args=%s", __version__,
                  platform.python_version(), vars(args))
     logger.debug("Config file: %s | state file: %s | PyYAML: %s",
-                 CONFIG_FILE, STATE_FILE, "yes" if HAVE_PYYAML else "no")
-    if DRY_RUN:
+                 CONTEXT.config_file, CONTEXT.state_file, "yes" if HAVE_PYYAML else "no")
+    if CONTEXT.dry_run:
         logger.info("Dry run: no windows or files will be changed.")
 
     dest, handler, mutates, needs_profile = selected_action(args)

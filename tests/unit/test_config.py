@@ -1,6 +1,7 @@
 """Config and state files: paths, resolution, durable writes, locking."""
 
 import fcntl
+import logging
 import os
 import shutil
 import tempfile
@@ -16,19 +17,19 @@ from tests.support import (
 class TestPathResolution(PathIsolationMixin):
 
     def test_explicit_config_path_wins(self):
-        self.assertEqual(xtm.CONFIG_FILE, self.tmp / "config.yaml")
+        self.assertEqual(xtm.CONTEXT.config_file, self.tmp / "config.yaml")
 
     def test_state_file_is_per_host(self):
-        self.assertTrue(xtm.STATE_FILE.name.startswith("current_profile."))
-        self.assertTrue(xtm.STATE_FILE.name.endswith(xtm.short_hostname()))
+        self.assertTrue(xtm.CONTEXT.state_file.name.startswith("current_profile."))
+        self.assertTrue(xtm.CONTEXT.state_file.name.endswith(xtm.short_hostname()))
 
     def test_env_vars_used_when_no_flags(self):
         os.environ["XTM_CONFIG_DIR"] = str(self.tmp / "envcfg")
         os.environ["XTM_STATE_DIR"] = str(self.tmp / "envstate")
         try:
             xtm.resolve_paths(None, None)
-            self.assertEqual(xtm.CONFIG_FILE, self.tmp / "envcfg" / "config.yaml")
-            self.assertEqual(xtm.STATE_FILE.parent, self.tmp / "envstate")
+            self.assertEqual(xtm.CONTEXT.config_file, self.tmp / "envcfg" / "config.yaml")
+            self.assertEqual(xtm.CONTEXT.state_file.parent, self.tmp / "envstate")
         finally:
             del os.environ["XTM_CONFIG_DIR"]
             del os.environ["XTM_STATE_DIR"]
@@ -47,18 +48,18 @@ class TestStateFile(PathIsolationMixin):
         self.assertIsNone(xtm.read_current_profile_state())
 
     def test_only_first_line_is_used(self):
-        xtm.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        xtm.STATE_FILE.write_text("work\ngarbage\n")
+        xtm.CONTEXT.state_file.parent.mkdir(parents=True, exist_ok=True)
+        xtm.CONTEXT.state_file.write_text("work\ngarbage\n")
         self.assertEqual(xtm.read_current_profile_state(), "work")
 
     def test_blank_state_returns_none(self):
-        xtm.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        xtm.STATE_FILE.write_text("\n\n")
+        xtm.CONTEXT.state_file.parent.mkdir(parents=True, exist_ok=True)
+        xtm.CONTEXT.state_file.write_text("\n\n")
         self.assertIsNone(xtm.read_current_profile_state())
 
     def test_legacy_machine_independent_file_is_honoured(self):
-        xtm.STATE_DIR.mkdir(parents=True, exist_ok=True)
-        (xtm.STATE_DIR / "current_profile").write_text("legacy\n")
+        xtm.CONTEXT.state_dir.mkdir(parents=True, exist_ok=True)
+        (xtm.CONTEXT.state_dir / "current_profile").write_text("legacy\n")
         self.assertEqual(xtm.read_current_profile_state(), "legacy")
 
     def test_clear_state(self):
@@ -152,7 +153,7 @@ class TestConfigIO(PathIsolationMixin):
     def test_creates_default_config(self):
         config = xtm.load_config()
         self.assertIn("default", config["profiles"])
-        self.assertTrue(xtm.CONFIG_FILE.exists())
+        self.assertTrue(xtm.CONTEXT.config_file.exists())
 
     def test_round_trip_through_disk(self):
         config = xtm.load_config()
@@ -164,23 +165,23 @@ class TestConfigIO(PathIsolationMixin):
                          "htop")
 
     def test_missing_profiles_key_raises(self):
-        xtm.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        xtm.CONFIG_FILE.write_text("something: else\n")
+        xtm.CONTEXT.config_file.parent.mkdir(parents=True, exist_ok=True)
+        xtm.CONTEXT.config_file.write_text("something: else\n")
         with self.assertRaises(xtm.XtmError):
             xtm.load_config()
 
     def test_non_mapping_profiles_raises(self):
-        xtm.CONFIG_FILE.write_text("profiles: 5\n")
+        xtm.CONTEXT.config_file.write_text("profiles: 5\n")
         with self.assertRaises(xtm.XtmError):
             xtm.load_config()
 
     def test_invalid_profile_name_on_load_raises(self):
-        xtm.CONFIG_FILE.write_text('profiles:\n  "bad name":\n    sessions: {}\n')
+        xtm.CONTEXT.config_file.write_text('profiles:\n  "bad name":\n    sessions: {}\n')
         with self.assertRaises(xtm.XtmError):
             xtm.load_config()
 
     def test_numeric_names_normalised_to_strings(self):
-        xtm.CONFIG_FILE.write_text(
+        xtm.CONTEXT.config_file.write_text(
             "profiles:\n  123:\n    sessions:\n      456:\n"
             "        x: 0\n        y: 0\n        width: 8\n        height: 6\n")
         config = xtm.load_config()
@@ -213,11 +214,11 @@ class TestAtomicWrite(PathIsolationMixin):
 
     def test_dry_run_does_not_write(self):
         target = self.tmp / "file.txt"
-        xtm.DRY_RUN = True
+        xtm.CONTEXT.dry_run = True
         try:
             xtm._write_text_safe(target, "hello\n", "test file")
         finally:
-            xtm.DRY_RUN = False
+            xtm.CONTEXT.dry_run = False
         self.assertFalse(target.exists())
 
     def test_unwritable_location_raises_cleanly(self):
@@ -243,6 +244,56 @@ class TestConfigLocking(unittest.TestCase):
         self.addCleanup(shutil.rmtree, str(self.tmp), True)
         self.config = self.tmp / "config.yaml"
         self.config.write_text("profiles: {}\n")
+
+    def test_waiting_for_the_lock_is_reported(self):
+        """A run that stops silently looks like a hang; say what it waits for."""
+        lock_path = self.config.with_suffix(self.config.suffix + ".lock")
+        holder = open(str(lock_path), "w")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
+
+        records = []
+        handler = logging.Handler()
+        handler.emit = lambda record: records.append(record)
+        xtm.logger.addHandler(handler)
+        self.addCleanup(xtm.logger.removeHandler, handler)
+        saved_level = xtm.logger.level
+        xtm.logger.setLevel(logging.DEBUG)
+        self.addCleanup(xtm.logger.setLevel, saved_level)
+
+        # Release the lock from another thread so the blocking acquire
+        # completes; the message must already have been emitted by then.
+        import threading
+        timer = threading.Timer(
+            0.3, lambda: fcntl.flock(holder.fileno(), fcntl.LOCK_UN))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        with xtm.config_lock(self.config):
+            pass
+        self.assertTrue(
+            any("Waiting for another xtm" in r.getMessage() for r in records),
+            "acquiring a contended lock said nothing: %s"
+            % ([r.getMessage() for r in records],))
+
+    def test_edit_is_not_registered_as_config_mutating(self):
+        """--edit must not hold the lock across an interactive editor.
+
+        main() wraps every config-mutating command in the lock for its whole
+        duration. For --edit the "modify" step is a human typing, so holding
+        it there would block every other xtm on the machine for an unbounded
+        time. cmd_edit takes the lock around its own short writes instead.
+        """
+        entries = dict((name, mutates)
+                       for name, _handler, mutates, _needs in xtm.COMMANDS)
+        self.assertIn("edit", entries)
+        self.assertFalse(
+            entries["edit"],
+            "cmd_edit is marked config-mutating again, which makes main() "
+            "hold the config lock across the editor session")
+        # The commands that really do a read-modify-write must stay marked.
+        for name in ("set", "update_profile", "delete_profile", "rename_profile"):
+            self.assertTrue(entries[name],
+                            "%s must hold the config lock" % (name,))
 
     def test_lock_file_is_a_sibling_not_the_config_itself(self):
         # Locking the config directly would not survive the atomic
@@ -292,3 +343,71 @@ class TestConfigLocking(unittest.TestCase):
         unusable = blocker / "config.yaml"   # parent is a file, so mkdir fails
         with xtm.config_lock(unusable) as lock:
             self.assertIsNone(lock._handle)
+
+
+class TestRunContext(unittest.TestCase):
+    """The per-invocation settings object that replaced seven loose globals."""
+
+    def test_derived_paths_follow_their_sources(self):
+        """config_dir and state_file are computed, so they cannot drift.
+
+        They used to be assigned alongside the paths they came from, which
+        meant setting one without the other left the context describing two
+        different config locations at once.
+        """
+        with xtm.scoped_context() as context:
+            context.config_file = Path("/somewhere/else/config.yaml")
+            self.assertEqual(context.config_dir, Path("/somewhere/else"))
+            context.state_dir = Path("/var/state")
+            self.assertEqual(context.state_file.parent, Path("/var/state"))
+            self.assertTrue(
+                context.state_file.name.endswith(xtm.short_hostname()),
+                "the state file must stay per-machine")
+
+    def test_scoped_context_restores_every_field(self):
+        before = dict(xtm.CONTEXT.__dict__)
+        with xtm.scoped_context(dry_run=True, verify=True,
+                                frame_compensation=False):
+            self.assertTrue(xtm.CONTEXT.dry_run)
+            self.assertTrue(xtm.CONTEXT.verify)
+            self.assertFalse(xtm.CONTEXT.frame_compensation)
+        self.assertEqual(xtm.CONTEXT.__dict__, before)
+
+    def test_scoped_context_restores_after_an_exception(self):
+        before = dict(xtm.CONTEXT.__dict__)
+        with self.assertRaises(xtm.XtmError):
+            with xtm.scoped_context(dry_run=True):
+                xtm.die("boom")
+        self.assertEqual(xtm.CONTEXT.__dict__, before)
+
+    def test_scoped_context_does_not_mutate_the_outer_context(self):
+        outer = xtm.CONTEXT
+        with xtm.scoped_context(dry_run=True) as inner:
+            self.assertIsNot(inner, outer)
+            inner.config_file = Path("/tmp/inner/config.yaml")
+        self.assertIs(xtm.CONTEXT, outer)
+        self.assertFalse(outer.dry_run)
+
+    def test_scoped_contexts_nest(self):
+        with xtm.scoped_context(dry_run=True):
+            self.assertTrue(xtm.CONTEXT.dry_run)
+            with xtm.scoped_context(dry_run=False):
+                self.assertFalse(xtm.CONTEXT.dry_run)
+            self.assertTrue(xtm.CONTEXT.dry_run)
+        self.assertFalse(xtm.CONTEXT.dry_run)
+
+    def test_a_misspelled_field_is_refused(self):
+        """Silently accepting an unknown key would make a typo a no-op."""
+        with self.assertRaises(AttributeError):
+            with xtm.scoped_context(dry_runn=True):
+                pass
+        # The failed attempt must not have swapped the context out.
+        self.assertFalse(xtm.CONTEXT.dry_run)
+
+    def test_defaults_are_the_ones_a_bare_invocation_uses(self):
+        fresh = xtm.RunContext()
+        self.assertFalse(fresh.dry_run)
+        self.assertFalse(fresh.verify)
+        self.assertTrue(fresh.frame_compensation)
+        self.assertEqual(fresh.config_file, xtm.DEFAULT_CONFIG_DIR / "config.yaml")
+        self.assertEqual(fresh.state_dir, xtm.DEFAULT_STATE_DIR)

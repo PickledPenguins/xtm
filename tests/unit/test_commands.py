@@ -86,14 +86,18 @@ class TestFocusAndConfirm(RunPatchMixin):
         original = xtm.find_window_id
         xtm.find_window_id = lambda session, tool: "0x1"
         self.addCleanup(lambda: setattr(xtm, "find_window_id", original))
-        self.addCleanup(lambda: setattr(xtm, "DRY_RUN", False))
+        # Restores the whole RunContext, so nothing this class sets can
+        # leak into the next test.
+        context = xtm.scoped_context()
+        context.__enter__()
+        self.addCleanup(context.__exit__, None, None, None)
 
     def test_focus_requires_an_acting_tool(self):
         with self.assertRaises(xtm.XtmError):
             xtm.focus_window("s", "xwininfo")
 
     def test_focus_dry_run_does_nothing(self):
-        xtm.DRY_RUN = True
+        xtm.CONTEXT.dry_run = True
         self.patch_run(lambda cmd: self.fail("no command should run"))
         self.assertTrue(xtm.focus_window("s", "xdotool"))
 
@@ -108,9 +112,9 @@ class TestFocusAndConfirm(RunPatchMixin):
 
     def test_confirm_shortcuts(self):
         self.assertTrue(xtm.confirm("q", True))
-        xtm.DRY_RUN = True
+        xtm.CONTEXT.dry_run = True
         self.assertTrue(xtm.confirm("q", False))
-        xtm.DRY_RUN = False
+        xtm.CONTEXT.dry_run = False
 
     def test_confirm_reads_the_answer(self):
         original = builtins.input

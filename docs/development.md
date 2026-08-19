@@ -38,6 +38,27 @@ config + profile  ─┘
 
 ## Key design decisions
 
+**One `RunContext`, not seven globals, and not a threaded parameter.** The
+run modes (`dry_run`, `verify`, `frame_compensation`) and resolved paths
+(`config_file`, `state_dir`, and the `config_dir` / `state_file` derived from
+them) live on a single module-level `CONTEXT` object.
+
+They were seven separate globals. Collecting them does not make them less
+global -- helpers still reach for `CONTEXT` rather than being handed it --
+but it removes the failure mode that actually bit: there is one thing to save
+and restore, so a partial restore is not possible, and derived paths are
+computed rather than assigned, so they cannot fall out of step with their
+sources. `scoped_context()` is the supported way to override settings for a
+block.
+
+Threading a context parameter through all 126 functions was considered and
+rejected. It would add an argument that no call site reads to signatures like
+`_write_text_safe(path, content, description)`, making every one of them
+worse in exchange for a purity that a single-invocation CLI gets nothing
+from. If xtm ever needed two configurations live in one process, that
+calculation would change.
+
+
 - **Single file.** The tool has to be copied to servers where nothing can be
   installed; one file with a shebang is the simplest thing that can be
   deployed by `scp`.
@@ -272,12 +293,12 @@ tests:
 
 | Metric | Result |
 |---|---|
-| Statements | 1753 |
-| Line coverage | **96.0%** (1683 / 1753) |
-| Branches | 810 |
-| Branch coverage | **93.1%** (754 / 810) |
-| Combined | **95.1%** — the figure `fail_under` enforces |
-| Tests | 453, all passing |
+| Statements | 1786 |
+| Line coverage | **96.2%** (1718 / 1786) |
+| Branches | 814 |
+| Branch coverage | **93.2%** (759 / 814) |
+| Combined | **95.3%** — the figure `fail_under` enforces |
+| Tests | 488, all passing |
 
 The floor is enforced, not just reported: `.coveragerc` sets `fail_under`, so
 a drop fails the build rather than being noticed later.

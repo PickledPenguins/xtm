@@ -349,19 +349,22 @@ def socket_hostname():
 
 
 class PathIsolationMixin(unittest.TestCase):
-    """Point xtm's config and state at a scratch directory for one test."""
+    """Point xtm's config and state at a scratch directory for one test.
+
+    Enters an xtm.scoped_context() for the duration, so the whole RunContext
+    is restored afterwards. This used to save and restore five named fields
+    by hand, which meant every field added to the context was one someone
+    had to remember to add here too -- and forgetting left state leaking
+    into whatever test ran next.
+    """
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="xtm-test-"))
         self.addCleanup(shutil.rmtree, str(self.tmp), True)
-        self._saved = (xtm.CONFIG_DIR, xtm.CONFIG_FILE, xtm.STATE_DIR,
-                       xtm.STATE_FILE, xtm.DRY_RUN)
-        self.addCleanup(self._restore)
+        self._context = xtm.scoped_context()
+        self._context.__enter__()
+        self.addCleanup(self._context.__exit__, None, None, None)
         xtm.resolve_paths(str(self.tmp / "config.yaml"), str(self.tmp / "state"))
-
-    def _restore(self):
-        (xtm.CONFIG_DIR, xtm.CONFIG_FILE, xtm.STATE_DIR, xtm.STATE_FILE,
-         xtm.DRY_RUN) = self._saved
 
 
 class IntegrationBase(unittest.TestCase):

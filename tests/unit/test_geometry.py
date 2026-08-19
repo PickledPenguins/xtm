@@ -72,11 +72,11 @@ class TestPlacementSequences(unittest.TestCase):
         self.assertIn("\x1b[3;-1920;-50t", self.read_all())
 
     def test_dry_run_writes_nothing(self):
-        xtm.DRY_RUN = True
+        xtm.CONTEXT.dry_run = True
         try:
             xtm.place_window("s", {"x": 1, "y": 2, "width": 3, "height": 4})
         finally:
-            xtm.DRY_RUN = False
+            xtm.CONTEXT.dry_run = False
         self.assertEqual(self.read_all(), "")
 
     def test_missing_client_is_an_error(self):
@@ -95,36 +95,41 @@ class TestFrameCompensation(unittest.TestCase):
     capture/restore cycle walks every window down and right."""
 
     def setUp(self):
+        # The context manager restores every RunContext field, so this class
+        # only has to save the module functions it monkeypatches.
+        context = xtm.scoped_context()
+        context.__enter__()
+        self.addCleanup(context.__exit__, None, None, None)
         self.saved = (xtm._read_raw_geometry, xtm.find_window_id,
-                      xtm.get_frame_extents, xtm.FRAME_COMPENSATION)
+                      xtm.get_frame_extents)
         xtm._read_raw_geometry = lambda s, t: {"x": 105, "y": 133,
                                                "width": 900, "height": 700}
         xtm.find_window_id = lambda s, t: "0x100"
         self.addCleanup(self._restore)
 
     def _restore(self):
-        (xtm._read_raw_geometry, xtm.find_window_id, xtm.get_frame_extents,
-         xtm.FRAME_COMPENSATION) = self.saved
+        (xtm._read_raw_geometry, xtm.find_window_id,
+         xtm.get_frame_extents) = self.saved
 
     def test_extents_are_subtracted(self):
         xtm.get_frame_extents = lambda win_id: (5, 5, 33, 5)
-        xtm.FRAME_COMPENSATION = True
+        xtm.CONTEXT.frame_compensation = True
         self.assertEqual(xtm.get_window_geometry("s", "xdotool"),
                          {"x": 100, "y": 100, "width": 900, "height": 700})
 
     def test_missing_extents_leaves_position_alone(self):
         xtm.get_frame_extents = lambda win_id: None
-        xtm.FRAME_COMPENSATION = True
+        xtm.CONTEXT.frame_compensation = True
         self.assertEqual(xtm.get_window_geometry("s", "xdotool")["x"], 105)
 
     def test_compensation_can_be_disabled_globally(self):
         xtm.get_frame_extents = lambda win_id: (5, 5, 33, 5)
-        xtm.FRAME_COMPENSATION = False
+        xtm.CONTEXT.frame_compensation = False
         self.assertEqual(xtm.get_window_geometry("s", "xdotool")["y"], 133)
 
     def test_compensation_can_be_disabled_per_call(self):
         xtm.get_frame_extents = lambda win_id: (5, 5, 33, 5)
-        xtm.FRAME_COMPENSATION = True
+        xtm.CONTEXT.frame_compensation = True
         self.assertEqual(
             xtm.get_window_geometry("s", "xdotool", compensate=False)["y"], 133)
 
