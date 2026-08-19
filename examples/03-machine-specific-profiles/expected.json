@@ -1,0 +1,23 @@
+{
+  "on_switch": "detach",
+  "prefix": "",
+  "profile": "presentation",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1200,
+        "width": 1720,
+        "x": 100,
+        "y": 100
+      },
+      "cwd": null,
+      "name": "demo",
+      "session": "demo",
+      "shared": false,
+      "title": "xtm:demo"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

@@ -1,0 +1,36 @@
+# Slots, prefixes, and one deliberately shared session.
+#
+# A SLOT is a position on screen. A SESSION is the tmux session attached to
+# it. They are separate so two profiles can use the same slot names without
+# fighting over the same tmux sessions.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions: {}
+
+  dev:
+    # With a prefix, slot `editor` becomes tmux session `dev-editor`. The
+    # profile therefore OWNS its sessions: they come and go with it, and
+    # cannot collide with another profile's slot of the same name.
+    prefix: dev-
+    on_switch: detach          # switching away closes the windows, keeps the work
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      shell:  {x: 1200, y: 0, width: 720, height: 700}
+      # An explicit `session:` is used verbatim and never prefixed. This is
+      # the supported way to share one session between profiles: both write
+      # the same name and land on the same tmux session, which then persists
+      # across a profile switch instead of being detached with the rest.
+      notes:  {x: 1200, y: 700, width: 720, height: 700, session: scratchpad}
+
+  ops:
+    prefix: ops-
+    on_switch: detach
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      # Same slot name as in `dev`, but a different session (ops-editor),
+      # so the two profiles do not interfere.
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      # The same shared session, in a different place on screen.
+      notes:  {x: 1200, y: 0, width: 720, height: 1400, session: scratchpad}

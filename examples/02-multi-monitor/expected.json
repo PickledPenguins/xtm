@@ -1,0 +1,65 @@
+{
+  "on_switch": "detach",
+  "prefix": "",
+  "profile": "dual",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1000,
+        "width": 1900,
+        "x": -1920,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "reference",
+      "session": "reference",
+      "shared": false,
+      "title": "xtm:reference"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 1900,
+        "x": -1920,
+        "y": 1000
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "notes",
+      "shared": false,
+      "title": "xtm:notes"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1400,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "editor",
+      "shared": false,
+      "title": "xtm:editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 520,
+        "x": 1400,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "shell",
+      "session": "shell",
+      "shared": false,
+      "title": "xtm:shell"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

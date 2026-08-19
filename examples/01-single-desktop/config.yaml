@@ -1,0 +1,12 @@
+# The smallest useful xtm config: three windows, fixed positions, one screen.
+profiles:
+  default:
+    # Fallback size and position for any session with no configured place.
+    # Each successive unplaced window is offset by offset_x/offset_y so they
+    # do not land exactly on top of one another.
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      # x, y, width, height in pixels. x,y is the top-left corner.
+      editor: {x: 0,    y: 0, width: 1200, height: 1400}
+      shell:  {x: 1200, y: 0, width: 720,  height: 700}
+      logs:   {x: 1200, y: 700, width: 720, height: 700}

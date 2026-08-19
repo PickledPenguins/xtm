@@ -51,7 +51,7 @@ jobs:
           PY
 
       - name: Run the suite
-        run: python -m unittest test_xtm -v
+        run: python -m unittest discover -t . -s tests -v
 
   legacy:
     name: py3.6 compatibility
@@ -76,7 +76,7 @@ jobs:
             INSTALL=""
           fi
           docker run --rm -v "$PWD:/w" -w /w python:3.6-slim \
-            sh -c "$INSTALL python -m unittest test_xtm"
+            sh -c "$INSTALL python -m unittest discover -t . -s tests"
 
   check:
     name: lint · coverage · clean tree
@@ -94,12 +94,20 @@ jobs:
 
       - name: Lint
         run: |
-          python -m pyflakes xtm.py test_xtm.py
-          python -m py_compile xtm.py test_xtm.py
+          python -m pyflakes xtm.py $(find tests -name '*.py')
+          python -m py_compile xtm.py $(find tests -name '*.py')
 
       # make coverage sets up subprocess tracking. Without it the integration
       # tests, which run xtm.py as a child process, contribute nothing and
       # the figure drops from ~94% to ~63%.
+      - name: Examples
+        run: make examples
+
+      # Catches a test that only passes because an earlier module left
+      # global state behind.
+      - name: Each test module in isolation
+        run: make test-isolated
+
       - name: Coverage
         run: make coverage
 

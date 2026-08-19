@@ -1,0 +1,45 @@
+# The dependency-free path.
+#
+# xtm uses PyYAML when it is importable and its own parser when it is not,
+# so it runs unmodified on servers where nothing can be installed. This
+# example is run by the test runner with PyYAML deliberately hidden, and its
+# recorded output is compared against the same config read the normal way.
+# If the two parsers ever disagree, this example fails.
+#
+# Every construct below is one the built-in parser has to handle.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions: {}
+
+  portable:                        # a comment after a key
+    prefix: p-
+    # Flow-style mapping, the compact form used throughout the docs.
+    stack: {x: 20, y: 20, width: 700, height: 900, offset_x: 30, offset_y: 30}
+    sessions:
+      # Flow mapping with an inline comment following it.
+      editor: {x: 0, y: 0, width: 1000, height: 1400}   # the main window
+      shell:
+        # Block mapping, one key per line.
+        x: 1000
+        y: 0
+        width: 900
+        height: 700
+        # Flow sequence.
+        xterm_args: [-fn, fixed]
+      logs:
+        x: 1000
+        y: 700
+        width: 900
+        height: 700
+        # Block sequence, in the indent style people write by hand. PyYAML
+        # writes the other style (items at the key's own indent); both must
+        # read the same.
+        xterm_args:
+          - -fn
+          - fixed
+          - -fg
+          - white
+        # Quoted, because unquoted `yes` is a boolean to PyYAML and text to
+        # the built-in parser. xtm refuses the ambiguous spelling outright.
+        title: "yes"

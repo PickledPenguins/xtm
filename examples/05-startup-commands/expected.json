@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "work-",
+  "profile": "work",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": "~/src/project",
+      "name": "editor",
+      "session": "work-editor",
+      "shared": false,
+      "title": "work: editor"
+    },
+    {
+      "command": "journalctl -f | grep -v DEBUG",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "work-logs",
+      "shared": false,
+      "title": "work: logs"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": "/srv/app",
+      "name": "production",
+      "session": "work-production",
+      "shared": false,
+      "title": "PRODUCTION - work-production"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

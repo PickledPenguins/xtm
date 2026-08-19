@@ -1,0 +1,20 @@
+# Two monitors, with the secondary positioned to the LEFT of the primary.
+#
+# A monitor left of the primary occupies negative x. That is the reason xtm
+# takes geometry as "x,y,width,height" rather than the classic X geometry
+# string "WxH+X+Y": in X geometry a leading '-' means "measured from the
+# opposite edge", which cannot express a genuinely negative coordinate.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions: {}
+
+  dual:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      # Left-hand monitor, 1920 wide, so its windows live at negative x.
+      reference: {x: -1920, y: 0, width: 1900, height: 1000}
+      notes:     {x: -1920, y: 1000, width: 1900, height: 400}
+      # Primary monitor, starting at the origin.
+      editor:    {x: 0, y: 0, width: 1400, height: 1400}
+      shell:     {x: 1400, y: 0, width: 520, height: 1400}

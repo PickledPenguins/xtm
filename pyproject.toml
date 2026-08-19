@@ -1,0 +1,54 @@
+# Packaging for xtm.
+#
+# This is an ADDITION to install.sh, not a replacement for it. xtm targets
+# machines where you cannot install anything -- no pip, no network, often no
+# write access outside your home directory -- and on those, copying one file
+# is the only thing that works. install.sh stays the primary path and is what
+# the README documents first.
+#
+# This file exists for the other case: a developer who wants `pip install -e .`
+# for editable installs and tooling integration, or a distribution that
+# prefers a wheel.
+#
+# xtm is deliberately a single module with no runtime dependencies. Keep it
+# that way: the module docstring explains why, and CI runs the suite with
+# PyYAML both present and absent to prove the optional dependency stays
+# optional.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xtm"
+version = "0.5"
+description = "xterm + tmux workspace manager: named window layouts, per machine"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {file = "LICENSE"}
+keywords = ["tmux", "xterm", "x11", "window-manager", "workspace"]
+classifiers = [
+    "Environment :: X11 Applications",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Desktop Environment :: Window Managers",
+    "Topic :: Utilities",
+]
+
+# None. PyYAML is used when importable and a built-in parser is used when it
+# is not, so it must never become a hard requirement.
+dependencies = []
+
+[project.optional-dependencies]
+# Nicer YAML round-tripping when it happens to be available.
+yaml = ["PyYAML>=3.12"]
+# Everything needed to run `make check`.
+dev = ["PyYAML>=3.12", "coverage>=7.2", "pyflakes"]
+
+[project.scripts]
+xtm = "xtm:main"
+
+[tool.setuptools]
+py-modules = ["xtm"]

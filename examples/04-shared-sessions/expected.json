@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "dev-",
+  "profile": "dev",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "dev-editor",
+      "shared": false,
+      "title": "xtm:dev-editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "shell",
+      "session": "dev-shell",
+      "shared": false,
+      "title": "xtm:dev-shell"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "scratchpad",
+      "shared": true,
+      "title": "xtm:scratchpad"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

@@ -43,6 +43,26 @@ independent of what happens to be installed on the machine running it.
   a run cannot kill sessions belonging to a different machine's layout. The
   help now says so.
 
+### Project structure
+
+- Split the single 4,500-line test file into a `tests/` package grouped by
+  what each module tests: `unit/`, `integration/`, `differential/`,
+  `fault_injection/`, `load/`, `safety/` and `examples/`, over a shared
+  `tests/support.py`. Test IDs were compared before and after to confirm the
+  split moved every test and invented none.
+- Added `examples/`: six worked configurations, each with a `config.yaml`, a
+  `README.md` explaining what it demonstrates, and an `expected.json`. They
+  run in CI, so an example that stops describing the tool fails the build
+  instead of quietly rotting.
+- Added `make test-isolated`, which runs each test module in a fresh
+  interpreter. It immediately found a test that only passed because an
+  earlier one had called `setup_logging()` and left the module logger at
+  DEBUG.
+- Split the 1,380-line README: the user guide stays, behavioural detail moves
+  to `docs/reference.md`, and developer notes to `docs/development.md`.
+- Added `pyproject.toml` for `pip install -e .`. `install.sh` remains the
+  primary path, since xtm targets machines where pip is not an option.
+
 ### Testing
 
 - The integration tests no longer append the real `PATH` to their fake tool

@@ -1,0 +1,36 @@
+# One config file, shared across several machines.
+#
+# A profile with a 'match' block is machine-specific: it is only visible and
+# selectable on a host whose name matches, so a laptop's layout does not
+# clutter the workstation. A profile WITHOUT a match block is global.
+profiles:
+  # Reserved. Always exists, always global, always the last resort of
+  # profile resolution, so a bare `xtm` works on any machine.
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions: {}
+
+  laptop:
+    # A shell glob against the short hostname. Auto-selected on a match.
+    match: {hostname: thinkpad*}
+    stack: {x: 20, y: 20, width: 700, height: 900, offset_x: 30, offset_y: 30}
+    sessions:
+      work1: {x: 0, y: 0, width: 1000, height: 1400}
+      logs:  {x: 1000, y: 0, width: 900, height: 700}
+
+  workstation:
+    # A list covers several machines sharing one screen layout.
+    match: {hostname: [dev-box, dev-box-2, build-*]}
+    stack: {x: 40, y: 40, width: 1000, height: 800, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1600, height: 1400}
+      shell:  {x: 1600, y: 0, width: 800, height: 700}
+      logs:   {x: 1600, y: 700, width: 800, height: 700}
+
+  # Global: available everywhere, but never auto-selected, because being
+  # available on every machine is no evidence it belongs on THIS one.
+  # Reach it by name: `xtm presentation`.
+  presentation:
+    stack: {x: 100, y: 100, width: 1400, height: 900, offset_x: 0, offset_y: 0}
+    sessions:
+      demo: {x: 100, y: 100, width: 1720, height: 1200}

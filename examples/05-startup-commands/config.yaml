@@ -1,0 +1,48 @@
+# What a window runs, where it starts, and what it looks like.
+#
+# Note: command, cwd and xterm_args apply when the session is CREATED. tmux
+# ignores them when attaching to a session that already exists, so changing
+# them takes effect after the session is closed and reopened, not on the
+# next --reset.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions: {}
+
+  work:
+    prefix: work-
+    # Profile-wide window title template. {slot}, {session} and {profile}
+    # are available. The instance name (WM_CLASS) is NOT configurable, so a
+    # custom title can never break window discovery.
+    title: "{profile}: {slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor:
+        x: 0
+        y: 0
+        width: 1200
+        height: 1400
+        cwd: ~/src/project
+
+      logs:
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        # Passed to tmux as a single argument, so pipelines and && work
+        # exactly as written here.
+        command: journalctl -f | grep -v DEBUG
+
+      production:
+        x: 1200
+        y: 700
+        width: 720
+        height: 700
+        cwd: /srv/app
+        # Extra xterm arguments, inserted before -e. Colour-coding a
+        # production window differently from a development one is the
+        # reason this exists: it is hard to type into the wrong terminal
+        # when that terminal is bright red.
+        xterm_args: [-bg, "#3a0d0d", -fg, "#ffd7d7"]
+        # A per-slot title overrides the profile template.
+        title: "PRODUCTION - {session}"
