@@ -240,3 +240,70 @@ class TestYamlBackendEquivalence(unittest.TestCase):
                          "a PyYAML-written config was unreadable without "
                          "PyYAML: %r" % (data,))
         self.assertEqual(data, config)
+
+
+class TestYamlBackendFuzz(unittest.TestCase):
+    """Randomised search for values the two backends read differently.
+
+    The hand-written corpus above encodes the divergences somebody thought
+    to look for. This looks for the ones nobody did: it generates tokens
+    from the alphabet where YAML's type resolution actually lives -- digits,
+    signs, dots, colons, underscores, exponent and base letters -- and
+    requires the two backends to agree on every one.
+
+    It earns its place. Run against the first version of the ambiguity
+    guard it found four separate holes that the curated corpus missed:
+    a leading '+' on an octal or sexagesimal literal, non-ASCII digits,
+    underscores in a leading-dot float, and a fractional sexagesimal.
+
+    Seeds are fixed so a failure is reproducible; the failure message names
+    the token, so a new hole is a one-line addition to the corpus above.
+    """
+
+    SEEDS = (7, 99, 20260819)
+    ALPHABET = "0123456789+-._:eExXbBoOaAfF/ "
+    TOKENS_PER_LENGTH = 400
+    MAX_LENGTH = 9
+
+    def setUp(self):
+        if not xtm.HAVE_PYYAML:
+            self.skipTest("PyYAML is not installed, so there is nothing to "
+                          "compare the built-in parser against")
+        self._saved = xtm.HAVE_PYYAML
+        self.addCleanup(setattr, xtm, "HAVE_PYYAML", self._saved)
+
+    def _reading(self, text, use_pyyaml):
+        """How one backend reads `text`, with every refusal reading alike.
+
+        Which backend produced which error message does not matter; that
+        both refused does, because refusing together is agreement.
+        """
+        xtm.HAVE_PYYAML = use_pyyaml
+        try:
+            return ("ok", xtm.load_yaml(text))
+        except xtm.XtmError:
+            return ("refused", None)
+
+    def test_no_token_is_read_differently_by_the_two_backends(self):
+        import random
+        for seed in self.SEEDS:
+            rng = random.Random(seed)
+            tokens = set()
+            for length in range(1, self.MAX_LENGTH):
+                for _ in range(self.TOKENS_PER_LENGTH):
+                    tokens.add("".join(rng.choice(self.ALPHABET)
+                                       for _ in range(length)))
+            for token in tokens:
+                token = token.strip()
+                # A '#' would start a comment and a newline would end the
+                # line; neither is a scalar any more.
+                if not token or "#" in token or "\n" in token:
+                    continue
+                text = "profiles:\n  a: %s\n" % (token,)
+                builtin = self._reading(text, False)
+                pyyaml_ = self._reading(text, True)
+                self.assertEqual(
+                    builtin, pyyaml_,
+                    "seed %d: the value %r is read differently depending on "
+                    "whether PyYAML is installed -- built-in gave %r, PyYAML "
+                    "gave %r" % (seed, token, builtin, pyyaml_))

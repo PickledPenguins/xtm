@@ -29,6 +29,16 @@ independent of what happens to be installed on the machine running it.
   both indent styles, so hand-written lists work too.
 - **A quoted key containing a colon was cut in half** by the built-in
   parser, which split on the first colon regardless of quoting.
+- **Further backend divergences found by fuzzing the guard itself**, all of
+  the same class: a leading `+` on an octal or sexagesimal literal (`+0755`,
+  `+1:30`), non-ASCII decimal digits, underscores in a leading-dot float
+  (`.337_`), a fractional sexagesimal (`-0:40.`), and a signed leading-dot
+  float (`+.5`, which PyYAML reads as text and the built-in parser read as a
+  number). A value containing `: ` or ending in `:`, and one opening with a
+  list indicator, are now refused by both rather than silently accepted as
+  text by one. A randomised differential test now sweeps roughly 40,000
+  generated tokens per seed and requires the two backends to agree on every
+  one.
 - **Malformed YAML was silently accepted** by the built-in parser where
   PyYAML rejected it: an unterminated quote or an unbalanced `{`/`[` became
   an ordinary string. Both are now errors under either backend.

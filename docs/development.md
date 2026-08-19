@@ -4,11 +4,11 @@ Architecture, design decisions, how to extend the tool, and how the test suite i
 
 ## Architecture
 
-A single file, `xtm.py`, roughly 2600 lines including documentation. The
+A single file, `xtm.py`, roughly 3700 lines including documentation. The
 layout is bottom-up: primitives first, then the layers that use them, then
-the commands, then the CLI. There are no classes beyond a log formatter, a
-lock context manager and the error type; everything else is a function
-operating on plain dictionaries loaded from YAML.
+the commands, then the CLI. There are only four classes -- a log formatter,
+the lock context manager, the error type and `RunContext`; everything else is
+a function operating on plain dictionaries loaded from YAML.
 
 ```
 argument parsing  ─┐
@@ -18,6 +18,7 @@ config + profile  ─┘
 
 | Layer | Responsibility | Representative functions |
 |---|---|---|
+| Run context | Resolved paths and run modes for one invocation | `RunContext`, `CONTEXT`, `scoped_context`, `resolve_paths` |
 | Logging | Console and file handlers, level resolution | `setup_logging`, `console_level_from_args`, `_ConsoleFormatter` |
 | Errors | Single user-facing exception, raised by `die()` | `XtmError`, `die` |
 | Validation | Name charset, geometry shape and numeric sanity | `validate_session_name`, `validate_geometry`, `validate_profile` |

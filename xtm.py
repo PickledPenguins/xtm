@@ -731,23 +731,39 @@ def _strip_inline_comment(line: str) -> str:
 # merely start with a digit, dot or dash -- `.config/xtm`, `-e`, `2>&1` --
 # are untouched.
 
+# Every numeric pattern accepts a leading '+' as well as '-'. YAML 1.1 does,
+# so "+0755" is octal to PyYAML exactly as "0755" is; a sign-blind pattern
+# would let the signed spelling through the guard it was written to close.
 _YAML_AMBIGUOUS_PATTERNS = (
-    (re.compile(r"^-?0[0-9_]+\Z"),
+    (re.compile(r"^[-+]?0[0-9_]+\Z"),
      "a leading zero, which PyYAML reads as octal and the built-in parser "
      "reads as decimal"),
-    (re.compile(r"^-?0[xXbBoO][0-9a-fA-F_]+\Z"),
+    (re.compile(r"^[-+]?0[xXbBoO][0-9a-fA-F_]+\Z"),
      "a base prefix, which only PyYAML understands"),
-    (re.compile(r"^-?[0-9][0-9_]*_[0-9_]*\Z"),
-     "digit separators, which only PyYAML understands"),
-    (re.compile(r"^-?[0-9][0-9_]*(:[0-9]{1,2})+\Z"),
+
+    (re.compile(r"^[-+]?[0-9][0-9_]*(:[0-9]{1,2})+(\.[0-9_]*)?\Z"),
      "colons, which PyYAML reads as a sexagesimal number (1:30 becomes 90)"),
-    (re.compile(r"^-?([0-9]+\.?[0-9]*|\.[0-9]+)[eE][-+]?[0-9]+\Z"),
+    (re.compile(r"^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)[eE][-+]?[0-9]+\Z"),
      "scientific notation, which the two parsers disagree about"),
     (re.compile(r"^[-+]?\.(inf|Inf|INF|nan|NaN|NAN)\Z"),
      "an infinity or not-a-number literal, which only PyYAML understands"),
     (re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ][0-9:.+\-Zz]*)?\Z"),
      "a date, which PyYAML turns into a date object"),
 )
+
+# A number once its digit separators are stripped. Used to spot "1_000" and
+# "1_0.5" without the regex accidentally matching plain "1.5" -- an earlier
+# attempt to fold this into the pattern table above did exactly that and
+# rejected every ordinary decimal.
+_YAML_NUMBER_RE = re.compile(
+    r"^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?\Z")
+
+
+def _has_digit_separators(raw: str) -> bool:
+    """Whether `raw` is a number written with underscores, which only PyYAML
+    understands (it reads 1_000 as 1000; the built-in parser sees text)."""
+    return "_" in raw and bool(_YAML_NUMBER_RE.match(raw.replace("_", "")))
+
 
 # YAML 1.1 booleans. `true`/`false` are read the same way by both parsers and
 # so are deliberately absent here; these four are not.
@@ -768,6 +784,12 @@ def _reject_ambiguous_scalar(tok: str, context: str) -> None:
             "text by the built-in parser, so this config would behave "
             "differently depending on whether PyYAML is installed. Quote it "
             "as \"%s\" if you mean the word." % (context, raw, raw))
+    if _has_digit_separators(raw):
+        die("%s: the value %s has digit separators, which only PyYAML "
+            "understands, so this config would be read differently depending "
+            "on whether PyYAML is installed. Write it as a plain decimal "
+            "number, or quote it as \"%s\" if you mean the literal text."
+            % (context, raw, raw))
     for pattern, reason in _YAML_AMBIGUOUS_PATTERNS:
         if pattern.match(raw):
             die("%s: the value %s has %s, so this config would be read "
@@ -864,6 +886,34 @@ def _reject_unbalanced(tok: str) -> None:
         die("Unbalanced brackets or braces in config value: %s" % (tok,))
 
 
+def _reject_plain_scalar_colon(tok: str) -> None:
+    """Refuse an unquoted value that YAML would read as a nested mapping.
+
+    In YAML a colon only ends a key when it is followed by whitespace or by
+    the end of the line, so `ssh host:port` and `http://example/x` are
+    perfectly ordinary values -- but `a: some value:` is a syntax error,
+    because that trailing colon looks like the start of a nested mapping.
+    PyYAML raises on it; the built-in parser used to hand back the string
+    "some value:" instead.
+
+    Only reached for plain scalars: quoted values and flow collections are
+    handled by the branches above, and a flow mapping legitimately contains
+    ": " everywhere.
+    """
+    if tok.endswith(":") or ": " in tok:
+        die("Unquoted value %r contains a colon followed by a space or the "
+            "end of the value, which YAML reads as the start of a nested "
+            "mapping. Quote it if it is meant to be text." % (tok,))
+    # "- " opens a block sequence, which cannot begin on the value line.
+    # A bare "-fn" is an ordinary value and is deliberately unaffected: only
+    # a dash followed by a space, or a dash alone, is the list indicator.
+    if tok == "-" or tok.startswith("- "):
+        die("Unquoted value %r starts with a list indicator, which YAML "
+            "cannot read on the same line as its key. Put the list items on "
+            "their own lines, or quote the value if it is meant to be text."
+            % (tok,))
+
+
 def _simple_yaml_scalar_load(tok: str) -> Any:
     """Parse one scalar, flow list or flow mapping produced by hand or by
     _simple_yaml_dump."""
@@ -886,9 +936,18 @@ def _simple_yaml_scalar_load(tok: str) -> Any:
         if not inner:
             return []
         return [_simple_yaml_scalar_load(p) for p in _split_top_level(inner)]
-    if re.match(r"^-?\d+$", tok):
+    _reject_plain_scalar_colon(tok)
+    # [0-9] rather than \d, and \Z rather than $, both deliberately. In
+    # Python 3 \d also matches non-ASCII decimal digits and int() accepts
+    # them, so "\uff11\uff12\uff13" would become 123 here while PyYAML --
+    # which takes only ASCII digits -- keeps it a string. And $ also matches
+    # just before a trailing newline, so "12\n" would parse as 12.
+    if re.match(r"^[-+]?[0-9]+\Z", tok):
         return int(tok)
-    if re.match(r"^-?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?$", tok):
+    # The sign placement mirrors PyYAML's float grammar exactly: it allows a
+    # sign on "1.5" but not on ".5", so "+.5" and "-.5" are strings to it.
+    # Accepting them as floats here would put the divergence back.
+    if re.match(r"^([-+]?[0-9]+\.[0-9]*|\.[0-9]+)([eE][-+][0-9]+)?\Z", tok):
         return float(tok)
     return tok
 
