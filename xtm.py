@@ -454,6 +454,13 @@ class config_lock(object):
 
     def __enter__(self) -> "config_lock":
         """Take the exclusive lock, degrading to no locking on failure."""
+        if DRY_RUN:
+            # A dry run promises to touch nothing, and this was the one write
+            # path that ignored it: creating the lock file (and its parent
+            # directory) left `xtm -N` with a filesystem side effect. There is
+            # nothing to serialise anyway, since no write will follow.
+            logger.debug("[dry-run] not creating the config lock %s", self.path)
+            return self
         try:
             import fcntl
         except ImportError:  # pragma: no cover - non-POSIX platforms only
@@ -606,10 +613,172 @@ def _strip_inline_comment(line: str) -> str:
     return line
 
 
+# --------------------------------------------------------------------------
+# Cross-backend ambiguity guard
+# --------------------------------------------------------------------------
+#
+# PyYAML implements YAML 1.1, which reads a number of unquoted scalars in
+# ways the built-in parser deliberately does not: 0755 is octal (493), 1:30
+# is sexagesimal (90), 0x1f is hex, 1_000 has digit separators, `yes` is
+# boolean True, and 2026-01-01 is a date object. The built-in parser reads
+# every one of those as either a plain decimal number or a string.
+#
+# That means the SAME config file could place a window at two different
+# coordinates depending only on whether PyYAML happens to be installed --
+# silently, because both readings are valid numbers that pass validation.
+# For a tool whose whole point is running unmodified on machines where
+# nothing can be installed, that is the worst possible failure mode.
+#
+# Rather than teach the built-in parser all of YAML 1.1 (a large amount of
+# code, and it would import YAML 1.1's footguns on purpose), these forms are
+# rejected before either backend sees them. Both backends then behave
+# identically: a clear error naming the value and how to fix it. Nothing is
+# lost, because xtm's schema is pixel geometry and a handful of strings --
+# no config has a legitimate use for octal, hex, sexagesimal or dates, and
+# any of them can still be written as a quoted string.
+#
+# Each pattern is anchored and matches a WHOLE token, so ordinary values that
+# merely start with a digit, dot or dash -- `.config/xtm`, `-e`, `2>&1` --
+# are untouched.
+
+_YAML_AMBIGUOUS_PATTERNS = (
+    (re.compile(r"^-?0[0-9_]+\Z"),
+     "a leading zero, which PyYAML reads as octal and the built-in parser "
+     "reads as decimal"),
+    (re.compile(r"^-?0[xXbBoO][0-9a-fA-F_]+\Z"),
+     "a base prefix, which only PyYAML understands"),
+    (re.compile(r"^-?[0-9][0-9_]*_[0-9_]*\Z"),
+     "digit separators, which only PyYAML understands"),
+    (re.compile(r"^-?[0-9][0-9_]*(:[0-9]{1,2})+\Z"),
+     "colons, which PyYAML reads as a sexagesimal number (1:30 becomes 90)"),
+    (re.compile(r"^-?([0-9]+\.?[0-9]*|\.[0-9]+)[eE][-+]?[0-9]+\Z"),
+     "scientific notation, which the two parsers disagree about"),
+    (re.compile(r"^[-+]?\.(inf|Inf|INF|nan|NaN|NAN)\Z"),
+     "an infinity or not-a-number literal, which only PyYAML understands"),
+    (re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ][0-9:.+\-Zz]*)?\Z"),
+     "a date, which PyYAML turns into a date object"),
+)
+
+# YAML 1.1 booleans. `true`/`false` are read the same way by both parsers and
+# so are deliberately absent here; these four are not.
+_YAML_AMBIGUOUS_WORDS = ("yes", "no", "on", "off")
+
+
+def _reject_ambiguous_scalar(tok: str, context: str) -> None:
+    """Refuse one unquoted scalar that the two YAML backends read differently.
+
+    Quoted scalars are exempt: quoting is exactly how a user says "this is
+    the literal string", and both backends agree on quoted text.
+    """
+    raw = tok.strip()
+    if not raw or raw[0] in "\"'":
+        return
+    if raw.lower() in _YAML_AMBIGUOUS_WORDS:
+        die("%s: the unquoted value %s is read as a boolean by PyYAML and as "
+            "text by the built-in parser, so this config would behave "
+            "differently depending on whether PyYAML is installed. Quote it "
+            "as \"%s\" if you mean the word." % (context, raw, raw))
+    for pattern, reason in _YAML_AMBIGUOUS_PATTERNS:
+        if pattern.match(raw):
+            die("%s: the value %s has %s, so this config would be read "
+                "differently depending on whether PyYAML is installed. Write "
+                "it as a plain decimal number, or quote it as \"%s\" if you "
+                "mean the literal text." % (context, raw, reason, raw))
+
+
+def _scan_for_ambiguous_scalars(text: str) -> None:
+    """Check every unquoted value in a config for cross-backend ambiguity.
+
+    Runs on the raw text before either backend parses it, which is the only
+    point where the original spelling is still available: once PyYAML has
+    turned 0755 into 493 the evidence is gone.
+    """
+    for lineno, raw_line in enumerate(text.split("\n"), 1):
+        line = _strip_inline_comment(raw_line).strip()
+        if not line or line.startswith("#"):
+            continue
+        context = "%s line %d" % (CONFIG_FILE, lineno)
+        if line == "-" or line.startswith("- "):
+            # Block sequence item: the whole remainder is the value.
+            _scan_value(line[1:].strip(), context)
+            continue
+        _, _, value = _partition_key(line)
+        _scan_value(value.strip(), context)
+
+
+def _scan_value(value: str, context: str) -> None:
+    """Check one value, descending into flow collections."""
+    if not value:
+        return
+    if value.startswith("{") and value.endswith("}"):
+        for part in _split_top_level(value[1:-1]):
+            if part.strip():
+                _, _, inner = _partition_key(part.strip())
+                _scan_value(inner.strip(), context)
+        return
+    if value.startswith("[") and value.endswith("]"):
+        for part in _split_top_level(value[1:-1]):
+            _scan_value(part.strip(), context)
+        return
+    _reject_ambiguous_scalar(value, context)
+
+
+def _partition_key(line: str) -> Tuple[str, str, str]:
+    """Split "key: value" at the first colon that is OUTSIDE quotes.
+
+    str.partition(":") is not good enough: a quoted key such as
+    "bad:name": {...} would be cut in half, yielding the key '"bad'. That
+    is a third way for the two backends to disagree, since PyYAML honours
+    the quotes. Returns (key, separator, value), with an empty separator
+    when the line holds no top-level colon at all.
+    """
+    quote = ""
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+            continue
+        if ch == ":":
+            return line[:i], ":", line[i + 1:]
+    return line, "", ""
+
+
+def _reject_unbalanced(tok: str) -> None:
+    """Refuse a scalar with an unterminated quote or flow collection.
+
+    Without this the built-in parser silently accepts input PyYAML rejects
+    outright: `a: "unterminated` falls through to the plain-text branch and
+    becomes the string '"unterminated', and `a: {x: 1, y: 2` becomes the
+    string '{x: 1, y: 2'. Both are malformed YAML, and a config that errors
+    on a machine with PyYAML must not quietly load on one without it.
+    """
+    quote = ""
+    depth = 0
+    for ch in tok:
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+    if quote:
+        die("Unterminated %s quote in config value: %s" % (quote, tok))
+    if depth:
+        die("Unbalanced brackets or braces in config value: %s" % (tok,))
+
+
 def _simple_yaml_scalar_load(tok: str) -> Any:
     """Parse one scalar, flow list or flow mapping produced by hand or by
     _simple_yaml_dump."""
     tok = tok.strip()
+    _reject_unbalanced(tok)
     if tok in ("", "~", "null", "Null", "NULL"):
         return None
     if tok in ("true", "True", "TRUE"):
@@ -649,9 +818,9 @@ def _simple_yaml_flow_mapping_load(tok: str) -> Dict[str, Any]:
         part = part.strip()
         if not part:
             continue
-        if ":" not in part:
+        key, sep, value = _partition_key(part)
+        if not sep:
             die("Malformed flow mapping entry %r in config." % (part,))
-        key, _, value = part.partition(":")
         key = _simple_yaml_scalar_load(key.strip())
         result[str(key)] = _simple_yaml_scalar_load(value)
     return result
@@ -684,22 +853,66 @@ def _simple_yaml_load(text: str) -> Dict[str, Any]:
         lines.append((indent // 2, line.strip()))
 
     root = {}  # type: Dict[str, Any]
-    stack = [(-1, root)]  # type: List[Tuple[int, Dict[str, Any]]]
+    stack = [(-1, root)]  # type: List[Tuple[int, Any]]
+    # A "key:" with nothing after it cannot be classified from its own line:
+    # it may open a nested mapping, open a block sequence, or have no children
+    # at all. It is therefore held here until the following line settles it.
+    pending = None  # type: Optional[Tuple[int, Dict[str, Any], str]]
+
+    def settle_pending_as_empty() -> None:
+        """A bare "key:" with no children is an empty mapping, as documented."""
+        if pending is not None:
+            pending[1][pending[2]] = {}
+
     for indent, content in lines:
+        is_item = content == "-" or content.startswith("- ")
+
+        if is_item:
+            if pending is not None and indent >= pending[0]:
+                # First item of a block sequence. Note the container is
+                # pushed at the KEY's level, not the item's, so that items
+                # sitting at either the key's indent (what PyYAML writes) or
+                # one level deeper (what people write by hand) both land in
+                # it.
+                new_list = []  # type: List[Any]
+                pending[1][pending[2]] = new_list
+                stack.append((pending[0], new_list))
+                pending = None
+            while len(stack) > 1 and (stack[-1][0] > indent
+                                      or not isinstance(stack[-1][1], list)):
+                stack.pop()
+            container = stack[-1][1]
+            if not isinstance(container, list):
+                die("Config has a list item that belongs to no list: %r"
+                    % (content,))
+            container.append(_simple_yaml_scalar_load(content[1:].strip()))
+            continue
+
+        if pending is not None:
+            if indent > pending[0]:
+                nested = {}  # type: Dict[str, Any]
+                pending[1][pending[2]] = nested
+                stack.append((pending[0], nested))
+            else:
+                settle_pending_as_empty()
+            pending = None
+
         while len(stack) > 1 and stack[-1][0] >= indent:
             stack.pop()
         parent = stack[-1][1]
-        if ":" not in content:
+        if not isinstance(parent, dict):
+            die("Config mixes a mapping into a list: %r" % (content,))
+        key, sep, rest = _partition_key(content)
+        if not sep:
             die("Malformed config line: %r" % (content,))
-        key, _, rest = content.partition(":")
         key = str(_simple_yaml_scalar_load(key.strip()))
         rest = rest.strip()
         if rest == "":
-            new_dict = {}  # type: Dict[str, Any]
-            parent[key] = new_dict
-            stack.append((indent, new_dict))
+            pending = (indent, parent, key)
         else:
             parent[key] = _simple_yaml_scalar_load(rest)
+
+    settle_pending_as_empty()
     return root
 
 
@@ -726,6 +939,9 @@ def dump_yaml(data: Dict[str, Any]) -> str:
 def load_yaml(text: str) -> Dict[str, Any]:
     """Parse config text with PyYAML when available, else the built-in
     reader."""
+    # Before either backend, so both reject the same inputs. See
+    # _scan_for_ambiguous_scalars for why this cannot run afterwards.
+    _scan_for_ambiguous_scalars(text)
     if HAVE_PYYAML:
         try:
             return _pyyaml.safe_load(text) or {}
@@ -806,6 +1022,12 @@ def load_config(create_if_missing: bool = True) -> ConfigDict:
     data = load_yaml(raw_text)
     if not isinstance(data, dict) or "profiles" not in data:
         die("%s does not look like an xtm config (no 'profiles' key)." % (CONFIG_FILE,))
+    # A bare "profiles:" with nothing under it reads as None through PyYAML
+    # and as {} through the built-in parser. Both mean "no profiles yet", so
+    # they are folded together here rather than being allowed to produce a
+    # different outcome depending on which backend is installed.
+    if data["profiles"] is None:
+        data["profiles"] = {}
     if not isinstance(data["profiles"], dict):
         die("%s: 'profiles' must be a mapping of profile name -> settings."
             % (CONFIG_FILE,))
@@ -1051,6 +1273,19 @@ def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
             % (name, CONFIG_FILE, type(profile).__name__))
     profile.setdefault("stack", dict(DEFAULT_STACK))
     profile.setdefault("sessions", {})
+    # Same fold as in load_config: an empty "stack:" or "sessions:" block is
+    # None under PyYAML and {} under the built-in parser. setdefault cannot
+    # do this, because the key is present -- it just has no value.
+    # An empty "stack:" block is None under PyYAML and {} under the built-in
+    # parser, so both are folded to the defaults -- a stack with no fields is
+    # unusable either way, and a profile missing the section already
+    # self-heals into a complete one.
+    if not profile["stack"]:
+        profile["stack"] = dict(DEFAULT_STACK)
+    # "sessions:" differs: an empty mapping is a legitimate value meaning
+    # "no slots configured", so only None is folded.
+    if profile["sessions"] is None:
+        profile["sessions"] = {}
     if not isinstance(profile["stack"], dict):
         die("Profile %r: 'stack' must be a mapping." % (name,))
     if not isinstance(profile["sessions"], dict):
@@ -3090,9 +3325,11 @@ def build_parser() -> argparse.ArgumentParser:
                               "by matching the hostname instead.")
     general.add_argument("-A", "--all", action="store_true",
                          help="Widen the scope: include profiles belonging to "
-                              "other machines, report every profile with "
-                              "--list, and cover every profile with "
-                              "--close-all.")
+                              "other machines when selecting or listing them, "
+                              "and with --close-all cover every profile "
+                              "VISIBLE ON THIS MACHINE rather than only the "
+                              "current one. --close-all never reaches "
+                              "profiles bound to another host.")
     general.add_argument("--on-switch", choices=SWITCH_MODES,
                          help="Override what happens to the previous profile's "
                               "windows when switching profiles.")

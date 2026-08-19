@@ -942,7 +942,37 @@ failing.
   or numbers.
 
 The built-in parser requires indentation in multiples of two spaces and
-rejects tabs, both with an explicit message naming the offending line.
+rejects tabs, both with an explicit message naming the offending line. It
+reads block sequences (`- item`) in either indent style, so a list written by
+PyYAML and one written by hand both load.
+
+### Values that must be quoted
+
+`PyYAML` implements YAML 1.1, which reads several unquoted forms in ways the
+built-in parser does not. Left alone, that would make the *same* config mean
+different things depending on whether PyYAML happened to be installed — and
+silently, since both readings are valid numbers that pass validation. `xtm`
+therefore refuses these forms before either parser sees them:
+
+| Written as | PyYAML reads | Built-in reads |
+|---|---|---|
+| `0755`, `007`, `08` | octal `493` | decimal `755` |
+| `0x1f`, `0b101`, `0o755` | `31`, `5`, `493` | text |
+| `1_000` | `1000` | text |
+| `1:30`, `1:30:00` | `90`, `5400` | text |
+| `1e3`, `1.0e3` | text | `1000.0` |
+| `.inf`, `.nan` | infinity, not-a-number | text |
+| `yes`, `no`, `on`, `off` | `true` / `false` | text |
+| `2026-01-01` | a date object | text |
+
+Each is reported with the value, the reason, and the fix. Write a plain
+decimal number if you meant a number, or quote it (`"0755"`, `"yes"`) if you
+meant the literal text. Quoted values are never ambiguous and are always
+accepted, and `xtm`'s own writer quotes anything that would need it, so a
+config `xtm` saved always reloads unchanged.
+
+`true`, `false`, `null` and `~` are read identically by both parsers and need
+no quoting.
 
 ### What a config rewrite changes
 
@@ -1277,23 +1307,32 @@ tests:
 
 | Metric | Result |
 |---|---|
-| Statements | 1649 |
-| Line coverage | **95.0%** (1566 / 1649) |
-| Branches | 734 |
-| Branch coverage | **92.1%** (676 / 734) |
-| Tests | 420, all passing |
+| Statements | 1753 |
+| Line coverage | **96.0%** (1683 / 1753) |
+| Branches | 810 |
+| Branch coverage | **93.1%** (754 / 810) |
+| Combined | **95.1%** — the figure `fail_under` enforces |
+| Tests | 446, all passing |
+
+The floor is enforced, not just reported: `.coveragerc` sets `fail_under`, so
+a drop fails the build rather than being noticed later.
 
 ```bash
 pip install coverage
-mkdir -p /tmp/covsite && printf 'import coverage\ncoverage.process_startup()\n' > /tmp/covsite/sitecustomize.py
-COVERAGE_PROCESS_START=$PWD/.coveragerc PYTHONPATH=/tmp/covsite \
-    python3 -m coverage run -m unittest test_xtm
-python3 -m coverage combine && python3 -m coverage report -m
+make coverage
 ```
 
-The `sitecustomize.py` step is what makes the subprocess integration tests
-count toward coverage; without it the measured figure drops sharply, because
-most command code runs in a child process.
+The target sets up the subprocess tracking itself; `.coveragerc` in the
+repository root carries the `branch` and `parallel` settings it needs.
+
+That setup is what makes the subprocess integration tests count toward
+coverage. Without it the measured figure drops to roughly 63%, because most
+command code runs in a child process rather than in the test process — a
+plain `coverage run -m unittest test_xtm` therefore understates coverage
+badly. If you see 63%, the recipe was skipped; it is not a regression.
+
+`make check` runs the linter, the coverage run and an assertion that a full
+run leaves no new files behind, which is what keeps `.gitignore` honest.
 
 The suite takes roughly 50 seconds, or about 2.5 minutes under coverage. The
 fake terminal deliberately outlives the xtm process that spawned it, as a real
@@ -1343,8 +1382,18 @@ xtm-completion.bash    Bash completion for actions, profiles and session names.
 config.yaml.example    Annotated two-profile example configuration.
 README.md              This document.
 CHANGELOG.md           Release history.
+Makefile               Developer tasks: test, coverage, lint, check, clean.
 .coveragerc            Coverage configuration: branch and parallel modes.
+.gitignore             Build and test artefacts, including parallel-mode
+                       coverage data files (one per subprocess).
+.github/workflows/     CI: the suite across Python versions, each crossed
+                       with PyYAML present and absent.
 ```
+
+The PyYAML axis in CI is not padding. `xtm` ships its own dependency-free
+YAML parser and falls back to it whenever PyYAML is missing, so every config
+path has two implementations behind it; a single-configuration build
+exercises one of them and asserts nothing about the other.
 
 ## Future work
 

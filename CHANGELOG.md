@@ -3,6 +3,67 @@
 Versioning scheme: `0.<N>`, with `N` incrementing by one per release
 (`0.9` is followed by `0.10`, never by `1.0`).
 
+## Unreleased
+
+Config reading made identical on every machine, and the test suite made
+independent of what happens to be installed on the machine running it.
+
+### Fixed
+
+- **A config could be read differently depending on whether PyYAML was
+  installed.** PyYAML implements YAML 1.1, so it read `0755` as octal 493
+  where the built-in parser read decimal 755, `1:30` as sexagesimal 90,
+  `0x1f`, `0b101` and `1_000` as numbers, `yes`/`no`/`on`/`off` as booleans,
+  and `2026-01-01` as a date. Nothing warned: both readings are valid
+  numbers that pass validation, so the same profile placed a window at two
+  different coordinates on two machines. All such values are now refused
+  before either backend parses them, with a message naming the value and how
+  to fix it. **This can reject a config that previously loaded** — quote the
+  value (`"0755"`) if you meant the text, or write a plain decimal number if
+  you meant the number.
+- **A config saved on a machine with PyYAML could not be read on one
+  without it.** PyYAML writes lists as block sequences (`- -fn`), which the
+  built-in parser did not understand at all, so any profile using
+  `xterm_args` — or a `match.hostname` list — failed to load with
+  `Malformed config line`. The built-in parser now reads block sequences in
+  both indent styles, so hand-written lists work too.
+- **A quoted key containing a colon was cut in half** by the built-in
+  parser, which split on the first colon regardless of quoting.
+- **Malformed YAML was silently accepted** by the built-in parser where
+  PyYAML rejected it: an unterminated quote or an unbalanced `{`/`[` became
+  an ordinary string. Both are now errors under either backend.
+- **An empty `stack:` or `sessions:` block** read as `None` under PyYAML and
+  as `{}` under the built-in parser, so a profile could load on one machine
+  and fail validation on another. Both now mean an empty mapping.
+- **`--dry-run` created a config lock file** (and its parent directory).
+  It now creates nothing at all.
+- **`-A/--all` promised more than it delivered.** Its help said `--close-all`
+  would cover "every profile"; the code covers every profile visible on this
+  machine and deliberately never touches one bound to another host, so that
+  a run cannot kill sessions belonging to a different machine's layout. The
+  help now says so.
+
+### Testing
+
+- The integration tests no longer append the real `PATH` to their fake tool
+  directory. They previously found a genuinely installed `tmux`, `xdotool`,
+  `wmctrl` or `xwininfo` instead of the fake, so results depended on what was
+  installed on the machine running them — the degraded-environment tests
+  failed on any host that had those tools, and the geometry-backend tests
+  could silently exercise the wrong backend.
+- Added a differential suite asserting the two YAML backends read every
+  config identically, which is the check whose absence allowed the bugs
+  above.
+- Added fault injection for the durability paths: failing `os.replace`,
+  `os.fsync`, `tempfile.mkstemp`, lock acquisition and lock release, and the
+  missing-`fcntl` fallback.
+- `--dry-run` is now asserted as an invariant — a before-and-after snapshot
+  of the whole config and state tree — rather than one expected effect at a
+  time, which is how the lock file leak went unnoticed.
+- Added `.gitignore`, `.coveragerc` with an enforced `fail_under`, a
+  `Makefile`, and CI running the suite across Python versions crossed with
+  PyYAML present and absent.
+
 ## 0.5
 
 Slots separated from sessions, and profile switching given a defined

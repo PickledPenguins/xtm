@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The matrix crosses Python version with PyYAML present/absent. That second
+# axis is not optional padding: xtm ships its own dependency-free YAML
+# parser and falls back to it whenever PyYAML is missing, so every config
+# path has two implementations behind it. A single-configuration build
+# exercises one of them and silently asserts nothing about the other.
+
+jobs:
+  test:
+    name: py${{ matrix.python }} · ${{ matrix.yaml }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        yaml: [without-pyyaml, with-pyyaml]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install PyYAML
+        if: matrix.yaml == 'with-pyyaml'
+        run: python -m pip install --disable-pip-version-check PyYAML
+
+      # Guards the matrix against itself. If PyYAML were present on a leg
+      # labelled "without", both legs would test the same code path and the
+      # build would look green while covering half of what it claims.
+      - name: Verify the PyYAML axis
+        run: |
+          python - <<'PY'
+          import sys
+          want = "${{ matrix.yaml }}" == "with-pyyaml"
+          try:
+              import yaml
+              have = True
+          except ImportError:
+              have = False
+          print("PyYAML present: %s (expected %s)" % (have, want))
+          if have != want:
+              sys.exit("matrix leg does not match its label")
+          PY
+
+      - name: Run the suite
+        run: python -m unittest test_xtm -v
+
+  legacy:
+    name: py3.6 compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        yaml: [without-pyyaml, with-pyyaml]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Run 3.6 inside a container rather than as a container: job. The
+      # checkout and setup actions need a Node runtime that will not start
+      # on an image this old, so the job stays on a modern runner and only
+      # the interpreter is old.
+      - name: Run the suite under Python 3.6
+        run: |
+          if [ "${{ matrix.yaml }}" = "with-pyyaml" ]; then
+            INSTALL="pip install --quiet PyYAML &&"
+          else
+            INSTALL=""
+          fi
+          docker run --rm -v "$PWD:/w" -w /w python:3.6-slim \
+            sh -c "$INSTALL python -m unittest test_xtm"
+
+  check:
+    name: lint · coverage · clean tree
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tooling
+        run: python -m pip install --disable-pip-version-check coverage pyflakes PyYAML
+
+      - name: Lint
+        run: |
+          python -m pyflakes xtm.py test_xtm.py
+          python -m py_compile xtm.py test_xtm.py
+
+      # make coverage sets up subprocess tracking. Without it the integration
+      # tests, which run xtm.py as a child process, contribute nothing and
+      # the figure drops from ~94% to ~63%.
+      - name: Coverage
+        run: make coverage
+
+      # Proves .gitignore actually covers everything the suite produces --
+      # a full run leaves hundreds of parallel-mode coverage data files.
+      - name: Working tree must be clean after a full run
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Working tree is dirty after a full run:"
+            git status --porcelain
+            echo "Add the offending paths to .gitignore."
+            exit 1
+          fi
+          echo "Working tree clean."

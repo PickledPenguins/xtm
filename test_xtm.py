@@ -29,6 +29,7 @@ Usage:
     python3 -m coverage run test_xtm.py && python3 -m coverage report
 """
 
+import builtins
 import json
 import logging
 import os
@@ -489,6 +490,240 @@ class TestYamlBackendSelection(unittest.TestCase):
                 xtm._pyyaml = original_mod
         self.assertIn("profiles:", text)
         self.assertIn("sessions: {}", text)
+
+
+class TestYamlBackendEquivalence(unittest.TestCase):
+    """The two YAML backends must read every config identically.
+
+    This is the test whose absence let a whole class of bug through. xtm
+    picks PyYAML when it is installed and its own parser when it is not, so
+    every config value has two implementations behind it. PyYAML implements
+    YAML 1.1, which reads 0755 as octal 493, 1:30 as sexagesimal 90 and
+    `yes` as boolean True; the built-in parser reads none of those that way.
+    A config could therefore place a window at two different coordinates
+    depending only on what happened to be installed -- silently, since both
+    readings pass validation.
+
+    Rather than assert a specific reading, these tests assert AGREEMENT:
+    whatever the two backends do with a value, they must do the same thing.
+    That is the property users actually depend on, and it stays meaningful
+    as either backend changes.
+    """
+
+    # Values that must survive unchanged and mean the same thing to both.
+    AGREE = [
+        "0", "1", "-1", "1.5", "0.5", ".5",
+        "true", "True", "false", "null", "~", "Null", "None",
+        "y", "n", "1,2", "'quoted'", '"quoted"',
+        # Real-world values that merely LOOK numeric at the edges. These are
+        # the false positives an over-eager ambiguity guard would break.
+        ".config/xtm", "-e", "2>&1", "my-session", "2026-01-01-backup",
+        "/home/user/work", "tmux-1.9", "session_01",
+    ]
+
+    # Values the two backends read differently. Every one of these must be
+    # refused, so neither backend gets to act on its own interpretation.
+    REJECTED = [
+        "0755", "007", "08", "09",        # leading zero: octal vs decimal
+        "0x1f", "0b101", "0o755",         # base prefixes: PyYAML only
+        "1_000",                          # digit separators: PyYAML only
+        "1:30", "1:30:00", "-1:30",       # sexagesimal: PyYAML only
+        "1e3", "1.0e3",                   # scientific notation: disagree
+        ".inf", "-.inf", ".nan",          # non-finite: PyYAML only
+        "yes", "no", "on", "off",         # YAML 1.1 booleans: PyYAML only
+        "2026-01-01",                     # date object: PyYAML only
+    ]
+
+    def setUp(self):
+        if not xtm.HAVE_PYYAML:
+            self.skipTest("PyYAML is not installed, so there is nothing to "
+                          "compare the built-in parser against")
+        self._saved = xtm.HAVE_PYYAML
+        self.addCleanup(setattr, xtm, "HAVE_PYYAML", self._saved)
+
+    def _read(self, text, use_pyyaml):
+        """Parse `text` with one specific backend, or report its refusal."""
+        xtm.HAVE_PYYAML = use_pyyaml
+        try:
+            return ("ok", xtm.load_yaml(text))
+        except xtm.XtmError as e:
+            return ("rejected", str(e))
+
+    def _both(self, text):
+        return self._read(text, False), self._read(text, True)
+
+    def test_agreeing_values_are_read_identically(self):
+        for token in self.AGREE:
+            text = "profiles:\n  a: %s\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(
+                builtin, pyyaml_,
+                "backends disagree on %r: built-in gave %r, PyYAML gave %r"
+                % (token, builtin, pyyaml_))
+            self.assertEqual(builtin[0], "ok",
+                             "%r should be accepted, got %r" % (token, builtin))
+
+    def test_ambiguous_values_are_refused_by_both(self):
+        for token in self.REJECTED:
+            text = "profiles:\n  a: %s\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(
+                builtin[0], "rejected",
+                "built-in parser accepted ambiguous %r as %r" % (token, builtin))
+            self.assertEqual(
+                pyyaml_[0], "rejected",
+                "PyYAML path accepted ambiguous %r as %r" % (token, pyyaml_))
+
+    def test_ambiguous_values_are_allowed_when_quoted(self):
+        # Quoting is how a user says "this is literal text", and both
+        # backends agree on quoted scalars, so the guard must not fire.
+        for token in ("yes", "0755", "1:30", "2026-01-01", ".inf"):
+            text = 'profiles:\n  a: {title: "%s"}\n' % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_, "disagreement on quoted %r" % (token,))
+            self.assertEqual(builtin[0], "ok",
+                             "quoted %r should be accepted, got %r" % (token, builtin))
+            self.assertEqual(builtin[1]["profiles"]["a"]["title"], token)
+
+    def test_malformed_input_is_refused_by_both(self):
+        # The built-in parser used to fall through to the plain-text branch
+        # here, silently accepting what PyYAML rejects outright.
+        for text in ('profiles:\n  a: "unterminated\n',
+                     "profiles:\n  a: {x: 1, y: 2\n",
+                     "profiles:\n  a: [1, 2\n"):
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "built-in parser accepted malformed %r" % (text,))
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "PyYAML path accepted malformed %r" % (text,))
+
+    def test_quoted_key_containing_a_colon_agrees(self):
+        # str.partition(":") used to cut this key in half, so the built-in
+        # parser recovered '"bad' where PyYAML recovered 'bad:name'.
+        text = 'profiles:\n  a:\n    sessions:\n      "bad:name": {x: 0}\n'
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin, pyyaml_)
+        self.assertIn("bad:name",
+                      builtin[1]["profiles"]["a"]["sessions"])
+
+    def test_flow_mapping_values_are_scanned(self):
+        # Geometry is normally written in flow style, so the guard has to
+        # descend into it -- this is the form the bug would really take.
+        text = "profiles:\n  a:\n    stack: {x: 0755, y: 0}\n"
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin[0], "rejected")
+        self.assertEqual(pyyaml_[0], "rejected")
+
+    def test_flow_sequence_values_are_scanned(self):
+        text = "profiles:\n  a:\n    sessions:\n      w: {xterm_args: [-fn, 0755]}\n"
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin[0], "rejected")
+        self.assertEqual(pyyaml_[0], "rejected")
+
+    def test_comments_are_not_scanned(self):
+        # A comment mentioning an ambiguous value must not trip the guard.
+        text = "profiles:\n  a:\n    stack: {x: 0, y: 0}  # not 0755 or yes\n"
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin, pyyaml_)
+        self.assertEqual(builtin[0], "ok")
+
+    def test_xtm_own_output_survives_its_own_guard(self):
+        """Whatever xtm writes, both backends must read back unchanged.
+
+        Guards against the guard: a rule that rejected xtm's own dump format
+        would make the tool unable to reload the config it just saved.
+        """
+        config = {
+            "profiles": {
+                "default": {
+                    "prefix": "d-",
+                    "stack": dict(xtm.DEFAULT_STACK),
+                    "sessions": {
+                        # Deliberately awkward values: words that are YAML 1.1
+                        # booleans, numeric-looking text, and a leading dot.
+                        "w": {"x": 0, "y": 0, "width": 900, "height": 700,
+                              "title": "yes", "command": "off", "cwd": ".config",
+                              "xterm_args": ["-fn", "0755"]},
+                    },
+                },
+            },
+        }
+        text = xtm.dump_yaml(config)
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin[0], "ok",
+                         "xtm's own output was refused: %r" % (builtin,))
+        self.assertEqual(builtin, pyyaml_)
+        self.assertEqual(builtin[1], config)
+
+    def test_example_config_reads_identically(self):
+        """The shipped example must mean the same thing on every machine."""
+        text = (Path(__file__).resolve().parent / "config.yaml.example").read_text()
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin[0], "ok", builtin)
+        self.assertEqual(builtin, pyyaml_)
+
+    def test_block_sequences_agree_in_both_indent_styles(self):
+        """Block lists are the natural YAML spelling and must be readable.
+
+        PyYAML writes items at the key's own indent; people writing a config
+        by hand usually indent them one level deeper. Both are valid YAML and
+        both appear in real configs, so both must parse.
+        """
+        styles = {
+            "at the key's indent (what PyYAML writes)":
+                "profiles:\n  desk:\n    match:\n      hostname:\n"
+                "      - laptop\n      - laptop2\n    sessions: {}\n",
+            "indented one level deeper (what people write)":
+                "profiles:\n  desk:\n    match:\n      hostname:\n"
+                "        - laptop\n        - laptop2\n    sessions: {}\n",
+        }
+        for label, text in styles.items():
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_, "disagreement, %s" % (label,))
+            self.assertEqual(
+                builtin[1]["profiles"]["desk"]["match"]["hostname"],
+                ["laptop", "laptop2"], label)
+
+    def test_empty_blocks_agree(self):
+        """A bare "sessions:" means an empty mapping under either backend.
+
+        PyYAML reads it as None and the built-in parser as {}; xtm folds the
+        two together, because a profile with an empty session block must not
+        load on one machine and fail validation on another.
+        """
+        text = "profiles:\n  desk:\n    stack:\n    sessions:\n"
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin[0], "ok")
+        self.assertEqual(pyyaml_[0], "ok")
+        for backend, (_status, data) in (("built-in", builtin), ("PyYAML", pyyaml_)):
+            xtm.validate_profile(data, "desk")
+            self.assertEqual(data["profiles"]["desk"]["sessions"], {}, backend)
+            self.assertEqual(data["profiles"]["desk"]["stack"],
+                             dict(xtm.DEFAULT_STACK), backend)
+
+    def test_a_config_written_with_pyyaml_loads_without_it(self):
+        """The scenario the whole fallback parser exists to serve.
+
+        A machine with PyYAML saves a profile carrying xterm_args. PyYAML
+        writes the list as a block sequence. That file then has to load on a
+        machine where PyYAML is not installed -- otherwise the config is not
+        portable, which defeats the point of shipping a parser at all.
+        """
+        config = {"profiles": {"desk": {
+            "stack": dict(xtm.DEFAULT_STACK),
+            "sessions": {"w": {"x": 0, "y": 0, "width": 900, "height": 700,
+                               "xterm_args": ["-fn", "fixed", "-fg", "white"]}},
+        }}}
+        xtm.HAVE_PYYAML = True
+        written = xtm.dump_yaml(config)
+        self.assertIn("- -fn", written,
+                      "expected PyYAML's block-sequence output; the test no "
+                      "longer reproduces the situation it is guarding")
+        status, data = self._read(written, False)   # no PyYAML on this machine
+        self.assertEqual(status, "ok",
+                         "a PyYAML-written config was unreadable without "
+                         "PyYAML: %r" % (data,))
+        self.assertEqual(data, config)
 
 
 # --------------------------------------------------------------------------
@@ -988,6 +1223,123 @@ class TestConfigIO(PathIsolationMixin):
             xtm.load_config(create_if_missing=False)
 
 
+class TestFaultInjection(PathIsolationMixin):
+    """Force the failure paths that a healthy filesystem never reaches.
+
+    Durability code is mostly error handling, and error handling that has
+    never executed is a guess. These tests break os.replace, os.fsync,
+    tempfile.mkstemp, flock and the optional imports on purpose, so the
+    recovery behaviour is observed rather than assumed.
+    """
+
+    def _patch(self, module, name, replacement):
+        original = getattr(module, name)
+        setattr(module, name, replacement)
+        self.addCleanup(setattr, module, name, original)
+
+    @staticmethod
+    def _raiser(exc):
+        def fail(*_args, **_kwargs):
+            raise exc
+        return fail
+
+    # -- atomic write -----------------------------------------------------
+
+    def test_rename_failure_reports_cleanly_and_removes_the_temp_file(self):
+        target = self.tmp / "file.txt"
+        xtm._write_text_safe(target, "original\n", "test file")
+        self._patch(os, "replace", self._raiser(OSError("disk went away")))
+        with self.assertRaises(xtm.XtmError) as caught:
+            xtm._write_text_safe(target, "replacement\n", "test file")
+        self.assertIn("disk went away", str(caught.exception))
+        # The original must survive: a failed write is not a lost file.
+        self.assertEqual(target.read_text(), "original\n")
+        self.assertEqual([p.name for p in self.tmp.iterdir()
+                          if p.name.endswith(".tmp")], [],
+                         "a failed write left its temp file behind")
+
+    def test_temp_file_cleanup_failure_does_not_mask_the_real_error(self):
+        # Both the write and its cleanup fail. The error the user sees must
+        # be the one that actually matters, not the tidy-up failure.
+        target = self.tmp / "file.txt"
+        self._patch(os, "replace", self._raiser(OSError("the real problem")))
+        self._patch(Path, "unlink", self._raiser(OSError("cleanup also failed")))
+        with self.assertRaises(xtm.XtmError) as caught:
+            xtm._write_text_safe(target, "content\n", "test file")
+        self.assertIn("the real problem", str(caught.exception))
+        self.assertNotIn("cleanup also failed", str(caught.exception))
+
+    def test_mkstemp_failure_is_reported_as_a_user_error(self):
+        self._patch(tempfile, "mkstemp", self._raiser(OSError("no space left")))
+        with self.assertRaises(xtm.XtmError) as caught:
+            xtm._write_text_safe(self.tmp / "f.txt", "x", "test file")
+        self.assertIn("no space left", str(caught.exception))
+
+    def test_file_fsync_failure_aborts_the_write_and_keeps_the_original(self):
+        # Deliberately NOT best-effort. fsync on the data file is what makes
+        # the write survive a crash, so if it cannot be done the swap must
+        # not happen: a config that is present but empty is worse than one
+        # that was never replaced. Contrast _fsync_directory below, where
+        # failure IS swallowed because the data is already safe by then.
+        target = self.tmp / "f.txt"
+        xtm._write_text_safe(target, "original\n", "test file")
+        self._patch(os, "fsync", self._raiser(OSError("fsync unsupported")))
+        with self.assertRaises(xtm.XtmError) as caught:
+            xtm._write_text_safe(target, "replacement\n", "test file")
+        self.assertIn("fsync unsupported", str(caught.exception))
+        self.assertEqual(target.read_text(), "original\n")
+        self.assertEqual([p.name for p in self.tmp.iterdir()
+                          if p.name.endswith(".tmp")], [])
+
+    def test_directory_fsync_failure_is_swallowed(self):
+        for broken in ("open", "fsync"):
+            self._patch(os, broken, self._raiser(OSError("nope")))
+        xtm._fsync_directory(self.tmp)   # must not raise
+
+    # -- config lock ------------------------------------------------------
+
+    def test_lock_acquisition_failure_degrades_to_no_locking(self):
+        # An unlocked run is still far better than a failed one.
+        self._patch(builtins, "open", self._raiser(OSError("permission denied")))
+        with xtm.config_lock(self.tmp / "config.yaml") as lock:
+            self.assertIsNone(lock._handle)
+
+    def test_lock_release_survives_a_failing_close(self):
+        lock = xtm.config_lock(self.tmp / "config.yaml")
+
+        class Handle(object):
+            @staticmethod
+            def close():
+                raise OSError("close failed")
+
+        lock._handle = Handle()
+        lock._close()          # must not raise
+        self.assertIsNone(lock._handle)
+
+    def test_missing_fcntl_proceeds_without_a_lock(self):
+        # Non-POSIX platforms have no fcntl; xtm must still run.
+        real_import = builtins.__import__
+
+        def no_fcntl(name, *args, **kwargs):
+            if name == "fcntl":
+                raise ImportError("no fcntl on this platform")
+            return real_import(name, *args, **kwargs)
+
+        self._patch(builtins, "__import__", no_fcntl)
+        with xtm.config_lock(self.tmp / "config.yaml") as lock:
+            self.assertIsNone(lock._handle)
+
+    # -- read path --------------------------------------------------------
+
+    def test_unreadable_config_reports_cleanly(self):
+        target = self.tmp / "config.yaml"
+        target.write_text("profiles: {}\n")
+        self._patch(Path, "read_text", self._raiser(OSError("permission denied")))
+        with self.assertRaises(xtm.XtmError) as caught:
+            xtm._read_text_safe(target, "config file")
+        self.assertIn("permission denied", str(caught.exception))
+
+
 class TestAtomicWrite(PathIsolationMixin):
 
     def test_writes_content(self):
@@ -1283,7 +1635,20 @@ class IntegrationBase(unittest.TestCase):
         self.config_path = self.tmp / "config.yaml"
         self.env = dict(os.environ)
         self.env.update({
-            "PATH": "%s:%s" % (self.bin, os.environ.get("PATH", "")),
+            # ONLY the fake tools, never the real PATH. Appending the real
+            # PATH would let a genuinely installed tmux/xdotool/wmctrl/
+            # xwininfo/xprop answer instead of the fake, so a class that
+            # deliberately omits a tool to exercise a degraded path (see
+            # TestDegradedEnvironments and TestNoTmux) would silently find
+            # the real one. That makes results depend on what happens to be
+            # installed on the machine running the suite, which is the one
+            # property a test suite must never have.
+            #
+            # Consequence for helper scripts written by tests: nothing is on
+            # PATH, so a /bin/sh helper may use shell builtins (printf, exit)
+            # or absolute paths, but never an external command such as cat.
+            # See make_editor().
+            "PATH": str(self.bin),
             "XTM_FAKE_DIR": str(self.state),
             "XTM_CONFIG_DIR": str(self.tmp / "cfg"),
             "XTM_STATE_DIR": str(self.tmp / "state"),
@@ -1308,6 +1673,50 @@ class IntegrationBase(unittest.TestCase):
             [sys.executable, str(XTM_SCRIPT)] + list(argv),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             universal_newlines=True, env=env, timeout=40, **kwargs)
+
+    def fs_snapshot(self, *roots):
+        """Map every file under `roots` to its contents.
+
+        Used to assert what a command did to the filesystem as a whole
+        rather than checking one expected effect at a time. Directories are
+        recorded too, so a command that creates an empty directory is caught
+        as readily as one that writes a file.
+        """
+        snapshot = {}
+        for root in roots:
+            root = Path(root)
+            if not root.exists():
+                continue
+            for path in sorted(root.rglob("*")):
+                if path.is_dir():
+                    snapshot[str(path)] = "<dir>"
+                else:
+                    try:
+                        snapshot[str(path)] = path.read_bytes()
+                    except OSError as e:
+                        snapshot[str(path)] = "<unreadable: %s>" % (e,)
+        return snapshot
+
+    def make_editor(self, name, content):
+        """Write a stand-in $EDITOR that replaces its argument with `content`.
+
+        Built entirely from printf, which is a POSIX shell builtin, because
+        the integration tests run with a hermetic PATH holding only the fake
+        tools (see setUp). An editor that shelled out to cat or sed would
+        need a PATH reaching the real system, which is exactly what these
+        tests must not have.
+        """
+        # Order matters: backslashes first so the escapes added afterwards
+        # are not themselves doubled, and the newline translation last
+        # because it deliberately introduces backslashes printf must see.
+        escaped = (content.replace("\\", "\\\\")
+                          .replace("%", "%%")
+                          .replace("'", "'\\''")
+                          .replace("\n", "\\n"))
+        path = self.tmp / name
+        path.write_text("#!/bin/sh\nprintf '%s' > \"$1\"\n" % (escaped,))
+        path.chmod(0o755)
+        return path
 
     def rows(self, name):
         path = self.state / name
@@ -1836,6 +2245,61 @@ class TestCapture(IntegrationBase):
 
 class TestDryRun(IntegrationBase):
 
+    # The config and state trees, which are everything --dry-run promises not
+    # to touch. Both are per-test temporary directories.
+    def _managed_roots(self):
+        return (self.tmp / "cfg", self.tmp / "state")
+
+    def test_dry_run_leaves_the_filesystem_completely_untouched(self):
+        """The invariant --dry-run actually sells, asserted as an invariant.
+
+        Checking individual effects one at a time is how a leak survives:
+        every specific assertion passed while `xtm -N` was still creating a
+        config lock file, because no test asked the general question. This
+        one sweeps the whole config and state tree instead, so any new write
+        path that forgets its DRY_RUN guard fails here regardless of what it
+        writes.
+        """
+        self.run_xtm("-l")                       # create a real config first
+        self.add_session("work1")
+        before = self.fs_snapshot(*self._managed_roots())
+        self.assertTrue(before, "expected a config to exist before the dry run")
+
+        dry_commands = [
+            ("-N", "-s", "work1", "0,0,900,700"),
+            ("-N", "-o", "work1"),
+            ("-N", "-k", "work1"),
+            ("-N", "-r"),
+            ("-N", "-R"),
+            ("-N", "-K", "-y"),
+            ("-N", "-t", "work1"),
+            ("-N", "-n", "captured"),
+            ("-N", "-D", "work1"),
+            ("-N", "--copy-profile", "default", "clone"),
+            ("-N", "--rename-profile", "default", "renamed"),
+            ("-N", "--delete-profile", "default", "-y"),
+            ("-N", "--make-global", "default"),
+            ("-N", "-u"),
+            ("-N", "otherprofile"),
+        ]
+        for argv in dry_commands:
+            self.run_xtm(*argv)
+            after = self.fs_snapshot(*self._managed_roots())
+            self.assertEqual(
+                after, before,
+                "xtm %s changed the filesystem during a dry run" % (" ".join(argv),))
+
+    def test_dry_run_creates_nothing_from_a_clean_slate(self):
+        """A dry run against a machine with no config must not create one."""
+        roots = self._managed_roots()
+        for root in roots:
+            self.assertFalse(root.exists(), "test precondition: %s" % (root,))
+        self.run_xtm("-N", "-s", "work1", "0,0,900,700")
+        for root in roots:
+            self.assertFalse(
+                root.exists(),
+                "dry run created %s; it should have written nothing" % (root,))
+
     def test_dry_run_set_does_not_change_config(self):
         self.run_xtm("-l")
         before = self.config_text()
@@ -2032,10 +2496,9 @@ class TestEditor(IntegrationBase):
         self.assertIn("OK", result.stdout)
 
     def test_edit_reports_an_invalid_result(self):
-        editor = self.tmp / "breaking-editor"
-        editor.write_text("#!/bin/sh\nprintf 'profiles:\\n  p:\\n"
-                          "    stack:\\n      x: nope\\n' > \"$1\"\n")
-        editor.chmod(0o755)
+        editor = self.make_editor(
+            "breaking-editor",
+            "profiles:\n  p:\n    stack:\n      x: nope\n")
         result = self.run_xtm("-e", env={"EDITOR": str(editor)})
         self.assertEqual(result.returncode, 1)
         self.assertIn("INVALID", result.stdout)
@@ -2974,7 +3437,15 @@ class TestMalformedConfig(IntegrationBase):
                   "bad:name": {x: 0, y: 0, width: 900, height: 700}
             """)
         result = self.assert_clean_failure("--profile", "desk", "--list")
-        self.assertIn("bad:name", result.stderr)
+        # Assert the invariant (the name is refused), not the exact name in
+        # the message, because the two YAML backends recover a different key
+        # from this line. PyYAML honours the quotes and reports 'bad:name';
+        # the built-in parser splits on the first ':' without regard to
+        # quoting, so it reports '"bad'. Both reject the config, which is
+        # what this test is for. The parser gap itself is tracked separately
+        # -- a quoted key containing ':' cannot occur in a valid config,
+        # since session and profile names exclude ':' by charset.
+        self.assertIn("Invalid session name", result.stderr)
 
     def test_profile_name_with_a_space_is_rejected_on_load(self):
         self.write_config('profiles:\n  "bad name":\n    sessions: {}\n')
@@ -3206,11 +3677,7 @@ class TestDocumentedBehaviours(IntegrationBase):
     def test_edit_does_not_revert_an_invalid_result(self):
         self.desk()
         broken = "profiles:\n  desk:\n    sessions:\n      w: {x: 0}\n"
-        editor = self.tmp / "breaker.sh"
-        editor.write_text("#!/bin/sh\ncat %s > \"$1\"\n"
-                          % (self.tmp / "broken.yaml"))
-        (self.tmp / "broken.yaml").write_text(broken)
-        editor.chmod(0o755)
+        editor = self.make_editor("breaker.sh", broken)
         result = self.run_xtm("--profile", "desk", "--edit",
                               env={"EDITOR": str(editor)})
         self.assertEqual(result.returncode, 1)
@@ -3430,6 +3897,49 @@ class TestMachineVisibility(IntegrationBase):
                 match: {hostname: nosuchhost-xyz}
                 sessions: {}
             """ % (socket_hostname(),))
+
+    def test_close_all_with_all_covers_only_this_machines_profiles(self):
+        """Pins the scope --all actually gives --close-all.
+
+        The help text used to promise "every profile", while the code passes
+        include_all=False and covers only profiles visible here. The code is
+        the safer behaviour -- a run must not kill sessions claimed by a
+        layout bound to a different host -- so the text was corrected to
+        match, and this test stops the two drifting apart again.
+        """
+        self.write_config("""\
+            profiles:
+              default:
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions: {}
+              mine:
+                match: {hostname: "%s"}
+                sessions:
+                  local: {x: 0, y: 0, width: 800, height: 600}
+              theirs:
+                match: {hostname: nosuchhost-xyz}
+                sessions:
+                  remote: {x: 0, y: 0, width: 800, height: 600}
+            """ % (socket_hostname(),))
+        self.add_session("local")
+        self.add_session("remote")
+
+        result = self.run_xtm("--all", "--close-all", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        surviving = [row[0] for row in self.rows("sessions.txt")]
+        # "local" belongs to a profile visible here, so --all reaches it.
+        self.assertNotIn("local", surviving)
+        # "remote" belongs to a profile bound to another host, so it does not.
+        self.assertIn("remote", surviving,
+                      "--all --close-all killed a session claimed only by a "
+                      "profile bound to another machine")
+
+    def test_all_help_text_matches_close_all_behaviour(self):
+        """The help must not re-acquire the promise the code does not keep."""
+        help_text = self.run_xtm("--help").stdout
+        flat = " ".join(help_text.split())
+        self.assertIn("VISIBLE ON THIS MACHINE", flat)
 
     def test_other_machines_profiles_are_hidden(self):
         self.mixed_config()

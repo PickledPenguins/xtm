@@ -1,0 +1,44 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and coverage artifacts.
+# .coverage.* matters more than it looks: the integration tests run xtm.py as
+# a subprocess and the suite is measured with parallel=True, so a single
+# coverage run leaves one data file per subprocess -- hundreds of them.
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+# Created by `make coverage`: holds the .pth file that starts coverage in
+# each subprocess.
+.coverage-bootstrap/
+.pytest_cache/
+.tox/
+.nox/
+
+# Packaging output
+build/
+dist/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor and OS noise
+*.swp
+*.swo
+*~
+.DS_Store
+
+# xtm's own runtime files, in case a developer points XTM_CONFIG_DIR or
+# XTM_STATE_DIR at the checkout while testing by hand.
+config.yaml
+config.yaml.lock
+current_profile.*
