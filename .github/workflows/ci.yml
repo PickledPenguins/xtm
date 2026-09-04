@@ -50,6 +50,11 @@ jobs:
               sys.exit("matrix leg does not match its label")
           PY
 
+      # The commit gate first: it fails in seconds when something is broadly
+      # broken, so the matrix does not spend six minutes discovering it.
+      - name: Fast suite
+        run: scripts/run_tests.sh --fast
+
       - name: Run the suite
         run: python -m unittest discover -t . -s tests -v
 

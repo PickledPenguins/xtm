@@ -1,0 +1,65 @@
+{
+  "on_switch": "detach",
+  "prefix": "desk-",
+  "profile": "desk",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "desk-editor",
+      "shared": false,
+      "title": "desk \u00b7 editor"
+    },
+    {
+      "command": "journalctl -f",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": "/var/log",
+      "name": "logs",
+      "session": "desk-logs",
+      "shared": false,
+      "title": "LOGS"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "notes",
+      "shared": true,
+      "title": "desk \u00b7 notes"
+    },
+    {
+      "command": "grep -e ^\\d build.log",
+      "configured": {
+        "height": 400,
+        "width": 1920,
+        "x": 0,
+        "y": 1400
+      },
+      "cwd": null,
+      "name": "build",
+      "session": "desk-build",
+      "shared": false,
+      "title": "0755"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

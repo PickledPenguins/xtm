@@ -661,6 +661,92 @@ class TestYamlBackendEquivalence(unittest.TestCase):
         self.assertEqual(data, config)
 
 
+class TestYamlBackendShapeFuzz(unittest.TestCase):
+    """Generated YAML *shapes*, not generated characters.
+
+    The token fuzzer below samples an alphabet, which finds what a lexer
+    gets wrong. It cannot find what a grammar gets wrong: `"a\\nb"` needs
+    four specific characters in order, so the odds of drawing it are
+    negligible -- and that is exactly the shape that hid a silent
+    divergence in quoted keys through six hundred passing tests.
+
+    This generator builds from the grammar instead: quoted scalars
+    carrying escapes, flow collections nested inside each other, keys made
+    the same way values are. Every shape is rendered as a config and read
+    by both backends, which must agree.
+    """
+
+    SEEDS = (11, 404, 90210)
+    SHAPES_PER_SEED = 400
+
+    LEAVES = ("0", "-1", "1.5", "x", "a b", "-fn", "~", "null", "true",
+              "0755", "yes", "1:30", "2026-01-01", "a:b", "a#b", "a,b",
+              "a{b", "a}b", "a[b", "a]b", "a\\b", 'a"b', "a'b", "a\tb",
+              "", " ", "<<", "=", "?x", ":x", "- x", "&a", "*a", "!!str 7")
+
+    ESCAPES = ("\\n", "\\t", "\\\\", '\\"', "\\z", "\\u00e9", "\\x41")
+
+    def setUp(self):
+        if not xtm.HAVE_PYYAML:
+            self.skipTest("PyYAML is not installed, so there is nothing to "
+                          "compare the built-in parser against")
+        self._saved = xtm.HAVE_PYYAML
+        self.addCleanup(setattr, xtm, "HAVE_PYYAML", self._saved)
+
+    def scalar(self, rng, depth=0):
+        """One value: a leaf, a quoted leaf, or a flow collection."""
+        roll = rng.random()
+        if depth < 2 and roll < 0.2:
+            items = [self.scalar(rng, depth + 1) for _ in range(rng.randint(0, 3))]
+            return "[%s]" % (", ".join(items),)
+        if depth < 2 and roll < 0.35:
+            entries = ["%s: %s" % (self.key(rng, depth + 1),
+                                   self.scalar(rng, depth + 1))
+                       for _ in range(rng.randint(0, 3))]
+            return "{%s}" % (", ".join(entries),)
+        leaf = rng.choice(self.LEAVES)
+        if roll < 0.5:
+            return leaf
+        if roll < 0.75:
+            body = leaf + (rng.choice(self.ESCAPES) if rng.random() < 0.6 else "")
+            return '"%s"' % (body.replace('"', ''),)
+        return "'%s'" % (leaf.replace("'", ""),)
+
+    def key(self, rng, depth=0):
+        """One key, built the same way a value is -- which is the point."""
+        return self.scalar(rng, max(depth, 1))
+
+    def config(self, rng):
+        """A whole config: profiles, each with keys and values from above."""
+        lines = ["profiles:"]
+        for _ in range(rng.randint(1, 2)):
+            lines.append("  %s:" % (self.key(rng),))
+            for _ in range(rng.randint(0, 3)):
+                lines.append("    %s: %s" % (self.key(rng), self.scalar(rng)))
+        return "\n".join(lines) + "\n"
+
+    def reading(self, text, use_pyyaml):
+        xtm.HAVE_PYYAML = use_pyyaml
+        try:
+            return ("ok", TestYamlBackendFuzz._as_names(xtm.load_yaml(text)))
+        except xtm.XtmError:
+            return ("refused", None)
+
+    def test_no_generated_shape_is_read_differently(self):
+        import random
+        for seed in self.SEEDS:
+            rng = random.Random(seed)
+            for _ in range(self.SHAPES_PER_SEED):
+                text = self.config(rng)
+                builtin = self.reading(text, False)
+                pyyaml_ = self.reading(text, True)
+                self.assertEqual(
+                    builtin, pyyaml_,
+                    "seed %d: this config is read differently depending on "
+                    "whether PyYAML is installed:\n%s\nbuilt-in gave %r, "
+                    "PyYAML gave %r" % (seed, text, builtin, pyyaml_))
+
+
 class TestYamlBackendFuzz(unittest.TestCase):
     """Randomised search for values the two backends read differently.
 

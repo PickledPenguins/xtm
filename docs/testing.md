@@ -5,15 +5,37 @@ How to run the suite, what each part covers, and the standard tests are held to.
 ## Running it
 
 ```sh
-scripts/run_tests.sh                 # every module, each in its own interpreter
+scripts/run_tests.sh --fast          # the commit gate: ~25s, and what the hook runs
+scripts/run_tests.sh --long          # the release gate: integration, races, examples
+scripts/run_tests.sh                 # both halves, each module in its own interpreter
 scripts/run_tests.sh test_yaml       # only the modules whose path matches
-scripts/run_tests.sh --shared        # one interpreter for the whole suite
+scripts/run_tests.sh --perf          # timing and memory gates, against this machine
 scripts/run_tests.sh --coverage      # the suite under coverage, gated by the floor
 scripts/run_tests.sh --lint          # pyflakes and a compile check
-scripts/run_tests.sh --examples      # every example against its recorded output
+scripts/run_tests.sh --examples      # every example, and the ones meant to fail
+scripts/run_tests.sh --list          # which modules a selection covers, run nothing
+scripts/run_tests.sh --install-hooks # install the pre-commit hook
 scripts/run_tests.sh --full          # all of the above
 make check                           # --full, plus the clean-tree assertion
 ```
+
+## The two halves
+
+The suite splits on one question: is this cheap enough to run before every commit.
+
+**Fast** — about 25 seconds — is in-process work plus four smoke checks that really do
+start the program, because a smoke test that does not start it tests nothing. It is what
+`.git/hooks/pre-commit` runs, alongside the linter; install it with
+`scripts/run_tests.sh --install-hooks` and bypass it with `git commit --no-verify`.
+
+**Long** — about two and a half minutes — runs xtm as a child process hundreds of times,
+races several of them, and executes every example. It gates a release.
+
+The split is by directory, because unittest has no markers and the directories already say
+what kind of test they hold. **Every module is in exactly one half**, which
+`tests/integration/test_entry_point.py` asserts by asking `--list` rather than by running
+anything: a new test directory that joins neither half would otherwise be a test nobody
+runs. The timing gates are the one deliberate exception, and are named as such.
 
 `scripts/run_tests.sh` is the only thing that knows how to run anything in this repository;
 the Makefile delegates to it. Every artefact lands under `.build/`.
@@ -151,6 +173,23 @@ collections precisely because nothing looked there.
 
 **A new rule in the parity guard needs a case here.** Adding one without is how the last
 three divergences reached a release.
+
+## Performance
+
+`scripts/run_tests.sh --perf` times the parity guard, the built-in reader and the built-in
+writer over a thousand-slot config, and asserts a memory ceiling for reading one. Two
+things make the numbers mean something:
+
+- **The baseline is per machine**, recorded under `.build/perf-baseline.json` and
+  gitignored. A threshold calibrated on another machine is a coin toss. A new case records
+  and skips on its first run, then gates from the second.
+- **The threshold comes from measured noise.** Repeated runs of an unchanged tree here move
+  a median by up to about 35%, so the gate sits at +100%: a real regression in this code is
+  a factor, not a fraction, and a tighter gate would fail on nothing but weather.
+
+The baseline keeps the smaller of the recorded and the new value, so a slow afternoon
+cannot ratchet it upward until it stops gating. Verified by making the reader sleep and
+watching the gate fire.
 
 ## Coverage
 

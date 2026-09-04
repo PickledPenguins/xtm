@@ -13,11 +13,14 @@
 PYTHON ?= python3
 RUN    := PYTHON=$(PYTHON) scripts/run_tests.sh
 
-.PHONY: help test test-shared coverage coverage-html lint examples property \
-        mutation check clean
+.PHONY: help test test-fast test-long test-shared coverage coverage-html lint \
+        examples property mutation hooks check clean
 
 help:
 	@echo "make test           Every test module, each in its own interpreter"
+	@echo "make test-fast      The commit gate: in-process work plus smoke, ~25s"
+	@echo "make test-long      The release gate: integration, races, examples"
+	@echo "make hooks          Install the pre-commit hook"
 	@echo "make test-shared    The suite in one interpreter (faster, weaker)"
 	@echo "make coverage       The suite under coverage, gated by the floor"
 	@echo "make coverage-html  As above, then write .build/htmlcov/"
@@ -30,6 +33,15 @@ help:
 
 test:
 	$(RUN)
+
+test-fast:
+	$(RUN) --fast
+
+test-long:
+	$(RUN) --long
+
+hooks:
+	$(RUN) --install-hooks
 
 test-shared:
 	$(RUN) --shared

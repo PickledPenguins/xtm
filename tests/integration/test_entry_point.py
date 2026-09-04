@@ -39,6 +39,40 @@ class TestModuleSelection(unittest.TestCase):
         self.assertIn("tests.unit.test_geometry", result.stdout)
         self.assertNotIn("tests.unit.test_yaml", result.stdout)
 
+    def test_every_module_is_in_exactly_one_half(self):
+        """A module in neither half is a test nobody runs.
+
+        The split is by directory, so a new test directory joins neither
+        half by default and its tests quietly stop being run by any gate.
+        This is the assertion that turns that into a failure.
+        """
+        fast = self.modules_of("--fast")
+        long_ = self.modules_of("--long")
+        every = set()
+        for path in (REPO_ROOT / "tests").rglob("test_*.py"):
+            every.add(str(path.relative_to(REPO_ROOT)).replace("/", ".")[:-3])
+        # The timing gates are deliberately outside both: they run under
+        # --perf, against a per-machine baseline.
+        outside = {"tests.load.test_performance"}
+        self.assertEqual(set(), fast & long_,
+                         "modules in both halves: %s" % (sorted(fast & long_),))
+        self.assertEqual(
+            set(), every - fast - long_ - outside,
+            "modules in neither half, so no gate runs them: %s"
+            % (sorted(every - fast - long_ - outside),))
+        self.assertTrue(fast and long_, "a half came back empty")
+
+    def modules_of(self, flag):
+        """The modules a flag selects, asked rather than run.
+
+        `--list` exists for this: running both halves to compare them would
+        make this one test take three minutes.
+        """
+        result = run("--list", flag)
+        self.assertEqual(0, result.returncode, result.stderr)
+        return set(line.strip() for line in result.stdout.split("\n")
+                   if line.strip())
+
     def test_the_runner_is_executable(self):
         # It is invoked by path in CI and in the documentation.
         self.assertTrue(RUNNER.stat().st_mode & 0o111,

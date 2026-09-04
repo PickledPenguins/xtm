@@ -1,0 +1,72 @@
+# A day's worth of real configuration, with every mechanism in play at once.
+#
+# Level: complex. No single feature is under test here; their interaction is.
+# Each part of this file works alone and is shown alone in an earlier example.
+profiles:
+  # Global on purpose: this is the profile the example reports on, and a
+  # bound one would be invisible on any machine but its own. Binding is shown
+  # by `lab` and `remote` below, which are bound two different ways.
+  desk:
+    prefix: desk-
+    on_switch: detach
+    title: "{profile} · {slot}"
+    stack: {x: 60, y: 60, width: 880, height: 640, offset_x: 35, offset_y: 25}
+    sessions:
+      # Plain geometry, profile-owned: becomes desk-editor.
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      # Launch settings and a per-slot title override, together.
+      logs:
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        command: journalctl -f
+        cwd: /var/log
+        title: "LOGS"
+        xterm_args: [-bg, "#101018", -sl, "50000"]
+      # An explicitly named session: never prefixed, shared with `lab` below,
+      # and therefore kept alive across a switch between the two.
+      notes:
+        session: notes
+        x: 1200
+        y: 700
+        width: 720
+        height: 700
+      # Values that must be quoted, in a profile that also uses everything
+      # else: a font name with a colon, a title YAML would read as a number,
+      # a command with a literal backslash in single quotes.
+      build:
+        x: 0
+        y: 1400
+        width: 1920
+        height: 400
+        title: "0755"
+        command: 'grep -e ^\d build.log'
+        xterm_args: [-fa, "Monospace:size=11"]
+
+  # A second profile sharing one session with the first, prefixed differently,
+  # disposing of its windows differently on the way out, and bound to a list
+  # of machines that mixes exact names with a glob.
+  lab:
+    match: {hostname: [lab-1, lab-2, "workstation-*"]}
+    prefix: lab-
+    on_switch: kill
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 960, height: 1400}
+      notes: {session: notes, x: 960, y: 0, width: 960, height: 1400}
+
+  # Bound to one machine by an exact name: hidden everywhere else, and
+  # reachable there only with --all.
+  remote:
+    match: {hostname: headnode}
+    prefix: hn-
+    stack: {x: 0, y: 0, width: 1200, height: 900, offset_x: 20, offset_y: 20}
+    sessions:
+      shell: {x: 0, y: 0, width: 1200, height: 900}
+
+  # Reserved, always global, the last resort of resolution.
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      shell: {x: 0, y: 0, width: 960, height: 800}

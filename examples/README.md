@@ -1,6 +1,8 @@
 # Examples
 
-Fifteen worked configurations, each one a scenario you might actually have, and eight configs that are meant to fail.
+Sixteen worked configurations, each one a scenario you might actually have, and eight configs that are meant to fail.
+
+They come at three levels. **Simple** examples show one idea on the smallest useful config -- start at 01. **Moderate** ones combine a few, which is where most real configs live. The **complex** one puts every mechanism in the tool into a single file, because the way they interact is the part no other example can show.
 
 Every example is also a test. Each directory holds a `config.yaml`, a
 `README.md` explaining what it demonstrates and why it is written that way,
@@ -43,6 +45,7 @@ it to report, so running these is safe on any machine.
 | [13-quoting-values](13-quoting-values/) | The four shapes that need quotes, and the difference between single and double quotes. |
 | [14-two-machines-one-layout](14-two-machines-one-layout/) | A hostname list and a glob, plus what makes a profile global and why a global one is never auto-selected. |
 | [15-everything](15-everything/) | Every profile and slot key in one config, as a reference rather than as advice. |
+| [complex-01-everything-at-once](complex-01-everything-at-once/) | **Complex.** Every mechanism at once: two ownership models, two disposal modes, three binding shapes, a shared session, and the quoting rules inside a working config. |
 
 ## Configs that are meant to fail
 
