@@ -331,6 +331,37 @@ Config: /home/user/.config/xtm/config.yaml
 Every profile is checked, not just the active one, and visibility is ignored. A profile
 that fails is reported with the reason on the same line, and the command exits 1.
 
+With `--json`:
+
+```json
+{
+  "config": "/home/user/.config/xtm/config.yaml",
+  "profiles": [
+    {"name": "desk", "valid": true, "error": null},
+    {"name": "laptop", "valid": false, "error": "slots 'a' and 'b' both resolve to session 'x'"}
+  ],
+  "valid": false
+}
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `config` | string | Path of the config file checked. |
+| `valid` | boolean | Whether every profile in the file passed. |
+| `profiles[].name` | string | Profile name. |
+| `profiles[].valid` | boolean | Whether this profile passed. |
+| `profiles[].error` | string or null | The validation failure, or `null` when the profile is valid. |
+
+## The current profile (`--current-profile`)
+
+Prints the saved profile name, or nothing when none is saved. With `--json`:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `current_profile` | string or null | The profile saved for this machine, or `null`. |
+| `resolved_profile` | string | The profile that would be used, saved or not. |
+| `state_file` | string | Path of this machine's current-profile state file. |
+
 ## Exit status
 
 | Code | Meaning |
