@@ -11,7 +11,8 @@
 #   scripts/run_tests.sh --property      generated inputs against stated invariants
 #   scripts/run_tests.sh --mutation      the mutation catalogue
 #   scripts/run_tests.sh --lint          pyflakes and a compile check
-#   scripts/run_tests.sh --examples      every example, and the ones meant to fail
+#   scripts/run_tests.sh --examples      every example, the failures, and a profile
+#   scripts/run_tests.sh --profile       where the time goes in real usage
 #   scripts/run_tests.sh --full          all of the above
 #   scripts/run_tests.sh --list          print the selected modules, run nothing
 #   scripts/run_tests.sh --install-hooks install the pre-commit hook
@@ -64,6 +65,7 @@ want_lint=0
 want_examples=0
 want_perf=0
 want_list=0
+want_profile=0
 want_fast=0
 want_long=0
 want_unit=1
@@ -92,6 +94,7 @@ for arg in "$@"; do
         --mutation)  want_mutation=1; want_unit=0 ;;
         --lint)      want_lint=1; want_unit=0 ;;
         --examples)  want_examples=1; want_unit=0 ;;
+        --profile)   want_profile=1; want_unit=0 ;;
         --list)      want_list=1; want_unit=0 ;;
         --full)      want_lint=1; want_examples=1; want_coverage=1
                      want_property=1; want_mutation=1; want_perf=1 ;;
@@ -214,6 +217,14 @@ run_examples() {
     echo "--- examples"
     $PYTHON examples/run.py
     $PYTHON examples/run.py --negative
+    # The examples are the closest thing here to real usage, so a run that
+    # executes them says where the time went as well as whether they passed.
+    run_profile
+}
+
+run_profile() {
+    echo "--- profile"
+    $PYTHON scripts/profile_examples.py
 }
 
 if [ "$want_list" = 1 ]; then
@@ -225,6 +236,7 @@ fi
 [ "$want_lint" = 1 ] && run_lint
 [ "$want_unit" = 1 ] && run_unit
 [ "$want_examples" = 1 ] && run_examples
+[ "$want_profile" = 1 ] && [ "$want_examples" = 0 ] && run_profile
 [ "$want_coverage" = 1 ] && run_coverage
 [ "$want_perf" = 1 ] && run_perf
 [ "$want_property" = 1 ] && run_property

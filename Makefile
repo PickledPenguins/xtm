@@ -14,7 +14,7 @@ PYTHON ?= python3
 RUN    := PYTHON=$(PYTHON) scripts/run_tests.sh
 
 .PHONY: help test test-fast test-long test-shared coverage coverage-html lint \
-        examples property mutation hooks check clean
+        examples profile property mutation hooks check clean
 
 help:
 	@echo "make test           Every test module, each in its own interpreter"
@@ -27,7 +27,8 @@ help:
 	@echo "make property       Property tests, when Hypothesis is available"
 	@echo "make mutation       The mutation catalogue"
 	@echo "make lint           pyflakes + compile check"
-	@echo "make examples       Every example against its recorded output"
+	@echo "make examples       Every example, the failures, and a profile"
+	@echo "make profile        Where the time goes in real usage"
 	@echo "make check          Everything, plus a clean-tree assertion"
 	@echo "make clean          Remove .build/ and stray artefacts"
 
@@ -64,6 +65,9 @@ lint:
 
 examples:
 	$(RUN) --examples
+
+profile:
+	$(RUN) --profile
 
 # Asserts a full run leaves no new files behind, which is what proves .build/
 # actually absorbs every artefact the suite produces.

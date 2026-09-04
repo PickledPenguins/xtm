@@ -164,3 +164,36 @@ class TestNegativeExamples(unittest.TestCase):
             self.assertIn(directory.name, index,
                           "negative/%s is not mentioned in examples/README.md"
                           % (directory.name,))
+
+
+class TestExampleProfile(unittest.TestCase):
+    """A run that executes the examples reports where the time went.
+
+    The examples are the closest thing here to real usage, so they are the
+    right place to ask that question -- and a profile nobody looks at is a
+    profile that stops being produced, so the run prints it.
+    """
+
+    def test_the_profiler_reports_xtm_own_functions(self):
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "profile_examples.py")],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("example(s) in", result.stdout)
+        self.assertIn("xtm.py:", result.stdout,
+                      "the table names no xtm function, so the filter broke")
+        self.assertIn("load_yaml", result.stdout,
+                      "reading the config is most of the work and should be "
+                      "in any honest profile of it")
+
+    def test_the_profile_is_written_where_it_can_be_read_later(self):
+        subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "profile_examples.py")],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+        written = REPO_ROOT / ".build" / "profile"
+        self.assertTrue((written / "examples.txt").exists(),
+                        "no text report was written")
+        self.assertTrue((written / "examples.pstats").exists(),
+                        "no pstats file was written, so nothing can be "
+                        "explored afterwards")

@@ -174,6 +174,26 @@ collections precisely because nothing looked there.
 **A new rule in the parity guard needs a case here.** Adding one without is how the last
 three divergences reached a release.
 
+## Profiling
+
+Any run that executes the examples prints a profile with them:
+`scripts/run_tests.sh --examples`, `--full`, and `make check`. `--profile` runs it alone.
+
+The examples are the closest thing here to real use — a whole config in, a full report out
+— so they are the right place to ask where the time goes. The table names xtm's own
+functions by cumulative time, and the full profile is saved to
+`.build/profile/examples.pstats` for `python3 -m pstats` to explore.
+
+What it measures, and what it cannot: the examples are re-run **in-process** for this,
+because a profiler cannot see into a subprocess. That covers the config-reading and
+reporting path — the guard, the reader, validation, resolution, the report — which is where
+a config-driven tool spends its time and where every performance finding so far has been.
+Placement and the tmux calls are subprocess work this cannot reach; the timing gates below
+cover the parts of that which matter.
+
+The current shape is worth knowing: reading the config is about two thirds of the work of
+a `--list`, and the parity guard is about a seventh of the reading.
+
 ## Performance
 
 `scripts/run_tests.sh --perf` times the parity guard, the built-in reader and the built-in
