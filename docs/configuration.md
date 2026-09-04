@@ -161,11 +161,15 @@ quoting. As **keys** they do not: see below.
 
 ### Escapes and quoting
 
-A **single-quoted** scalar is literal text in YAML, and is the spelling to reach for when a
-value contains a backslash. A **double-quoted** scalar is the one quoted form YAML processes
-escapes in, so `"a\tb"` is a real tab to PyYAML and a backslash followed by `t` to the
-built-in reader. An escape the built-in reader does not implement is refused, and only `\"`
-and `\\` are implemented.
+A **single-quoted** scalar is literal text in YAML: `'a\tb'` is four characters, backslash
+included. A **double-quoted** scalar is the one quoted form YAML processes escapes in, and
+four of them are implemented on both sides — `\"`, `\\`, `\n` and `\t`. Every other escape
+PyYAML knows (`\u00e9`, `\x41`, `\0`) is refused, because the built-in reader would hand
+back the text and the two would disagree in silence.
+
+`\n` and `\t` are implemented because xtm's own writer needs them: a value carrying a
+newline or a tab is written escaped, since writing it raw would split the line that the
+reader then has to parse.
 
 ### Keys
 

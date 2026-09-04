@@ -236,6 +236,51 @@ class TestAtomicWrite(PathIsolationMixin):
             pass
 
 
+class TestEditProfileErrors(unittest.TestCase):
+    """The wrapper reports what actually went wrong."""
+
+    def config(self):
+        return {"profiles": {"desk": {"sessions": {}, "stack": {
+            "x": 0, "y": 0, "width": 9, "height": 9,
+            "offset_x": 1, "offset_y": 1}}}}
+
+    def test_a_failure_inside_the_body_keeps_its_own_message(self):
+        """Only a validation failure gets the validation message.
+
+        The body and the validation used to share one `except`, so an error
+        raised by the command itself was reported as "would leave profile
+        'desk' invalid" -- blaming the profile for something else.
+        """
+        config = self.config()
+        with self.assertRaises(xtm.XtmError) as caught:
+            with xtm.edit_profile(config, "desk", "Setting slot 'x'"):
+                xtm.die("the tmux server went away")
+        message = str(caught.exception)
+        self.assertIn("tmux server went away", message)
+        self.assertNotIn("would leave profile", message)
+
+    def test_a_failure_inside_the_body_still_restores_the_profile(self):
+        config = self.config()
+        before = xtm._deep_copy(config["profiles"]["desk"])
+        with self.assertRaises(xtm.XtmError):
+            with xtm.edit_profile(config, "desk", "Setting slot 'x'"):
+                config["profiles"]["desk"]["sessions"]["ghost"] = {"x": 0}
+                xtm.die("something else failed")
+        self.assertEqual(before, config["profiles"]["desk"],
+                         "the profile was left half-edited")
+
+    def test_a_validation_failure_says_the_edit_was_refused(self):
+        config = self.config()
+        with self.assertRaises(xtm.XtmError) as caught:
+            with xtm.edit_profile(config, "desk", "Setting slot 'beta'"):
+                config["profiles"]["desk"]["sessions"]["beta"] = {
+                    "x": 0, "y": 0, "width": -1, "height": 1}
+        message = str(caught.exception)
+        self.assertIn("would leave profile", message)
+        self.assertIn("nothing was changed", message)
+        self.assertEqual({}, config["profiles"]["desk"]["sessions"])
+
+
 class TestConfigLocking(unittest.TestCase):
     """The advisory lock that prevents concurrent writes losing updates."""
 

@@ -282,24 +282,18 @@ class TestYamlBackendEquivalence(unittest.TestCase):
                          "value: built-in gave %r, PyYAML gave %r"
                          % (builtin, pyyaml_))
 
-    def test_escapes_in_a_double_quoted_value_are_refused(self):
+    def test_the_implemented_escapes_are_read_the_same_way(self):
         """Double quotes are the one quoted form YAML processes escapes in.
 
-        PyYAML turns "a\\tb" into a real tab; the built-in loader knows
-        only \\" and \\\\ and keeps the backslash. Neither reported
-        anything, so a title or command meant two different strings on
-        two machines. Refusing the escape is what makes the two agree,
-        and single quotes are the spelling that carries a literal
-        backslash.
+        Four escapes are implemented on both sides -- \\" \\\\ \\n \\t --
+        so they must produce the same string either way. The last two are
+        implemented because the dumper needs them: a newline or a tab
+        written literally would split the line, and the reader is
+        line-based.
         """
-        for value in ('"a\\tb"', '"a\\nb"', '"\\u00e9"', '"a\\zb"'):
-            text = "profiles:\n  a: %s\n" % (value,)
-            builtin, pyyaml_ = self._both(text)
-            self.assertEqual(builtin[0], "rejected",
-                             "%s should be refused, got %r" % (value, builtin))
-            self.assertEqual(pyyaml_[0], "rejected",
-                             "%s should be refused, got %r" % (value, pyyaml_))
-        for value in ('"a\\\\b"', '"a\\"b"', "'a\\tb'"):
+        for value, expected in (('"a\\tb"', "a\tb"), ('"a\\nb"', "a\nb"),
+                                ('"a\\\\b"', "a\\b"), ('"a\\"b"', 'a"b'),
+                                ("'a\\tb'", "a\\tb")):
             text = "profiles:\n  a: %s\n" % (value,)
             builtin, pyyaml_ = self._both(text)
             self.assertEqual(builtin, pyyaml_,
@@ -307,6 +301,24 @@ class TestYamlBackendEquivalence(unittest.TestCase):
                              % (value, builtin, pyyaml_))
             self.assertEqual(builtin[0], "ok",
                              "%s should be accepted, got %r" % (value, builtin))
+            self.assertEqual(expected, builtin[1]["profiles"]["a"],
+                             "%s was read as %r" % (value, builtin[1]))
+
+    def test_an_unimplemented_escape_is_refused_by_both(self):
+        """PyYAML knows \\u, \\x and \\0; the built-in reader does not.
+
+        Left alone, PyYAML would resolve them and the built-in reader would
+        hand back the text, so a title or command meant two different
+        strings on two machines. Single quotes are the spelling that
+        carries a literal backslash.
+        """
+        for value in ('"\\u00e9"', '"a\\zb"', '"\\x41"', '"\\0"'):
+            text = "profiles:\n  a: %s\n" % (value,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "%s should be refused, got %r" % (value, builtin))
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "%s should be refused, got %r" % (value, pyyaml_))
 
     def test_a_key_with_no_value_is_null_in_both(self):
         """`empty:` is null, which is what PyYAML makes of it.

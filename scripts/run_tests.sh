@@ -76,10 +76,20 @@ run_lint() {
     echo "pyflakes and compile clean."
 }
 
+no_match() {
+    echo "no test module matches ${pattern:-*}" >&2
+    exit 2
+}
+
 run_unit() {
     if [ "$want_shared" = 1 ]; then
         echo "--- suite, one interpreter"
         if [ -n "$pattern" ]; then
+            # The guard matters more here than below: with no modules this
+            # would be a bare `python -m unittest`, which is discovery from
+            # the current directory -- so a typo ran the whole suite from
+            # the repository root and said nothing about the pattern.
+            [ -n "$(modules)" ] || no_match
             $PYTHON -m unittest $(modules) -v
         else
             $PYTHON -m unittest discover -t . -s tests -v
@@ -92,10 +102,7 @@ run_unit() {
         echo "--- $module"
         $PYTHON -m unittest "$module"
     done
-    if [ "$found" = 0 ]; then
-        echo "no test module matches ${pattern:-*}" >&2
-        exit 2
-    fi
+    [ "$found" = 1 ] || no_match
     echo "Every test module passes on its own."
 }
 

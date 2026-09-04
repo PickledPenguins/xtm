@@ -43,8 +43,14 @@ class TestConcurrentWrites(IntegrationBase):
             results.append((process.returncode, stdout, stderr))
         return results
 
-    def slots(self):
-        payload = json.loads(self.run_xtm("-l", "-j").stdout)
+    def slots(self, profile=None):
+        """The slots of one profile, named rather than inferred.
+
+        Reading "the current profile" would follow whatever the last racing
+        process happened to persist, which is the thing under test.
+        """
+        argv = (("--profile", profile) if profile else ()) + ("-l", "-j")
+        payload = json.loads(self.run_xtm(*argv).stdout)
         return dict((s["name"], s["configured"]) for s in payload["sessions"])
 
     def test_simultaneous_set_commands_all_survive(self):
@@ -55,20 +61,30 @@ class TestConcurrentWrites(IntegrationBase):
         the eight slots vanish.
         """
         for round_number in range(ROUNDS):
-            self.run_xtm("--delete-profile", "race", env={})
-            self.run_xtm("-s", "seed", "0,0,100,100")
+            # A fresh profile per round, so what is measured is this round's
+            # eight writes rather than whatever earlier rounds left behind.
+            # Deleting a profile no round ever created -- which is what this
+            # line used to do -- let the rounds accumulate, and the weakest
+            # form of the failure, a race dropping a slot an earlier round
+            # wrote, went unmeasured.
+            profile = "race%d" % (round_number,)
+            self.run_xtm("--copy-profile", "default", profile)
+            self.run_xtm("--profile", profile, "-s", "seed", "0,0,100,100")
             names = ["slot%d" % i for i in range(8)]
             results = self.run_together(
-                [("-s", name, "%d,0,100,100" % (index * 10,))
+                [("--profile", profile, "-s", name, "%d,0,100,100" % (index * 10,))
                  for index, name in enumerate(names)])
             for code, _out, err in results:
                 self.assertEqual(0, code, "a concurrent --set failed: %s" % (err,))
-            written = self.slots()
+            written = self.slots(profile)
             missing = [n for n in names if n not in written]
             self.assertEqual(
                 [], missing,
                 "round %d lost %d of 8 concurrent writes: %s"
                 % (round_number, len(missing), missing))
+            self.assertIn("seed", written,
+                          "round %d lost the slot written before the race"
+                          % (round_number,))
 
     def test_a_reader_never_sees_a_half_written_config(self):
         """Readers racing a writer see the old config or the new one.

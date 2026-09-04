@@ -53,6 +53,29 @@ class TestSimpleYaml(unittest.TestCase):
         parsed = xtm._simple_yaml_load("a:\n  b: 'it''s here'\n")
         self.assertEqual(parsed["a"]["b"], "it's here")
 
+    def test_a_newline_or_tab_survives_the_round_trip(self):
+        """A value carrying one is escaped, not written raw.
+
+        Written literally inside the quotes it split the line, and the
+        reader -- which is line-based -- then refused the file the dumper
+        had just produced.
+        """
+        for value in ("a\nb", "a\tb", "a\n\tb"):
+            data = {"a": {"command": value}}
+            self.assertEqual(self.round_trip(data), data,
+                             "%r did not survive the round trip" % (value,))
+
+    def test_a_literal_backslash_n_is_not_a_newline(self):
+        """`a\\nb` is a backslash and an n, and stays that way.
+
+        The escapes are resolved in one left-to-right pass for this reason:
+        chained replaces would turn the escaped backslash's `n` into a
+        newline.
+        """
+        data = {"a": {"command": "a\\nb"}}
+        self.assertEqual(self.round_trip(data), data)
+        self.assertEqual(xtm._unescape_double_quoted('a\\\\nb'), 'a\\nb')
+
     def test_leading_dash_string_round_trips(self):
         self.assertEqual(self.round_trip({"a": {"b": "-fa"}})["a"]["b"], "-fa")
 

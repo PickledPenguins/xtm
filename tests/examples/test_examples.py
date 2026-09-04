@@ -7,7 +7,9 @@ matching the tool fails the build instead of quietly going stale.
 """
 
 import json
+import os
 import subprocess
+import tempfile
 import sys
 import unittest
 
@@ -138,6 +140,23 @@ class TestNegativeExamples(unittest.TestCase):
         self.assertEqual(result.returncode, 0,
                          "negative examples did not fail as recorded:\n%s\n%s"
                          % (result.stdout, result.stderr))
+
+    def test_the_catalogue_does_not_depend_on_the_machine_tmpdir(self):
+        """The recorded messages name the config as CONFIG, whatever $TMPDIR is.
+
+        The path was once stripped with a literal `/tmp` pattern, so under
+        `TMPDIR=/var/tmp` every case failed with a mangled "/varCONFIG" --
+        a suite whose result depends on the machine running it.
+        """
+        with tempfile.TemporaryDirectory(prefix="xtm-tmpdir-") as elsewhere:
+            environment = dict(os.environ, TMPDIR=elsewhere)
+            result = subprocess.run(
+                [sys.executable, str(EXAMPLES / "run.py"), "--negative"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, timeout=300, env=environment)
+        self.assertEqual(result.returncode, 0,
+                         "the negative catalogue failed with TMPDIR=%s:\n%s\n%s"
+                         % (elsewhere, result.stdout, result.stderr))
 
     def test_every_negative_example_is_listed_in_the_index(self):
         index = (EXAMPLES / "README.md").read_text()

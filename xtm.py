@@ -651,7 +651,7 @@ def _simple_yaml_scalar_dump(v: Any) -> str:
         # the guard refuses it. Quoting here is what stops xtm writing a
         # config its own guard would then refuse to read.
         or _reads_back_as_a_different_number(s)
-        or bool(re.search(r'[:#\[\]{},"\'\n]', s))
+        or bool(re.search(r'[:#\[\]{},"\'\n\t]', s))
         or s.strip() != s
         or s.startswith(("-", "?", "&", "*", "!", "%", "@", "`", ">", "|"))
         # The decisive test, and the reason the list above is only a fast
@@ -663,7 +663,14 @@ def _simple_yaml_scalar_dump(v: Any) -> str:
         or _would_be_refused_unquoted(s)
     )
     if needs_quoting:
-        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        # A newline or a tab has to leave as an escape. Written literally
+        # inside the quotes it splits the line, and the reader -- which is
+        # line-based -- then refuses the file the dumper just wrote. The
+        # guard refuses every input that could carry one today, so this is
+        # the second rule keeping that true rather than the first.
+        escaped = (s.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n").replace("\t", "\\t"))
+        return '"' + escaped + '"'
     return s
 
 
@@ -1193,7 +1200,7 @@ def _reject_unsupported_escape(raw: str, context: str) -> None:
             index += 1
             continue
         following = raw[index + 1:index + 2]
-        if following not in ('"', "\\"):
+        if following not in _YAML_ESCAPES:
             die("%s: the double-quoted value %s contains the escape %s, "
                 "which PyYAML interprets and the built-in parser does not, "
                 "so this config would mean different things depending on "
@@ -1403,7 +1410,7 @@ def _simple_yaml_scalar_load(tok: str, in_flow: bool = False) -> Any:
     if tok in ("false", "False", "FALSE"):
         return False
     if len(tok) >= 2 and tok[0] == tok[-1] == '"':
-        return tok[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        return _unescape_double_quoted(tok[1:-1])
     if len(tok) >= 2 and tok[0] == tok[-1] == "'":
         return tok[1:-1].replace("''", "'")
     if tok.startswith("{") and tok.endswith("}"):
@@ -1428,6 +1435,38 @@ def _simple_yaml_scalar_load(tok: str, in_flow: bool = False) -> Any:
     if re.match(r"^([-+]?[0-9]+\.[0-9]*|\.[0-9]+)([eE][-+][0-9]+)?\Z", tok):
         return float(tok)
     return tok
+
+
+# The escapes a double-quoted scalar may carry. PyYAML implements far more
+# (\u, \x, \0 and the rest); those stay refused, because the built-in reader
+# would hand back the text and the two backends would disagree in silence.
+# These four are implemented on both sides, and the dumper needs the last two:
+# a newline or a tab written literally would split the line.
+_YAML_ESCAPES = {'"': '"', "\\": "\\", "n": "\n", "t": "\t"}
+
+
+def _unescape_double_quoted(body: str) -> str:
+    """Read one double-quoted scalar's body, resolving the escapes YAML
+    defines and this reader implements.
+
+    A single left-to-right pass rather than chained replaces: `"a\\\\nb"` is a
+    backslash followed by an n, and replacing `\\n` first would turn it into a
+    newline.
+    """
+    out = []
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char != "\\" or index + 1 >= len(body):
+            out.append(char)
+            index += 1
+            continue
+        following = body[index + 1]
+        # An escape the guard refuses cannot reach here; anything that does
+        # is one of the four, and is consumed with the backslash.
+        out.append(_YAML_ESCAPES.get(following, "\\" + following))
+        index += 2
+    return "".join(out)
 
 
 def _simple_yaml_key_load(tok: str) -> str:
@@ -2022,14 +2061,26 @@ def edit_profile(config: ConfigDict, profile_name: str, what: str) -> Any:
     """
     profiles = config.setdefault("profiles", {})
     original = _deep_copy(profiles.get(profile_name))
-    try:
-        yield
-        validate_profile(config, profile_name)
-    except XtmError as e:
+
+    def restore():
         if original is None:
             profiles.pop(profile_name, None)
         else:
             profiles[profile_name] = original
+
+    # The body and the validation are caught separately, because only one of
+    # them means "the edit would leave this profile invalid". Catching both
+    # under that message would report an unrelated failure inside a command
+    # as a validation error, and blame the profile for it.
+    try:
+        yield
+    except BaseException:
+        restore()
+        raise
+    try:
+        validate_profile(config, profile_name)
+    except XtmError as e:
+        restore()
         die("%s would leave profile %r invalid, so nothing was changed. %s"
             % (what, profile_name, e))
 

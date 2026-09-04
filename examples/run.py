@@ -17,7 +17,6 @@ reading it.
 
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -109,7 +108,12 @@ def run_negative(directory):
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT,
                                 universal_newlines=True, env=env, timeout=60)
-        return result.returncode, result.stdout
+        # The path the config really had, so the caller can strip exactly
+        # that. Matching a literal /tmp instead made the whole catalogue
+        # depend on $TMPDIR: under TMPDIR=/var/tmp every case failed with a
+        # mangled "/varCONFIG", which is the one property a test suite must
+        # never have.
+        return result.returncode, result.stdout, str(tmp / "cfg" / "config.yaml")
 
 
 def check_negatives(names, show):
@@ -117,14 +121,13 @@ def check_negatives(names, show):
     failures = []
     for name in names:
         directory = NEGATIVE / name
-        code, output = run_negative(directory)
+        code, output, config_path = run_negative(directory)
         decisive = ""
         for line in output.split("\n"):
             if "error:" in line or "INVALID:" in line:
                 # The config lives in a temporary directory that changes
                 # every run, so the recorded message names it as CONFIG.
-                decisive = re.sub(r'/tmp/xtm-negative-[^/]+/cfg/config\.yaml',
-                                  'CONFIG', line.strip())
+                decisive = line.strip().replace(config_path, "CONFIG")
                 break
         if show:
             print("%s\nrc=%d\n%s\n" % (name, code, decisive))

@@ -79,11 +79,18 @@ CATALOGUE = [
         "backends, so every spelling has to be refused, not just `~`."),
     Mutant(
         "yaml-escape-rule",
-        """if following not in ('"', "\\\\"):""",
+        "if following not in _YAML_ESCAPES:",
         "if False:",
         YAML,
-        "An escape the built-in reader does not implement means \"a\\tb\" is "
-        "a tab on one machine and a backslash and a t on the other."),
+        "An escape the built-in reader does not implement -- \\u, \\x, \\0 -- "
+        "means the value is one string under PyYAML and another without it."),
+    Mutant(
+        "yaml-escape-set",
+        '_YAML_ESCAPES = {\'"\': \'"\', "\\\\": "\\\\", "n": "\\n", "t": "\\t"}',
+        '_YAML_ESCAPES = {\'"\': \'"\', "\\\\": "\\\\"}',
+        YAML,
+        "\\n and \\t are implemented on both sides because the dumper emits "
+        "them; dropping them makes xtm refuse a file it just wrote."),
     Mutant(
         "yaml-empty-value-is-null",
         'pending[1][pending[2]] = None',
@@ -142,8 +149,10 @@ CATALOGUE = [
     # ---- config safety ----
     Mutant(
         "edit-profile-validates-before-saving",
-        "        yield\n        validate_profile(config, profile_name)",
-        "        yield",
+        "    try:\n        validate_profile(config, profile_name)\n"
+        "    except XtmError as e:",
+        "    try:\n        pass\n"
+        "    except XtmError as e:",
         CONFIG + BASICS,
         "An edit that would leave a profile unloadable must be refused. "
         "Without the re-validation, --set can write a config every later "
