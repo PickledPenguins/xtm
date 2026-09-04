@@ -102,6 +102,12 @@ def tool_tmux(argv):
     if not argv:
         fail()
     verb = argv[0]
+    # A tmux that works except for one verb, so a test can exercise the
+    # "tmux said no" branch of a command without breaking everything else
+    # the command needs tmux for.
+    if verb in os.environ.get("XTM_FAKE_TMUX_REFUSE", "").split(","):
+        sys.stderr.write("tmux: refusing %s (XTM_FAKE_TMUX_REFUSE)\n" % (verb,))
+        fail()
     rows = read_rows("sessions.txt")
     if verb == "list-sessions":
         if not rows:
