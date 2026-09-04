@@ -606,6 +606,16 @@ _YAML_RESERVED_WORDS = {
 _YAML_LOOKS_NUMERIC_RE = re.compile(r"^-?\d+(\.\d+)?$")
 
 
+def _reads_back_as_a_different_number(s: str) -> bool:
+    """Whether YAML would read `s` as a number that prints differently."""
+    for parse in (int, float):
+        try:
+            return str(parse(s)) != s
+        except ValueError:
+            continue
+    return False
+
+
 def _simple_yaml_scalar_dump(v: Any) -> str:
     """Render one scalar for the dependency-free dumper, quoting anything
     that would not survive the round trip unquoted."""
@@ -620,6 +630,12 @@ def _simple_yaml_scalar_dump(v: Any) -> str:
         s == ""
         or s in _YAML_RESERVED_WORDS
         or bool(_YAML_LOOKS_NUMERIC_RE.match(s))
+        # A spelling YAML reads as a number whose TEXT differs -- "9." is
+        # the float 9.0, "07" the integer 7. As a value the difference is
+        # invisible; as a key it renames the profile or slot, which is why
+        # the guard refuses it. Quoting here is what stops xtm writing a
+        # config its own guard would then refuse to read.
+        or _reads_back_as_a_different_number(s)
         or bool(re.search(r'[:#\[\]{},"\'\n]', s))
         or s.strip() != s
         or s.startswith(("-", "?", "&", "*", "!", "%", "@", "`", ">", "|"))
