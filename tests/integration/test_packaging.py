@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -206,3 +207,67 @@ class TestCompletionScript(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConsoleEntryPoint(unittest.TestCase):
+    """`pip install xtm` must behave like the copied script.
+
+    install.sh copies xtm.py and the shebang runs the `if __name__ ==
+    "__main__"` block; pyproject.toml's console script imports the module
+    and calls one function instead. Anything guarded only by that block
+    therefore does not run for a pip-installed xtm, which is how an
+    ordinary bad config came to print a Python traceback there while
+    printing one line here.
+    """
+
+    def entry_point_name(self):
+        """The function pyproject.toml actually points the console script at."""
+        text = (REPO_ROOT / "pyproject.toml").read_text()
+        match = re.search(r'^xtm\s*=\s*"xtm:(\w+)"', text, re.MULTILINE)
+        self.assertIsNotNone(match, "pyproject.toml declares no xtm console script")
+        return match.group(1)
+
+    def run_entry_point(self, *argv):
+        """Call the console script's function the way a wheel's wrapper does."""
+        program = (
+            "import sys; sys.path.insert(0, %r); import xtm; "
+            "sys.exit(xtm.%s(%r))" % (str(REPO_ROOT), self.entry_point_name(),
+                                      list(argv))
+        )
+        return subprocess.run([sys.executable, "-c", program],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True, timeout=40)
+
+    def test_the_entry_point_exists(self):
+        self.assertTrue(hasattr(xtm, self.entry_point_name()),
+                        "pyproject.toml names a function xtm.py does not define")
+
+    def test_a_config_error_is_one_line_and_not_a_traceback(self):
+        with tempfile.TemporaryDirectory(prefix="xtm-entry-") as tmp:
+            bad = Path(tmp) / "bad.yaml"
+            bad.write_text("profiles: [1, 2]\n")
+            result = self.run_entry_point("--config", str(bad), "--state-dir",
+                                          tmp, "--list")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("XtmError", result.stderr)
+        self.assertIn("must be a mapping", result.stderr)
+
+    def test_the_entry_point_returns_the_documented_exit_codes(self):
+        with tempfile.TemporaryDirectory(prefix="xtm-entry-") as tmp:
+            ok = self.run_entry_point("--config", str(Path(tmp) / "c.yaml"),
+                                      "--state-dir", tmp, "--validate")
+            self.assertEqual(ok.returncode, xtm.EXIT_OK, ok.stderr)
+
+    def test_an_interrupt_becomes_exit_130(self):
+        """KeyboardInterrupt is caught by the entry point, not by main()."""
+        program = (
+            "import sys; sys.path.insert(0, %r); import xtm; "
+            "xtm.main = lambda argv=None: (_ for _ in ()).throw(KeyboardInterrupt()); "
+            "sys.exit(xtm.%s([]))" % (str(REPO_ROOT), self.entry_point_name())
+        )
+        result = subprocess.run([sys.executable, "-c", program],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                universal_newlines=True, timeout=40)
+        self.assertEqual(result.returncode, xtm.EXIT_INTERRUPTED)
+        self.assertNotIn("Traceback", result.stderr)

@@ -1,11 +1,17 @@
 """--dry-run must have no effect on anything."""
 
+import copy
 import os
 import pty
+import shutil
+import tempfile
 import time
+import unittest
+from pathlib import Path
 
 from tests.support import (
     IntegrationBase,
+    xtm,
 )
 
 
@@ -121,3 +127,40 @@ class TestDryRunExtras(IntegrationBase):
         result = self.run_xtm("--verify", "-r")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("delta", result.stderr)
+
+
+class TestDryRunDoesNotAlterTheDefaults(unittest.TestCase):
+    """A dry run must not change the module's own idea of a default config.
+
+    load_config() hands the caller a stand-in config when --dry-run means
+    no file was created, and the caller goes on to inject defaults and run
+    a command against it. A shallow copy shares the nested 'profiles'
+    mapping with the DEFAULT_CONFIG constant, so one in-process dry run
+    would permanently alter the default every later call starts from --
+    which matters because xtm.py is imported as well as executed.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="xtm-defaults-"))
+        self.addCleanup(shutil.rmtree, str(self.tmp), True)
+        context = xtm.scoped_context()
+        context.__enter__()
+        self.addCleanup(context.__exit__, None, None, None)
+
+    def test_a_dry_run_leaves_default_config_untouched(self):
+        before = copy.deepcopy(xtm.DEFAULT_CONFIG)
+        xtm.main(["--config", str(self.tmp / "absent.yaml"),
+                  "--state-dir", str(self.tmp / "state"),
+                  "--dry-run", "--quiet", "--set", "newslot", "1,2,3,4"])
+        self.assertEqual(xtm.DEFAULT_CONFIG, before,
+                         "a dry run mutated the DEFAULT_CONFIG constant")
+
+    def test_the_returned_config_is_independent_of_the_constant(self):
+        """Asserted on the seam itself, not only through one command."""
+        with xtm.scoped_context(dry_run=True,
+                                config_file=self.tmp / "absent.yaml"):
+            config = xtm.load_config()
+        config["profiles"]["default"]["sessions"]["x"] = {"x": 0}
+        self.assertEqual(
+            xtm.DEFAULT_CONFIG["profiles"]["default"]["sessions"], {},
+            "load_config returned a view onto DEFAULT_CONFIG, not a copy")

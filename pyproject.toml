@@ -48,7 +48,11 @@ yaml = ["PyYAML>=3.12"]
 dev = ["PyYAML>=3.12", "coverage>=7.2", "pyflakes"]
 
 [project.scripts]
-xtm = "xtm:main"
+# cli(), not main(): cli() is the layer that turns XtmError into the
+# documented one-line message and KeyboardInterrupt into exit 130. main()
+# raises both, so an entry point pointing at it would give a pip-installed
+# xtm a Python traceback where the copied script prints one line.
+xtm = "xtm:cli"
 
 [tool.setuptools]
 py-modules = ["xtm"]

@@ -533,3 +533,74 @@ class TestDetachAndSwitch(IntegrationBase):
         names = [r[0] for r in self.rows("sessions.txt")]
         self.assertIn("desk-work1", names)
         self.assertNotIn("lab-work1", names)
+
+
+class TestFocusTargets(IntegrationBase):
+    """--focus takes a slot name or a session name, like every other action.
+
+    It used to take only the session name, which made it the one exception
+    among --open, --close, --detach and --delete-session, and made the
+    "did you mean 'xtm --focus NAME'" hint wrong for any profile with a
+    prefix: the hint names a slot, and the window is named after the
+    session that slot resolves to.
+    """
+
+    def prefixed_profile(self):
+        self.write_config("""\
+            profiles:
+              default:
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions: {}
+              desk:
+                prefix: desk-
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  work1: {x: 0, y: 0, width: 900, height: 700}
+            """)
+        self.run_xtm("desk", "--quiet", "--current-profile")
+        self.add_session("desk-work1")
+        self.add_window("desk-work1", 0, 0, 900, 700)
+
+    def test_focus_accepts_the_slot_name(self):
+        self.prefixed_profile()
+        result = self.run_xtm("--focus", "work1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Focused desk-work1", result.stderr)
+
+    def test_focus_accepts_the_session_name(self):
+        self.prefixed_profile()
+        result = self.run_xtm("--focus", "desk-work1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_the_suggested_focus_command_actually_works(self):
+        """The hint and the command it names must agree.
+
+        `xtm work1` on a profile that has a slot but no such profile
+        suggests --focus; that suggestion has to be runnable as printed.
+        """
+        self.prefixed_profile()
+        hint = self.run_xtm("work1")
+        self.assertEqual(hint.returncode, 1)
+        self.assertIn("--focus work1", hint.stderr)
+        suggested = self.run_xtm("--focus", "work1")
+        self.assertEqual(suggested.returncode, 0, suggested.stderr)
+
+    def test_focus_with_only_xwininfo_says_so(self):
+        """The reason must be the missing capability, not a missing window."""
+        self.prefixed_profile()
+        for name in ("xdotool", "wmctrl"):
+            (self.bin / name).unlink()
+        result = self.run_xtm("--focus", "work1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("xdotool or wmctrl", result.stderr)
+
+    def test_focus_with_only_xwininfo_says_so_even_with_no_window(self):
+        """The case that used to be misreported as 'could not find a window'."""
+        self.prefixed_profile()
+        self.write_rows("windows.txt", [])
+        for name in ("xdotool", "wmctrl"):
+            (self.bin / name).unlink()
+        result = self.run_xtm("--focus", "work1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("xdotool or wmctrl", result.stderr)
+        self.assertNotIn("Could not find or focus", result.stderr)

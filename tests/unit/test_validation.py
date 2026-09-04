@@ -220,6 +220,41 @@ class TestSessionNaming(unittest.TestCase):
         self.assertNotEqual(xtm.resolve_session_name(a, "work1"),
                             xtm.resolve_session_name(b, "work1"))
 
+    def test_two_slots_resolving_to_one_session_are_rejected(self):
+        """Two slots on one session would fight over the same window.
+
+        Documented as rejected since 0.5 and enforced by validate_profile,
+        but untested until now -- which is how `xtm --set` came to be able
+        to write a config that no later command could load.
+        """
+        config = {"profiles": {"desk": {
+            "prefix": "desk-",
+            "sessions": {
+                "alpha": {"session": "desk-beta", "x": 0, "y": 0,
+                          "width": 10, "height": 10},
+                "beta": {"x": 0, "y": 0, "width": 10, "height": 10},
+            },
+        }}}
+        with self.assertRaises(xtm.XtmError) as caught:
+            xtm.validate_profile(config, "desk")
+        message = str(caught.exception)
+        self.assertIn("both resolve to session 'desk-beta'", message)
+        # Both slot names, so the user knows which two to look at.
+        self.assertIn("alpha", message)
+        self.assertIn("beta", message)
+
+    def test_distinct_sessions_are_accepted(self):
+        """The negative half: the check must not fire on ordinary profiles."""
+        config = {"profiles": {"desk": {
+            "prefix": "desk-",
+            "sessions": {
+                "alpha": {"session": "notes", "x": 0, "y": 0,
+                          "width": 10, "height": 10},
+                "beta": {"x": 0, "y": 0, "width": 10, "height": 10},
+            },
+        }}}
+        xtm.validate_profile(config, "desk")
+
     def test_slot_lookup_by_session(self):
         profile = {"prefix": "desk-", "sessions": {"work1": {}, "n": {"session": "x"}}}
         self.assertEqual(xtm.slot_for_session(profile, "desk-work1"), "work1")

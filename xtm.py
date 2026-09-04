@@ -43,6 +43,7 @@ import math
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -769,6 +770,43 @@ def _has_digit_separators(raw: str) -> bool:
 # so are deliberately absent here; these four are not.
 _YAML_AMBIGUOUS_WORDS = ("yes", "no", "on", "off")
 
+# YAML's structural indicators, which mean something to PyYAML and nothing to
+# the built-in parser when they OPEN an unquoted value:
+#
+#   &anchor  *alias   PyYAML resolves them; `x: &a 5` is 5 to PyYAML and the
+#                     text "&a 5" here, and `x: *a` is an error to PyYAML
+#   !tag              `!!str 7` is the string "7" to PyYAML, "!!str 7" here
+#   | >               block scalar headers; `title: |` opens a folded value
+#                     PyYAML reads from the following lines
+#   % @ ` ,           reserved indicators PyYAML refuses outright
+#
+# Only as the first character. `tail -f x | grep y`, `user@host`, `50%` and
+# `sleep 5 &` are ordinary values that both backends read identically, and
+# rejecting those would break real configs to close a hole they are not in.
+# `]` and `}` are here rather than in _reject_unbalanced_flow because a
+# value may not OPEN with a closing bracket: PyYAML refuses `a: ]x` as a
+# stray flow indicator, and nothing legitimate starts that way.
+_YAML_INDICATOR_CHARS = "&*!%@`|>,]}"
+
+# Whole tokens PyYAML refuses as a VALUE and the built-in parser reads as
+# ordinary text. Both are YAML 1.1 spellings rather than indicators, so they
+# are matched exactly: `<<x`, `<x` and `=x` are ordinary values that both
+# backends agree on, and only the bare token diverges.
+_YAML_RESERVED_VALUE_TOKENS = ("<<", "=")
+
+# A key PyYAML gives meaning to and the built-in parser treats as an ordinary
+# name. `<<` is the merge key: PyYAML folds the mapping it names into the
+# enclosing one, so a profile written with `<<: {prefix: x-}` HAS that prefix
+# on a machine with PyYAML and does not have it on a machine without, with no
+# error on either side. That silence is what makes it worth naming here.
+_YAML_RESERVED_KEYS = ("<<",)
+
+# Document markers. PyYAML accepts them; the built-in parser has no concept of
+# a document and reports "Malformed config line", so a config carrying the
+# `---` header that many editors and people write by habit loads on a machine
+# with PyYAML and fails on one without -- exactly the machines xtm exists for.
+_YAML_DOCUMENT_MARKERS = ("---", "...")
+
 
 def _reject_ambiguous_scalar(tok: str, context: str) -> None:
     """Refuse one unquoted scalar that the two YAML backends read differently.
@@ -779,6 +817,17 @@ def _reject_ambiguous_scalar(tok: str, context: str) -> None:
     raw = tok.strip()
     if not raw or raw[0] in "\"'":
         return
+    if raw in _YAML_RESERVED_VALUE_TOKENS:
+        die("%s: the unquoted value %s is reserved in YAML, so PyYAML "
+            "refuses it while the built-in parser reads it as text and this "
+            "config would load only where PyYAML is absent. Quote it as "
+            "\"%s\" if you mean the literal text." % (context, raw, raw))
+    if raw[0] in _YAML_INDICATOR_CHARS:
+        die("%s: the unquoted value %s begins with %r, which YAML reads as a "
+            "structural indicator rather than as text, so this config would "
+            "be read differently depending on whether PyYAML is installed. "
+            "Quote it as \"%s\" if you mean the literal text."
+            % (context, raw, raw[0], raw))
     if raw.lower() in _YAML_AMBIGUOUS_WORDS:
         die("%s: the unquoted value %s is read as a boolean by PyYAML and as "
             "text by the built-in parser, so this config would behave "
@@ -806,16 +855,127 @@ def _scan_for_ambiguous_scalars(text: str) -> None:
     turned 0755 into 493 the evidence is gone.
     """
     for lineno, raw_line in enumerate(text.split("\n"), 1):
-        line = _strip_inline_comment(raw_line).strip()
+        stripped = _strip_inline_comment(raw_line)
+        line = stripped.strip()
         if not line or line.startswith("#"):
             continue
         context = "%s line %d" % (CONTEXT.config_file, lineno)
+        # The built-in parser's own indentation rules, enforced here so they
+        # apply under PyYAML too. They were only in _simple_yaml_load, so a
+        # tab-indented or three-space-indented config loaded on a machine
+        # with PyYAML and failed on one without -- the same divergence as any
+        # other in this scan, just spelled with whitespace.
+        _reject_ambiguous_indent(stripped, raw_line, context)
+        if line in _YAML_DOCUMENT_MARKERS or line.startswith("--- "):
+            die("%s: %s is a YAML document marker. PyYAML accepts it and the "
+                "built-in parser does not, so this config would load only on "
+                "a machine with PyYAML installed. Remove the line; xtm's "
+                "config is always a single document."
+                % (context, line.split()[0]))
         if line == "-" or line.startswith("- "):
             # Block sequence item: the whole remainder is the value.
             _scan_value(line[1:].strip(), context)
             continue
-        _, _, value = _partition_key(line)
+        key, _, value = _partition_key(line)
+        _reject_reserved_key(key.strip(), context)
         _scan_value(value.strip(), context)
+
+
+def _reject_ambiguous_indent(line: str, raw_line: str, context: str) -> None:
+    """Refuse indentation the built-in parser cannot read.
+
+    Deliberately the same two rules _simple_yaml_load applies, stated once
+    more here so that they gate PyYAML as well. Both messages name the
+    offending line, and both have the same fix: use two spaces per level.
+    """
+    # Anywhere in the line, not only in the indentation. PyYAML refuses a
+    # tab inside a plain scalar too ("a: 1\t2"), while the built-in parser
+    # reads it as ordinary text, so restricting the rule to leading
+    # whitespace left the same divergence in the middle of a value.
+    if "\t" in line:
+        die("%s: config lines must not contain tabs, because the built-in "
+            "YAML parser cannot handle them reliably. Use spaces: %r"
+            % (context, raw_line))
+    leading = line[:len(line) - len(line.lstrip(" "))]
+    if len(leading) % 2 != 0:
+        die("%s: config indentation must be in multiples of 2 spaces, or the "
+            "built-in YAML parser cannot read it: %r" % (context, raw_line))
+
+
+def _reject_flow_item(item: str, whole: str, context: str) -> None:
+    """Refuse a flow-sequence item the two backends read differently.
+
+    Two shapes, both refused for both backends so that neither gets to act
+    on its own reading:
+
+    * An empty item, which a trailing comma produces. `[a, b,]` is a
+      two-item list to PyYAML and a three-item list ending in null to the
+      built-in parser.
+    * An unquoted item containing a colon. PyYAML may read it as a nested
+      one-key mapping (`[b40: 2]` is `[{"b40": 2}]`) or as text depending
+      on what follows the colon, and the built-in parser has no nested
+      mapping to read it into.
+
+    Quoted items are exempt, which is what keeps real values working:
+    `xterm_args: [-fa, "Monospace:size=11"]` is a fontconfig name, not a
+    mapping, and quoting is how the user already says so.
+    """
+    if not item:
+        die("%s: the list %s has an empty item, usually a trailing comma. "
+            "PyYAML drops it and the built-in parser reads it as a null "
+            "entry, so the two disagree about the list's length."
+            % (context, whole))
+    if item[0] in "\"'[{":
+        return
+    _, sep, _ = _partition_key(item)
+    if sep:
+        die("%s: the list item %s contains a colon, which PyYAML may read "
+            "as a nested mapping rather than as text. Quote it as \"%s\" if "
+            "it is meant to be text." % (context, item, item))
+
+
+def _reject_flow_entry(part: str, sep: str, value: str, context: str) -> None:
+    """Refuse a flow-mapping entry the two backends split differently.
+
+    In YAML a colon separates a key from its value only when a space or the
+    end of the entry follows it, so PyYAML reads `{x:0, y:0}` as two keys
+    named "x:0" and "y:0" with no values at all. The built-in parser split
+    on the first colon regardless, read the same text as x=0 and y=0, and
+    placed the window where PyYAML would have failed validation.
+
+    An entry with no colon (`{a}`) is the other half: a valid YAML set
+    entry to PyYAML, and nothing the built-in parser can represent. Neither
+    spelling has a use in an xtm config, and both have an obvious fix.
+    """
+    if not sep:
+        die("%s: the flow mapping entry %s has no value. Write it as "
+            "'key: value'." % (context, part))
+    if value and not value.startswith((" ", "\t")):
+        die("%s: the flow mapping entry %s has no space after its colon, so "
+            "PyYAML reads the whole entry as a key with no value while the "
+            "built-in parser splits it in two. Write it as 'key: value'."
+            % (context, part))
+
+
+def _reject_reserved_key(key: str, context: str) -> None:
+    """Refuse a key that only PyYAML gives meaning to.
+
+    Quoted keys are exempt for the same reason quoted values are: quoting
+    is how a user says "this is a name", and both backends agree on it.
+    """
+    if key[:1] in "\"'":
+        return
+    if key[:1] in _YAML_INDICATOR_CHARS:
+        die("%s: the key %s begins with %r, which YAML reads as a structural "
+            "indicator rather than as a name. PyYAML refuses it and the "
+            "built-in parser reads it as an ordinary key. Quote it as \"%s\" "
+            "if that really is the name." % (context, key, key[0], key))
+    if key in _YAML_RESERVED_KEYS:
+        die("%s: %s is a YAML merge key. PyYAML merges the mapping it names "
+            "into this one and the built-in parser treats it as an ordinary "
+            "key, so this config would mean different things on two machines "
+            "with no error on either. Write the keys out in full."
+            % (context, key))
 
 
 def _scan_value(value: str, context: str) -> None:
@@ -825,11 +985,15 @@ def _scan_value(value: str, context: str) -> None:
     if value.startswith("{") and value.endswith("}"):
         for part in _split_top_level(value[1:-1]):
             if part.strip():
-                _, _, inner = _partition_key(part.strip())
+                key, sep, inner = _partition_key(part.strip())
+                _reject_flow_entry(part.strip(), sep, inner, context)
+                _reject_reserved_key(key.strip(), context)
                 _scan_value(inner.strip(), context)
         return
     if value.startswith("[") and value.endswith("]"):
-        for part in _split_top_level(value[1:-1]):
+        inner = value[1:-1].strip()
+        for part in ([] if not inner else _split_top_level(inner)):
+            _reject_flow_item(part.strip(), value, context)
             _scan_value(part.strip(), context)
         return
     _reject_ambiguous_scalar(value, context)
@@ -859,34 +1023,90 @@ def _partition_key(line: str) -> Tuple[str, str, str]:
 
 
 def _reject_unbalanced(tok: str) -> None:
-    """Refuse a scalar with an unterminated quote or flow collection.
+    """Refuse a quoted scalar or flow collection that does not close cleanly.
 
-    Without this the built-in parser silently accepts input PyYAML rejects
-    outright: `a: "unterminated` falls through to the plain-text branch and
-    becomes the string '"unterminated', and `a: {x: 1, y: 2` becomes the
-    string '{x: 1, y: 2'. Both are malformed YAML, and a config that errors
-    on a machine with PyYAML must not quietly load on one without it.
+    Only a token that OPENS with a quote or a bracket is one, which is the
+    whole subtlety here. In YAML those characters are indicators at the
+    start of a scalar and ordinary text anywhere else, so `command: sed
+    's/a/b/'` and `title: 3{x}` are perfectly good plain scalars that
+    PyYAML reads without complaint. Scanning every token for balance
+    instead made the built-in parser STRICTER than PyYAML and produced the
+    same divergence from the other direction: a config that loaded with
+    PyYAML installed and failed without it.
+
+    What is refused is a token that announces a quoted scalar or a flow
+    collection and then does not deliver one: `a: "unterminated`,
+    `a: {x: 1, y: 2`, `a: []1A`. PyYAML refuses all three.
     """
+    if not tok:
+        return
+    first = tok[0]
+    if first in "\"'":
+        _reject_unterminated_quote(tok)
+        return
+    if first in "[{":
+        _reject_unbalanced_flow(tok)
+
+
+def _reject_unterminated_quote(tok: str) -> None:
+    """Check a token that opens with a quote: it must close on the last
+    character, with nothing after it."""
+    quote = tok[0]
+    index = 1
+    while index < len(tok):
+        ch = tok[index]
+        if quote == '"' and ch == "\\":
+            index += 2      # an escape consumes the character after it
+            continue
+        if ch == quote:
+            if quote == "'" and tok[index + 1:index + 2] == "'":
+                index += 2  # '' is how a single-quoted scalar escapes a quote
+                continue
+            break
+        index += 1
+    else:
+        return die("Unterminated %s quote in config value: %s" % (quote, tok))
+    if index != len(tok) - 1:
+        die("Unexpected text after the closing %s quote in config value: %s"
+            % (quote, tok))
+
+
+def _reject_unbalanced_flow(tok: str) -> None:
+    """Check a token that opens with `[` or `{`: it must be one collection,
+    closed by the last character."""
+    closing = {"[": "]", "{": "}"}[tok[0]]
     quote = ""
     depth = 0
-    for ch in tok:
+    # A quote only opens a quoted scalar where an item may begin -- after
+    # "[", "{" or "," and any spaces. Elsewhere it is an ordinary character
+    # in a plain scalar, which is why `[a"b]` is a one-item list to PyYAML
+    # rather than an unterminated quote.
+    at_item_start = True
+    for index, ch in enumerate(tok):
         if quote:
             if ch == quote:
                 quote = ""
             continue
-        if ch in "\"'":
+        if ch in "\"'" and at_item_start:
             quote = ch
         elif ch in "[{":
             depth += 1
         elif ch in "]}":
             depth -= 1
+            if depth == 0 and index != len(tok) - 1:
+                die("Unexpected text after the closing %s in config value: %s"
+                    % (ch, tok))
+            if depth < 0:
+                die("Unbalanced brackets or braces in config value: %s" % (tok,))
+        if ch not in " \t":
+            at_item_start = ch in "[{,"
     if quote:
         die("Unterminated %s quote in config value: %s" % (quote, tok))
-    if depth:
+    if depth or tok[-1] != closing:
         die("Unbalanced brackets or braces in config value: %s" % (tok,))
 
 
-def _reject_plain_scalar_colon(tok: str) -> None:
+def _reject_plain_scalar_colon(tok: str, in_flow: bool = False) -> None:
     """Refuse an unquoted value that YAML would read as a nested mapping.
 
     In YAML a colon only ends a key when it is followed by whitespace or by
@@ -907,6 +1127,13 @@ def _reject_plain_scalar_colon(tok: str) -> None:
     # "- " opens a block sequence, which cannot begin on the value line.
     # A bare "-fn" is an ordinary value and is deliberately unaffected: only
     # a dash followed by a space, or a dash alone, is the list indicator.
+    #
+    # in_flow suppresses this rule, because inside [ ] a dash is not an
+    # indicator at all: PyYAML reads `a: [-]` as the one-item list ["-"],
+    # and refusing it here made the built-in parser reject a config PyYAML
+    # accepts -- the same divergence, pointing the other way.
+    if in_flow:
+        return
     if tok == "-" or tok.startswith("- "):
         die("Unquoted value %r starts with a list indicator, which YAML "
             "cannot read on the same line as its key. Put the list items on "
@@ -914,9 +1141,13 @@ def _reject_plain_scalar_colon(tok: str) -> None:
             % (tok,))
 
 
-def _simple_yaml_scalar_load(tok: str) -> Any:
+def _simple_yaml_scalar_load(tok: str, in_flow: bool = False) -> Any:
     """Parse one scalar, flow list or flow mapping produced by hand or by
-    _simple_yaml_dump."""
+    _simple_yaml_dump.
+
+    `in_flow` says the token came from inside a flow collection, where a
+    leading dash is ordinary text rather than a list indicator.
+    """
     tok = tok.strip()
     _reject_unbalanced(tok)
     if tok in ("", "~", "null", "Null", "NULL"):
@@ -935,8 +1166,9 @@ def _simple_yaml_scalar_load(tok: str) -> Any:
         inner = tok[1:-1].strip()
         if not inner:
             return []
-        return [_simple_yaml_scalar_load(p) for p in _split_top_level(inner)]
-    _reject_plain_scalar_colon(tok)
+        return [_simple_yaml_scalar_load(p, in_flow=True)
+                for p in _split_top_level(inner)]
+    _reject_plain_scalar_colon(tok, in_flow)
     # [0-9] rather than \d, and \Z rather than $, both deliberately. In
     # Python 3 \d also matches non-ASCII decimal digits and int() accepts
     # them, so "\uff11\uff12\uff13" would become 123 here while PyYAML --
@@ -1165,7 +1397,13 @@ def load_config(create_if_missing: bool = True) -> ConfigDict:
         logger.info("No config file at %s; creating a default one.", CONTEXT.config_file)
         _write_text_safe(CONTEXT.config_file, dump_yaml(DEFAULT_CONFIG), "config file")
         if CONTEXT.dry_run:
-            return dict(DEFAULT_CONFIG)
+            # A deep copy, not dict(): a shallow one shares the nested
+            # 'profiles' mapping with the module-level constant, and the
+            # caller goes on to inject defaults and run a command against
+            # it. A single in-process dry run would otherwise leave
+            # DEFAULT_CONFIG permanently altered for everything after it,
+            # which matters because this module is imported as well as run.
+            return _deep_copy(DEFAULT_CONFIG)
     raw_text = _read_text_safe(CONTEXT.config_file, "config file")
     data = load_yaml(raw_text)
     if not isinstance(data, dict) or "profiles" not in data:
@@ -1479,6 +1717,36 @@ def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
 
 # Kept as the historical name used across the command implementations.
 get_profile = validate_profile
+
+
+@contextlib.contextmanager
+def edit_profile(config: ConfigDict, profile_name: str, what: str) -> Any:
+    """Apply an edit to one profile, or leave the profile untouched.
+
+    Validation runs when the config is LOADED, so a command that edits a
+    profile and saves it can write a file that every later command
+    refuses. `xtm --set` could do exactly that: adding a slot whose
+    prefixed name collides with another slot's explicit 'session:'
+    reported success, and afterwards every command on that profile --
+    including --validate and --delete-session -- failed with "both
+    resolve to session", leaving hand-editing as the only way back.
+
+    Wrapping the edit re-runs the same validation the next load would,
+    and restores the profile as it was if the edit does not survive it,
+    so the failure arrives before the write instead of after it.
+    """
+    profiles = config.setdefault("profiles", {})
+    original = _deep_copy(profiles.get(profile_name))
+    try:
+        yield
+        validate_profile(config, profile_name)
+    except XtmError as e:
+        if original is None:
+            profiles.pop(profile_name, None)
+        else:
+            profiles[profile_name] = original
+        die("%s would leave profile %r invalid, so nothing was changed. %s"
+            % (what, profile_name, e))
 
 
 def resolve_session_name(profile: ProfileDict, slot: str) -> str:
@@ -2118,6 +2386,26 @@ def require_geometry_tool() -> str:
     return tool
 
 
+def require_acting_geometry_tool() -> str:
+    """The first tool that can RAISE a window, not merely query one.
+
+    xwininfo satisfies require_geometry_tool() but cannot focus anything,
+    so asking for the capability up front is what separates "this tool
+    cannot do that" from "no such window". Checking it afterwards, as
+    --focus used to, reported a missing window whenever the window was
+    absent, hiding the fact that the installed tool could never have
+    raised it either.
+    """
+    for tool in GEOMETRY_TOOLS:
+        if tool != "xwininfo" and which_or_none(tool):
+            return tool
+    if which_or_none("xwininfo"):
+        die("Focusing a window needs xdotool or wmctrl. Only xwininfo was "
+            "found on PATH, and it can query windows but not raise them.")
+    return die("Focusing a window needs xdotool or wmctrl, and neither was "
+               "found on PATH.")
+
+
 def window_title(session: str) -> str:
     """The xterm title xtm gives a session's window."""
     return TITLE_PREFIX + session
@@ -2753,9 +3041,19 @@ def cmd_close_all(args: argparse.Namespace, config: ConfigDict,
 
 
 def cmd_focus(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
-    """Raise and focus one session's window."""
-    session = validate_session_name(args.focus)
-    tool = require_geometry_tool()
+    """Raise and focus one session's window.
+
+    Takes a slot name or a session name, as --open, --close, --detach and
+    --delete-session all do. It used to take only the session name, which
+    made it the one exception, and made the "did you mean 'xtm --focus
+    NAME'" hint in _unknown_profile_message wrong for any profile with a
+    prefix: the hint names a SLOT, and the window is named after the
+    session the slot resolves to.
+    """
+    profile = get_profile(config, profile_name)
+    session = _resolve_target_session(profile,
+                                      validate_session_name(args.focus))
+    tool = require_acting_geometry_tool()
     if not focus_window(session, tool):
         logger.error("Could not find or focus a window for session %r.", session)
         return EXIT_ERROR
@@ -2813,34 +3111,40 @@ def cmd_update_profile(args: argparse.Namespace, config: ConfigDict,
     # and resolving each one with slot_for_session() would rescan every slot
     # in the profile each time.
     slot_index = session_slot_index(profile)
-    for session, geometry in layout.items():
-        slot = slot_index.get(session)
-        existing = profile["sessions"].get(slot) if slot else None
-        if isinstance(existing, dict):
-            # Preserve command/cwd/xterm_args/session/title: only
-            # placement is captured from the screen, and silently
-            # dropping the rest would be a destructive surprise.
-            existing.update(geometry)
-            updated += 1
-        elif args.capture_new:
-            # An unrecognised window is recorded under its own name with
-            # an explicit 'session', so the entry means exactly the
-            # session that was captured regardless of any prefix.
-            entry = dict(geometry)
-            if session != "%s%s" % (profile.get("prefix", ""), session):
-                entry["session"] = session
-            profile["sessions"][session] = entry
-            added += 1
-        else:
-            # Windows belonging to another profile are left out by
-            # default: capturing them would quietly graft one profile's
-            # sessions onto another.
-            skipped += 1
-            logger.debug("Skipping %s: not part of profile %s.",
-                         session, profile_name)
-            continue
-        logger.debug("Captured %s at x=%s y=%s %sx%s", session, geometry["x"],
-                     geometry["y"], geometry["width"], geometry["height"])
+    # Guarded for the same reason --set is: --capture-new adds slots, and a
+    # captured window whose name collides with an existing slot's resolved
+    # session would otherwise be written to a config that no later command
+    # can load.
+    with edit_profile(config, profile_name, "Capturing the current layout"):
+        for session, geometry in layout.items():
+            slot = slot_index.get(session)
+            existing = profile["sessions"].get(slot) if slot else None
+            if isinstance(existing, dict):
+                # Preserve command/cwd/xterm_args/session/title: only
+                # placement is captured from the screen, and silently
+                # dropping the rest would be a destructive surprise.
+                existing.update(geometry)
+                updated += 1
+            elif args.capture_new:
+                # An unrecognised window is recorded under its own name with
+                # an explicit 'session', so the entry means exactly the
+                # session that was captured regardless of any prefix.
+                entry = dict(geometry)
+                if session != "%s%s" % (profile.get("prefix", ""), session):
+                    entry["session"] = session
+                profile["sessions"][session] = entry
+                added += 1
+            else:
+                # Windows belonging to another profile are left out by
+                # default: capturing them would quietly graft one profile's
+                # sessions onto another.
+                skipped += 1
+                logger.debug("Skipping %s: not part of profile %s.",
+                             session, profile_name)
+                continue
+            logger.debug("Captured %s at x=%s y=%s %sx%s", session,
+                         geometry["x"], geometry["y"], geometry["width"],
+                         geometry["height"])
     save_config(config)
     logger.info("Profile %s updated: %d slot(s) updated, %d added. Saved to %s",
                 profile_name, updated, added, CONTEXT.config_file)
@@ -2899,12 +3203,13 @@ def cmd_set(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> 
     slot = validate_session_name(args.set[0])
     geometry = parse_geometry_spec(args.set[1])
     existing = profile["sessions"].get(slot)
-    if isinstance(existing, dict):
-        existing.update(geometry)
-        action = "Updated"
-    else:
-        profile["sessions"][slot] = geometry
-        action = "Added"
+    with edit_profile(config, profile_name, "Setting slot %r" % (slot,)):
+        if isinstance(existing, dict):
+            existing.update(geometry)
+            action = "Updated"
+        else:
+            profile["sessions"][slot] = geometry
+            action = "Added"
     save_config(config)
     session = resolve_session_name(profile, slot)
     logger.info("%s slot %s (session %s) in profile %s: x=%s y=%s %sx%s",
@@ -3096,7 +3401,18 @@ def cmd_edit(args: argparse.Namespace, config: ConfigDict,
     editor -- the editor writes the file itself. The two short writes this
     command really does make take the lock individually.
     """
+    # shlex.split, not a bare name: VISUAL and EDITOR routinely carry
+    # arguments ("vim -p", "code --wait"), and treating the whole string as
+    # one program name made those settings fail with "Could not start
+    # editor" rather than opening the editor the user configured.
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+    try:
+        editor_argv = shlex.split(editor)
+    except ValueError as e:
+        return die("Could not read the editor setting %r: %s" % (editor, e))
+    if not editor_argv:
+        return die("The editor setting %r is empty. Set VISUAL or EDITOR to "
+                   "a command, or unset both to use vi." % (editor,))
     if not CONTEXT.config_file.exists():
         with config_lock():
             # Re-check inside the lock: another xtm may have created the
@@ -3109,7 +3425,7 @@ def cmd_edit(args: argparse.Namespace, config: ConfigDict,
         return EXIT_OK
     logger.debug("Opening %s in %s", CONTEXT.config_file, editor)
     try:
-        subprocess.call([editor, str(CONTEXT.config_file)])
+        subprocess.call(editor_argv + [str(CONTEXT.config_file)])
     except OSError as e:
         die("Could not start editor %r: %s" % (editor, e))
     # Held only for the reload: load_config() may rewrite the file to restore
@@ -3432,9 +3748,12 @@ COMMANDS = (
     ("open", cmd_open, False, True),
     ("reset", cmd_reset, False, True),
     ("reset_all", cmd_reset_all, False, True),
-    ("close", cmd_close, False, False),
+    # needs_profile: --close and --focus resolve a slot name against the
+    # profile before acting, exactly as --detach does, so an unresolvable
+    # profile is fatal for all three rather than for only one of them.
+    ("close", cmd_close, False, True),
     ("close_all", cmd_close_all, False, True),
-    ("focus", cmd_focus, False, False),
+    ("focus", cmd_focus, False, True),
     ("list", cmd_list, False, True),
     ("list_profiles", cmd_list_profiles, False, False),
     ("current_profile", cmd_current_profile, False, False),
@@ -3706,17 +4025,35 @@ def _run_action(args: argparse.Namespace, handler: Any,
     return handler(args, config, profile_name)
 
 
-if __name__ == "__main__":
+def cli(argv: Optional[List[str]] = None) -> int:
+    """Run xtm and turn its exceptions into exit codes.
+
+    This, not main(), is the program's real entry point, and it is what
+    both `python3 xtm.py` and the console script installed by
+    pyproject.toml call. Keeping the error handling here rather than in
+    the `if __name__ == "__main__"` block below is what makes the two
+    behave the same: a pip-installed xtm imports this module and calls
+    one function, so anything guarded only by that block would not run
+    for it, and an ordinary bad config would reach the user as a Python
+    traceback instead of the documented one-line message.
+
+    main() stays free of this so that tests can call it and see the
+    XtmError itself.
+    """
     try:
-        sys.exit(main())
+        return main(argv)
     except XtmError as e:
         # The one-line message always shows; the traceback is additionally
         # available under --debug.
         logger.error("%s", e)
         logger.debug("Full exception detail:", exc_info=True)
-        sys.exit(EXIT_ERROR)
+        return EXIT_ERROR
     except KeyboardInterrupt:
         logger.debug("Interrupted by user (KeyboardInterrupt).")
         print("", file=sys.stderr)
         logger.warning("Interrupted.")
-        sys.exit(EXIT_INTERRUPTED)
+        return EXIT_INTERRUPTED
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

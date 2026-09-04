@@ -101,6 +101,56 @@ class TestEditor(IntegrationBase):
         result = self.run_xtm("-e", env={"EDITOR": "/nonexistent/editor"})
         self.assertEqual(result.returncode, 1)
 
+    def make_argument_editor(self, name, profile_name):
+        """An editor that writes to its LAST argument, not its first.
+
+        The config path arrives after whatever arguments the setting
+        carried, so writing to "$1" would silently write to the flag
+        instead and prove nothing about how the setting was split.
+        """
+        path = self.tmp / name
+        path.write_text(
+            "#!/bin/sh\n"
+            "for f in \"$@\"; do :; done\n"
+            "printf 'profiles:\\n  %s:\\n    sessions: {}\\n' > \"$f\"\n"
+            % (profile_name,))
+        path.chmod(0o755)
+        return path
+
+    def test_an_editor_with_arguments_is_honoured(self):
+        """VISUAL and EDITOR routinely carry arguments.
+
+        "vim -p" and "code --wait" are ordinary settings; treating the
+        whole string as one program name made them fail with "Could not
+        start editor" rather than opening the configured editor.
+        """
+        editor = self.make_argument_editor("arg-editor", "edited")
+        result = self.run_xtm("-e", env={"EDITOR": "%s --wait" % (editor,)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("OK", result.stdout)
+        # The edit landed, so the config path really was the last argument.
+        self.assertIn("edited", self.config_text())
+
+    def test_visual_beats_editor_and_keeps_its_arguments(self):
+        chosen = self.make_argument_editor("visual-editor", "chosen")
+        ignored = self.tmp / "must-not-run"
+        ignored.write_text("#!/bin/sh\nexit 9\n")
+        ignored.chmod(0o755)
+        result = self.run_xtm("-e", env={"VISUAL": "%s --wait" % (chosen,),
+                                         "EDITOR": str(ignored)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("chosen", self.config_text())
+
+    def test_an_unparsable_editor_setting_is_reported(self):
+        result = self.run_xtm("-e", env={"EDITOR": 'vim "unterminated'})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("editor setting", result.stderr)
+
+    def test_an_empty_editor_setting_is_reported(self):
+        result = self.run_xtm("-e", env={"EDITOR": "   "})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("editor setting", result.stderr)
+
 
 class TestInterruptHandling(IntegrationBase):
 

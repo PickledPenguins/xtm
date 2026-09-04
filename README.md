@@ -130,7 +130,7 @@ with none, `xtm` prints the status of the current profile.
 | `-k` | `--close` | `SLOT` or `SESSION` | Kill one session, closing its window and destroying its tabs and panes. |
 | `-t` | `--detach` | `SLOT` or `SESSION` | Close a session's window but leave the session, its tabs and its panes running. |
 | `-K` | `--close-all` | — | Kill every running session named in the profile. Asks for confirmation. |
-| `-f` | `--focus` | `SESSION` | Raise and focus one session's window. |
+| `-f` | `--focus` | `SLOT` or `SESSION` | Raise and focus one session's window. |
 | `-u` | `--update-profile` | — | Save current window positions into the profile. |
 | `-n` | `--new-profile` | `NAME` | Create a new profile from the current layout. |
 | `-s` | `--set` | `SESSION GEOMETRY` | Set a session's position. `GEOMETRY` is `x,y,width,height`. |
@@ -243,6 +243,8 @@ live positions cannot be shown.
   "config": "/home/user/.config/xtm/config.yaml",
   "frame_compensation": true,
   "geometry_tool": "xdotool",
+  "on_switch": "detach",
+  "prefix": "desk-",
   "profile": "desk",
   "sessions": [
     {
@@ -251,11 +253,15 @@ live positions cannot be shown.
       "cwd": null,
       "live": {"height": 580, "width": 960, "x": 964, "y": 2},
       "name": "logs",
-      "status": "attached"
+      "session": "desk-logs",
+      "shared": false,
+      "status": "attached",
+      "title": "xtm:desk-logs"
     }
   ],
   "state_file": "/home/user/.local/state/xtm/current_profile.workstation",
-  "strays": ["scratch"]
+  "stray_owners": {"lab-build": "lab"},
+  "strays": ["lab-build", "scratch"]
 }
 ```
 
@@ -264,9 +270,14 @@ live positions cannot be shown.
 | `config` | string | Path of the config file in use. |
 | `frame_compensation` | boolean | Whether decoration compensation is enabled for this run. |
 | `geometry_tool` | string or null | The geometry tool selected, or `null` if none was found. |
+| `on_switch` | string | The profile's disposal mode: `leave`, `detach` or `kill`. |
+| `prefix` | string | The profile's session-name prefix, or `""` when it has none. |
 | `profile` | string | Profile in effect. |
-| `sessions` | array | One object per session named in the profile, in config order. |
-| `sessions[].name` | string | Session name. |
+| `sessions` | array | One object per slot in the profile, in config order. |
+| `sessions[].name` | string | Slot name — the key from the profile. |
+| `sessions[].session` | string | The tmux session name the slot resolves to. Equal to `name` when the profile has no prefix and the slot sets no `session`. |
+| `sessions[].shared` | boolean | Whether the slot names its session explicitly, and so is kept across a profile switch. |
+| `sessions[].title` | string | The window title the slot resolves to. |
 | `sessions[].status` | string | `attached`, `detached` or `not running`. |
 | `sessions[].configured` | object | Recorded `x`, `y`, `width`, `height`. |
 | `sessions[].live` | object or null | Current on-screen geometry, or `null` if unavailable. |
@@ -274,6 +285,11 @@ live positions cannot be shown.
 | `sessions[].cwd` | string or null | Configured working directory. |
 | `state_file` | string | Path of this machine's current-profile state file. |
 | `strays` | array | Names of attached sessions with no configured position. |
+| `stray_owners` | object | Maps a stray session to the profile that claims it, for those that belong to another profile. Empty when none do. |
+
+Note that `sessions[].name` is the **slot** and `sessions[].session` is what
+tmux calls it; they differ whenever the profile sets a `prefix` or the slot
+sets a `session`.
 
 ### The profile list (`--list-profiles`)
 
@@ -298,6 +314,11 @@ each entry has:
 | `effective` | boolean | Whether this is the profile in force for this run. |
 | `sessions` | number | How many sessions the profile defines. |
 | `match` | object or null | The machine-binding block, if the profile has one. |
+| `global` | boolean | Whether the profile is available on every machine, which is the same as having no `match` block. |
+
+The top-level object also carries `hidden`, the number of profiles belonging
+to other machines that were left out of the listing; `--all` includes them and
+brings it to zero.
 
 ### The cross-profile view (`--list-profiles --verbose`)
 
@@ -500,8 +521,8 @@ xtm() {
 |---|---|
 | `XTM_CONFIG_DIR` | Directory holding `config.yaml`. Overridden by `--config`. |
 | `XTM_STATE_DIR` | Directory holding the current-profile state file. Overridden by `--state-dir`. |
-| `DISPLAY` | Required to open windows; also used for profile auto-selection. |
-| `VISUAL` | Editor used by `--edit`, checked before `EDITOR`. |
+| `DISPLAY` | Required to open windows. Not used for profile auto-selection, which matches on the hostname alone. |
+| `VISUAL` | Editor used by `--edit`, checked before `EDITOR`. May carry arguments (`vim -p`); the config path is appended as the last one. |
 | `EDITOR` | Editor used by `--edit` when `VISUAL` is unset. With neither set, `--edit` falls back to `vi`. |
 
 ---

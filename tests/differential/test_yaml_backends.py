@@ -113,6 +113,170 @@ class TestYamlBackendEquivalence(unittest.TestCase):
             self.assertEqual(pyyaml_[0], "rejected",
                              "PyYAML path accepted malformed %r" % (text,))
 
+    # Values whose FIRST character is one of YAML's structural indicators.
+    # PyYAML resolves or refuses each of them; the built-in parser used to
+    # hand back the text unchanged, so the same config meant two things.
+    STRUCTURAL = [
+        "&anchor 5", "&anchor", "*alias",       # anchors and aliases
+        "!!str 7", "!tag",                      # tags
+        "|", "|-", ">", ">2", "| grep", "> out",  # block scalar headers
+        "%directive", "@reserved", "`backtick",   # reserved indicators
+        ",leading-comma", "]stray-close", "}stray-close",
+        "<<", "=",                              # reserved whole tokens
+    ]
+
+    # Flow collections the two backends split differently. `{x:0, y:0}` is
+    # the one a person would really type: two keys with no values to PyYAML,
+    # and x=0 y=0 to the built-in parser.
+    AMBIGUOUS_FLOW = [
+        "{x:0, y:0}", "{a}", "[a, b,]", "[b40: 2]", "[]trailing",
+    ]
+
+    # Flow collections that must keep working. A fontconfig font name really
+    # does contain colons, which is why quoting exempts an item.
+    VALID_FLOW = [
+        "{x: 0, y: 0}", "{x: 0,y: 0}", "{a:}", "[a, b]", "[-fn, Monospace]",
+        "[-]", '["Monospace:size=11"]', "[]", "{}",
+    ]
+
+    # The same characters INSIDE a value, where both backends agree and the
+    # guard must stay silent. These are ordinary settings a real config has.
+    STRUCTURAL_FALSE_POSITIVES = [
+        "tail -f /var/log/x | grep error", "sleep 5 &", "user@host",
+        "50%", "a*b", "a!b", "ssh host:port", "http://example/x",
+        "-fn", "--wait", "2>&1",
+    ]
+
+    def test_structural_indicators_are_refused_by_both(self):
+        for token in self.STRUCTURAL:
+            text = "profiles:\n  a: %s\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(
+                builtin[0], "rejected",
+                "built-in parser accepted structural %r as %r" % (token, builtin))
+            self.assertEqual(
+                pyyaml_[0], "rejected",
+                "PyYAML path accepted structural %r as %r" % (token, pyyaml_))
+
+    def test_ordinary_values_containing_indicators_are_accepted(self):
+        for token in self.STRUCTURAL_FALSE_POSITIVES:
+            text = "profiles:\n  a:\n    sessions:\n      w: {command: %s}\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_,
+                             "backends disagree on %r" % (token,))
+            self.assertEqual(builtin[0], "ok",
+                             "%r should be accepted, got %r" % (token, builtin))
+            self.assertEqual(
+                builtin[1]["profiles"]["a"]["sessions"]["w"]["command"], token)
+
+    def test_structural_indicators_are_allowed_when_quoted(self):
+        for token in ("&anchor", "*alias", "!tag", "|", "%directive"):
+            text = 'profiles:\n  a: {title: "%s"}\n' % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_, "disagreement on quoted %r" % (token,))
+            self.assertEqual(builtin[0], "ok",
+                             "quoted %r should be accepted, got %r" % (token, builtin))
+            self.assertEqual(builtin[1]["profiles"]["a"]["title"], token)
+
+    def test_ambiguous_flow_collections_are_refused_by_both(self):
+        for token in self.AMBIGUOUS_FLOW:
+            text = "profiles:\n  a: %s\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(
+                builtin[0], "rejected",
+                "built-in parser accepted %r as %r" % (token, builtin))
+            self.assertEqual(
+                pyyaml_[0], "rejected",
+                "PyYAML path accepted %r as %r" % (token, pyyaml_))
+
+    def test_ordinary_flow_collections_are_accepted(self):
+        for token in self.VALID_FLOW:
+            text = "profiles:\n  a: %s\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_,
+                             "backends disagree on %r" % (token,))
+            self.assertEqual(builtin[0], "ok",
+                             "%r should be accepted, got %r" % (token, builtin))
+
+    def test_quotes_inside_a_plain_scalar_are_ordinary_text(self):
+        """The built-in parser must not be STRICTER than PyYAML either.
+
+        Scanning every token for balanced quotes refused `sed 's/a/b/'` and
+        `say "hi"` -- valid YAML that PyYAML reads without complaint. Only
+        a token that OPENS with a quote is a quoted scalar.
+        """
+        # Inside a flow mapping, where the value is one item among several.
+        for token in ("sed 's/a/b/'", 'say "hi"', 'ok"', "ok'", "a\"b"):
+            text = "profiles:\n  a:\n    sessions:\n      w: {command: %s}\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_, "disagreement on %r" % (token,))
+            self.assertEqual(builtin[0], "ok",
+                             "%r should be accepted, got %r" % (token, builtin))
+        # In block style, where a brace is not in a flow context either.
+        # Both are tested because "{" IS an indicator inside a flow mapping,
+        # so the same token is legitimately read two ways in two places.
+        for token in ("3{x}", "a}b", "a[b", "a{b"):
+            text = "profiles:\n  a:\n    title: %s\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_, "disagreement on %r" % (token,))
+            self.assertEqual(builtin[0], "ok",
+                             "%r should be accepted, got %r" % (token, builtin))
+
+    def test_an_opening_quote_must_still_close(self):
+        """The half of that rule which has to keep firing."""
+        for token in ('"unterminated', "'unterminated", '"x" trailing',
+                      "{x: 1, y: 2", "[1, 2"):
+            text = "profiles:\n  a: %s\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "built-in parser accepted %r" % (token,))
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "PyYAML path accepted %r" % (token,))
+
+    def test_tabs_are_refused_anywhere_in_a_line(self):
+        """PyYAML refuses a tab inside a plain scalar; so must the guard."""
+        for text in ("profiles:\n  a: 1\t2\n", "profiles:\n\ta: {}\n"):
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected", "built-in accepted %r" % (text,))
+            self.assertEqual(pyyaml_[0], "rejected", "PyYAML accepted %r" % (text,))
+
+    def test_the_merge_key_is_refused_by_both(self):
+        """The worst of the divergences: no error on either side.
+
+        PyYAML folds the named mapping in, so the profile HAS the prefix;
+        the built-in parser treats `<<` as an ordinary key, so it does not.
+        Both readings load cleanly, which is what made this one silent.
+        """
+        for text in ("profiles:\n  a:\n    <<: {prefix: x-}\n    sessions: {}\n",
+                     "profiles:\n  a: {<<: {prefix: x-}, sessions: {}}\n"):
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "built-in parser accepted a merge key: %r" % (builtin,))
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "PyYAML path accepted a merge key: %r" % (pyyaml_,))
+
+    def test_document_markers_are_refused_by_both(self):
+        for text in ("---\nprofiles:\n  a: {sessions: {}}\n",
+                     "profiles:\n  a: {sessions: {}}\n...\n"):
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "built-in parser accepted a document marker")
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "PyYAML path accepted a document marker")
+
+    def test_indentation_rules_apply_under_both_backends(self):
+        """Odd indentation and tabs are a divergence like any other.
+
+        The built-in parser has always refused them; PyYAML accepts both,
+        so these two rules had to move in front of the backend choice
+        rather than living inside one of the backends.
+        """
+        for text in ("profiles:\n   a:\n      sessions: {}\n",
+                     "profiles:\n\ta:\n\t\tsessions: {}\n"):
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected", "built-in accepted %r" % (text,))
+            self.assertEqual(pyyaml_[0], "rejected", "PyYAML path accepted %r" % (text,))
+
     def test_quoted_key_containing_a_colon_agrees(self):
         # str.partition(":") used to cut this key in half, so the built-in
         # parser recovered '"bad' where PyYAML recovered 'bad:name'.
@@ -261,7 +425,20 @@ class TestYamlBackendFuzz(unittest.TestCase):
     """
 
     SEEDS = (7, 99, 20260819)
-    ALPHABET = "0123456789+-._:eExXbBoOaAfF/ "
+    # Three groups, and the reason for each is worth stating, because the
+    # alphabet is what decides which divergences this test can even see.
+    #
+    #   0-9 + - . _ : e E x X b B o O a A f F      the numeric spellings the
+    #       original ambiguity guard was written for
+    #   & * ! % @ ` | > < = , ~                    YAML's structural
+    #       indicators. Leaving these out is exactly why a second class of
+    #       divergence -- anchors, aliases, tags, merge keys, block scalars,
+    #       reserved tokens -- survived this test for a whole release: no
+    #       generated token could express one
+    #   [ ] { } " ' and a tab                      collection and quoting
+    #       characters, which found the divergences pointing the OTHER way,
+    #       where the built-in parser refused input PyYAML reads happily
+    ALPHABET = "0123456789+-._:eExXbBoOaAfF/ &*!%@`|><=,~[]{}\"'\t"
     TOKENS_PER_LENGTH = 400
     MAX_LENGTH = 9
 

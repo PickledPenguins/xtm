@@ -10,6 +10,66 @@ independent of what happens to be installed on the machine running it.
 
 ### Fixed
 
+- **`--set` could write a config that no later command would load.** Adding a
+  slot whose prefixed name collided with another slot's explicit `session:`
+  reported success and saved the file; every command on that profile
+  afterwards — `--list`, `--validate` and `--delete-session` among them —
+  then failed with "both resolve to session", and hand-editing was the only
+  way back. Commands that edit a profile now re-run the validation the next
+  load would perform, and leave the profile untouched if the edit does not
+  survive it. `--update-profile --capture-new` is guarded the same way.
+- **A pip-installed `xtm` printed a Python traceback** where the copied
+  script printed one line. `pyproject.toml` pointed its console script at
+  `main()`, but the handling that turns an `XtmError` into a single-line
+  message and `KeyboardInterrupt` into exit 130 lived in the
+  `if __name__ == "__main__"` block, which a console script never runs. That
+  handling is now `cli()`, and both entry points call it.
+- **The two YAML backends disagreed about YAML's structural machinery.** The
+  ambiguity guard covered numeric spellings only, so anchors (`&a 5`),
+  aliases, tags (`!!str 7`), block scalar headers (`|`, `>`), document
+  markers (`---`), reserved indicators (`%`, `@`, `` ` ``), the reserved
+  tokens `<<` and `=`, tabs, and indentation that was not a multiple of two
+  spaces were each read one way with PyYAML installed and another way — or
+  not at all — without it. The **merge key** `<<:` was the worst of them:
+  PyYAML folded the named mapping in and the built-in parser treated it as an
+  ordinary key, with no error on either side, so a profile simply had a
+  different `prefix` on two machines. All are now refused before either
+  backend parses, naming the line and the fix.
+- **The built-in parser was stricter than PyYAML in the other direction.**
+  It scanned every value for balanced quotes and brackets, so ordinary plain
+  scalars such as `command: sed 's/a/b/'`, `title: 3{x}` and a value merely
+  containing a `"` were refused as unterminated — valid YAML that PyYAML
+  reads without complaint. Only a value that *opens* with a quote or a
+  bracket is a quoted scalar or a flow collection now, and `[-]` is a
+  one-item list rather than a stray list indicator.
+- **Flow collections could be split two ways.** `{x:0, y:0}` — a colon with
+  no space after it — is two valueless keys to PyYAML and `x=0, y=0` to the
+  built-in parser. That, an entry with no value at all (`{a}`), a trailing
+  comma (`[a, b,]`) and an unquoted list item containing a colon are now
+  refused by both. Quoted items are exempt, so a fontconfig name such as
+  `["Monospace:size=11"]` still works.
+- **`--dry-run` altered the module's own default config.** With no config
+  file present, `load_config()` returned a shallow copy of the
+  `DEFAULT_CONFIG` constant, so the command then edited the constant itself.
+  Invisible between separate runs and not between calls in one process,
+  which is what the test suite and any importer of `xtm.py` do.
+- **`--focus` took only a session name**, alone among the actions: `--open`,
+  `--close`, `--detach` and `--delete-session` all accept a slot name too.
+  That also made xtm's own advice wrong — naming an unknown profile suggests
+  `xtm --focus NAME`, and the name it suggests is a slot, which for any
+  profile with a `prefix` was not the window's name. `--focus` now accepts
+  either.
+- **`--focus` blamed the wrong thing when only `xwininfo` was installed.**
+  The "focusing needs xdotool or wmctrl" message came after the window
+  lookup, so a session with no window on screen reported a missing window
+  instead of a tool that could never have raised it. The capability is
+  checked first.
+- **`--edit` could not use an editor that carries arguments.** `VISUAL="vim
+  -p"` and `EDITOR="code --wait"` are ordinary settings; the whole string was
+  treated as one program name and failed with "Could not start editor". The
+  setting is now split as a shell would split it, with the config path
+  appended last.
+
 - **A config could be read differently depending on whether PyYAML was
   installed.** PyYAML implements YAML 1.1, so it read `0755` as octal 493
   where the built-in parser read decimal 755, `1:30` as sexagesimal 90,

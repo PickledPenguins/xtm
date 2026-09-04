@@ -72,10 +72,6 @@ calculation would change.
   that cannot see the file.
 - **stdout for data, stderr for logs.** Reporting commands stay pipeable
   under any log level.
-- **Three module-level run modes.** `DRY_RUN`, `VERIFY` and
-  `FRAME_COMPENSATION` are read-only, cross-cutting, and set once at startup;
-  threading them through a dozen signatures purely to forward them would add
-  noise without adding clarity.
 - **Commands return exit codes** rather than calling `sys.exit`, so they are
   directly testable.
 
@@ -141,9 +137,9 @@ single-line message with the traceback available under `--debug`.
 ### Before releasing
 
 ```bash
-python3 -m py_compile xtm.py test_xtm.py
-python3 -m pyflakes xtm.py test_xtm.py
-python3 -m unittest test_xtm
+make lint                       # pyflakes and py_compile over xtm.py and tests/
+make test                       # the whole suite
+make examples                   # every example against its recorded output
 xtm --help                      # confirm the README's option tables still match
 ```
 
@@ -192,14 +188,18 @@ code should construct a session name by hand:
 
 ## Testing
 
-`test_xtm.py` contains 420 tests and requires no display, no window manager,
-no tmux and no X server.
+The suite lives in the `tests/` package and requires no display, no window
+manager, no tmux and no X server.
 
 ```bash
-python3 -m unittest test_xtm            # run everything
-python3 -m unittest test_xtm -v         # per-test output
-python3 -m unittest test_xtm.TestPlacementSequences
+make test                                       # run everything
+python3 -m unittest discover -t . -s tests -v   # the same, with per-test output
+python3 -m unittest tests.unit.test_geometry    # one module
+python3 -m unittest tests.unit.test_geometry.TestPlacementSequences
 ```
+
+Test modules are addressed by their dotted path from the repository root, so
+`-t .` is what makes `tests.support` importable from inside them.
 
 Two strategies are combined:
 
@@ -294,12 +294,12 @@ tests:
 
 | Metric | Result |
 |---|---|
-| Statements | 1786 |
-| Line coverage | **96.2%** (1718 / 1786) |
-| Branches | 814 |
-| Branch coverage | **93.2%** (759 / 814) |
-| Combined | **95.3%** — the figure `fail_under` enforces |
-| Tests | 488, all passing |
+| Statements | 1907 |
+| Line coverage | **96.3%** (1837 / 1907) |
+| Branches | 880 |
+| Branch coverage | **93.5%** (823 / 880) |
+| Combined | **95.4%** — the figure `fail_under` enforces |
+| Tests | 520, all passing |
 
 The floor is enforced, not just reported: `.coveragerc` sets `fail_under`, so
 a drop fails the build rather than being noticed later.
@@ -319,7 +319,8 @@ repository root carries the `branch` and `parallel` settings it needs.
 That setup is what makes the subprocess integration tests count toward
 coverage. Without it the measured figure drops to roughly 63%, because most
 command code runs in a child process rather than in the test process — a
-plain `coverage run -m unittest test_xtm` therefore understates coverage
+plain `coverage run -m unittest discover -t . -s tests` therefore understates
+coverage
 badly. If you see 63%, the recipe was skipped; it is not a regression.
 
 `make check` runs the linter, the coverage run and an assertion that a full
@@ -359,9 +360,9 @@ they need a real X server and window manager:
 
 ### Static analysis
 
-`pyflakes` reports no findings on `xtm.py` or `test_xtm.py`. Both compile
-cleanly under `python3 -m py_compile`. Every function and class carries a
-docstring.
+`pyflakes` reports no findings on `xtm.py` or on anything under `tests/`, and
+all of it compiles cleanly under `python3 -m py_compile`; `make lint` runs
+both. Every function and class carries a docstring.
 
 ## Project structure
 

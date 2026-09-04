@@ -419,3 +419,53 @@ class TestReservedDefaultProfile(IntegrationBase):
         result = self.run_xtm("--list")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Profile: default", result.stdout)
+
+
+class TestConfigEditsStayLoadable(IntegrationBase):
+    """A command that writes the config must not write one that cannot be read.
+
+    Validation runs on load, so a command that edits and saves without
+    re-validating can leave a profile that every later command refuses --
+    including --validate and --delete-session, which are the two a user
+    would reach for to fix it. `xtm --set` did exactly that.
+    """
+
+    def colliding_profile(self):
+        self.write_config("""\
+            profiles:
+              default:
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions: {}
+              desk:
+                prefix: desk-
+                stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+                sessions:
+                  alpha: {session: desk-beta, x: 0, y: 0, width: 100, height: 100}
+            """)
+
+    def test_set_refuses_a_slot_that_collides_with_an_explicit_session(self):
+        self.colliding_profile()
+        before = self.config_text()
+        result = self.run_xtm("desk", "--set", "beta", "0,0,50,50")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("both resolve to session 'desk-beta'", result.stderr)
+        self.assertIn("nothing was changed", result.stderr)
+        self.assertEqual(self.config_text(), before,
+                         "the refused edit was written to the config anyway")
+
+    def test_the_profile_still_works_after_a_refused_edit(self):
+        """The point of refusing: the profile is left usable, not bricked."""
+        self.colliding_profile()
+        self.run_xtm("desk", "--set", "beta", "0,0,50,50")
+        for argv in (("--list",), ("--validate",), ("--set", "gamma", "1,2,3,4")):
+            result = self.run_xtm("desk", *argv)
+            self.assertEqual(result.returncode, 0,
+                             "%s failed after a refused edit: %s"
+                             % (" ".join(argv), result.stderr))
+
+    def test_an_ordinary_set_still_works(self):
+        """The negative half: the guard must not refuse a valid edit."""
+        self.colliding_profile()
+        result = self.run_xtm("desk", "--set", "gamma", "1,2,300,400")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("gamma", self.config_text())

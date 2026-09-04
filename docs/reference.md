@@ -162,7 +162,7 @@ point, and moving last guarantees the requested final position either way.
 | `--reset-all` | Runs `--reset` first, then stacks strays. A failure in either phase exits 1, but neither phase aborts the other. |
 | `--close` | A session that is not running is an error, since silently succeeding would hide a typo. |
 | `--close-all` | Scoped to the current profile's sessions unless `--all` widens it to every visible profile's; sessions belonging to no profile are never touched. With nothing running, logs a notice and exits 0. When stdin is not a terminal, the confirmation prompt is skipped, because a scripted caller has already opted in and cannot answer. |
-| `--focus` | Requires `xdotool` or `wmctrl`; with only `xwininfo` present, fails with an explanation. A session with no window exits 1. |
+| `--focus` | Accepts a slot name or a session name. Requires `xdotool` or `wmctrl`; with only `xwininfo` present, fails with an explanation before looking for the window, so the reason given is the missing capability rather than a missing window. A session with no window exits 1. |
 | `--update-profile` | Captures only windows whose session belongs to the current profile; others are counted and reported, and added only with `--capture-new`. With no xtm windows open, logs a notice and changes nothing. Windows whose geometry cannot be read are skipped with a warning, and the rest are still saved. Sessions in the profile with no window on screen keep their recorded position. New windows are added to the profile. |
 | `--new-profile` | An existing name is an error. The new profile gets `prefix: <name>-` written explicitly, and every captured window is recorded with an explicit `session:` so that the sessions already running are not renamed out from under it. Stack settings are inherited from the current profile, falling back to the built-in defaults. Capturing an empty screen creates an empty profile and says so. |
 | `--set` | Creates the session entry if it does not exist, and preserves `command`, `cwd` and `xterm_args` if it does. Rejects non-integer, non-finite and non-positive sizes. |
@@ -241,7 +241,7 @@ xtm --update-profile
 | `prefix:` vs `session:` | `prefix:` makes a slot's session belong to the profile, so two profiles never collide. An explicit `session:` opts one slot out of that and names the session outright, which is how two profiles share one. |
 | `--close` vs `--delete-session` | `--close` kills a running session and its window, leaving the profile untouched. `--delete-session` removes the profile entry and leaves the running session alone. |
 | `--dry-run` vs `--verify` | `--dry-run` runs before the fact and changes nothing. `--verify` runs after the fact and checks that what was requested actually happened. They can be combined, though `--verify` has nothing to check under `--dry-run`. |
-| `--profile` vs `--auto` | `--profile` names a profile and remembers it. `--auto` forgets the remembered one for this run and re-derives the choice from hostname and `$DISPLAY`. |
+| `--profile` vs `--auto` | `--profile` names a profile and remembers it. `--auto` forgets the remembered one for this run and re-derives the choice from the hostname. |
 | `--quiet` vs `--json` | `--quiet` silences the log stream on stderr. `--json` changes the data format on stdout. Combine them for clean machine-readable output. |
 
 ### Task-to-options recipes
@@ -371,9 +371,9 @@ hatch when the default would close something you wanted to keep.
 
 ### Sessions with tabs and splits
 
-`xtm` works one level above tmux's internals. It issues only four tmux
-commands — `new-session`, `list-sessions`, `list-clients` and `kill-session`,
-plus `detach-client` — and never touches windows or panes inside a session.
+`xtm` works one level above tmux's internals. It issues five tmux commands —
+`new-session`, `list-sessions`, `list-clients`, `kill-session` and
+`detach-client` — and never touches windows or panes inside a session.
 That has four consequences worth knowing:
 
 - **`--update-profile` is pane-agnostic.** It captures four numbers per slot
@@ -431,7 +431,9 @@ failing.
 - The built-in reader and writer handle the full shape `xtm` uses: nested
   mappings, flow-style mappings and lists, quoted strings, inline comments,
   and quoting of values that would otherwise be read back as booleans, nulls
-  or numbers.
+  or numbers. What they do **not** handle — anchors, aliases, tags, merge
+  keys, block scalars, multiple documents — is refused before either backend
+  runs rather than being read one way here and another way there. See below.
 
 The built-in parser requires indentation in multiples of two spaces and
 rejects tabs, both with an explicit message naming the offending line. It
@@ -465,6 +467,41 @@ config `xtm` saved always reloads unchanged.
 
 `true`, `false`, `null` and `~` are read identically by both parsers and need
 no quoting.
+
+### YAML features the config does not use
+
+The same rule covers YAML's structural machinery, which the built-in parser
+does not implement. Rather than let a config depend on PyYAML being present,
+these are refused outright, with a message naming the line:
+
+| Written as | Why it is refused |
+|---|---|
+| `&anchor`, `*alias` | PyYAML resolves them; the built-in parser reads the text |
+| `!tag`, `!!str 7` | PyYAML applies the tag; the built-in parser reads the text |
+| `<<: {…}` | The merge key. PyYAML folds the mapping in and the built-in parser treats `<<` as an ordinary key — **with no error either way**, so the same profile has a setting on one machine and not on the other |
+| `|`, `>` | Block scalar headers, which the built-in parser cannot continue onto the following lines |
+| `---`, `...` | Document markers. `xtm`'s config is always a single document |
+| `%`, `@`, `` ` ``, `,`, `]`, `}` opening a value | Reserved indicators PyYAML refuses outright |
+| `<<` or `=` as a whole value | Reserved in YAML 1.1; PyYAML refuses them |
+| A tab anywhere in a line | PyYAML refuses one inside a plain scalar; the built-in parser cannot indent with them |
+| Indentation that is not a multiple of two spaces | The built-in parser's rule, applied to both backends so a config cannot load on only one |
+
+Only the **first** character of a value is an indicator, so ordinary settings
+are untouched: `command: tail -f x | grep y`, `cwd: ~/work`, `xterm_args:
+[-fn, Monospace]` and a `user@host` or `50%` anywhere in a value all read the
+same under both backends.
+
+Flow collections have two rules of their own, for the same reason:
+
+| Written as | Why it is refused |
+|---|---|
+| `{x:0, y:0}` | A colon only separates a key from its value when a space follows it, so PyYAML reads this as two keys named `x:0` and `y:0` with no values. Write `{x: 0, y: 0}` |
+| `{a}` | An entry with no value at all: a set entry to PyYAML, unrepresentable here |
+| `[a, b,]` | The trailing comma is a third, empty item to the built-in parser and nothing to PyYAML, so they disagree about the list's length |
+| `[a: 1]` | An unquoted list item containing a colon, which PyYAML may read as a nested mapping. Quote it — `["Monospace:size=11"]` is a font name and works |
+
+Quoting is the escape hatch throughout: a quoted scalar means the literal
+text to both backends, and is always accepted.
 
 ### What a config rewrite changes
 
