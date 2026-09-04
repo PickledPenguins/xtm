@@ -374,7 +374,14 @@ class TestYamlBackendEquivalence(unittest.TestCase):
         the built-in parser's "2" both normalise to the name "2", so they
         already agree where it counts.
         """
-        for key in ("yes", "no", "on", "off", "0755", "1:30", "1_000"):
+        for key in ("yes", "no", "on", "off", "0755", "1:30", "1_000",
+                    # The null and boolean spellings: PyYAML makes them None
+                    # and True, which normalise to the names "None" and
+                    # "True" against the built-in reader's "~" and "true".
+                    "~", "null", "Null", "NULL", "true", "True", "TRUE",
+                    "false", "False", "FALSE",
+                    # A number whose text changes when YAML reads it.
+                    "7.", "07"):
             for template in ("profiles:\n  %s: {}\n",
                              "profiles:\n  a: {%s: 1}\n"):
                 text = template % (key,)
