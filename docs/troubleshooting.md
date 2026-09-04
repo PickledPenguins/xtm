@@ -75,6 +75,16 @@ It is bound to another machine by its `match` block, and profiles bound elsewher
 rather than listed. `xtm --all --list-profiles` shows them, and `--all` also lets management
 commands reach them. `xtm --make-global NAME` removes the binding for good.
 
+## "Current profile 'x' no longer exists"
+
+The profile named in this machine's state file was deleted or renamed. xtm
+reports it rather than falling back, because acting on a different profile than
+the one last chosen is worse than stopping. Choose one with `xtm NAME`, which
+also rewrites the state file.
+
+The same message appears when a saved profile becomes *hidden* — someone added a
+`match` block binding it to another machine. `xtm --all --list-profiles` shows it.
+
 ## A session shows as a stray after adding a prefix
 
 Adding `prefix:` renames every slot's session, so sessions already running under the old

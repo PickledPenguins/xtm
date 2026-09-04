@@ -149,6 +149,16 @@ CATALOGUE = [
         "Without the re-validation, --set can write a config every later "
         "command rejects."),
     Mutant(
+        "config-lock-prevents-lost-updates",
+        "                fcntl.flock(self._handle.fileno(),\n"
+        "                            fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+        "            except (IOError, OSError):",
+        "                pass\n"
+        "            except (IOError, OSError):",
+        ["tests.concurrency.test_contention"],
+        "Without the exclusive lock, two writers each load the same config "
+        "and the second save discards the first one's slot."),
+    Mutant(
         "config-keys-normalised-to-text",
         'config["profiles"] = dict((str(k), v) for k, v in profiles.items())',
         'config["profiles"] = profiles',
