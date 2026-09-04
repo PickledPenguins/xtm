@@ -104,6 +104,17 @@ Three things a change here has to respect:
 quote only where a scalar may begin. Both were once "anywhere", and both produced silent
 disagreements between the backends.
 
+The region opens with a map naming the question each function answers and the four pairs
+that must agree, because every defect found there so far has lived in a seam rather than
+inside one function. Read it before adding a rule.
+
+**The guard and the reader stay in one section, deliberately.** They look like two
+concerns and they are not two units of change: of the eight commits on this branch that
+touched the YAML code, four changed the guard, the reader and the shared primitives
+together, two the guard alone, one the reader alone. Parts that change together belong
+together. The writer is the exception the same evidence names — it changed alone twice —
+which is why it sits next to `dump_yaml` rather than beside the reader.
+
 ## Data structures
 
 The config is a plain nested dictionary throughout:

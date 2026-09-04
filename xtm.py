@@ -583,7 +583,7 @@ class config_lock(object):
 
 
 # --------------------------------------------------------------------------
-# YAML support, with a dependency-free fallback
+# YAML: which backend is available
 # --------------------------------------------------------------------------
 
 try:
@@ -593,106 +593,117 @@ try:
 except ImportError:
     HAVE_PYYAML = False
 
-# Bare words that would be read back as non-string YAML types, so the
-# dependency-free dumper must quote them when they occur as strings (a
-# font literally named "Null" has to round-trip as the string "Null",
-# not as Python None).
-_YAML_RESERVED_WORDS = {
-    "true", "True", "TRUE", "false", "False", "FALSE",
-    "null", "Null", "NULL", "None", "~",
-    "yes", "Yes", "YES", "no", "No", "NO",
-    "on", "On", "ON", "off", "Off", "OFF",
-}
-_YAML_LOOKS_NUMERIC_RE = re.compile(r"^-?\d+(\.\d+)?$")
+# --------------------------------------------------------------------------
+# YAML: the parity guard, the reader, the writer
+# --------------------------------------------------------------------------
+#
+# A map of this region, because every defect found in it so far has lived in
+# the seam between two of these functions rather than inside any one of them.
+# Each line names the question the function answers; nothing else in the file
+# answers that question.
+#
+#   THE GUARD -- refuses input the two backends would read differently. It
+#   produces no value; it either returns or raises.
+#     _scan_for_ambiguous_scalars   which line is being checked, and in what
+#                                   context (block, flow, key, value)
+#     _reject_ambiguous_indent      may this line's whitespace be read by both
+#     _reject_ambiguous_scalar      is this plain value read the same by both
+#     _reject_reserved_key          is this key a NAME to both
+#     _reject_renumbered_key        does this key's text survive being a number
+#     _reject_flow_entry            is this `k: v` inside { } split the same
+#     _reject_flow_item             is this item inside [ ] read the same
+#     _reject_flow_indicator_in_scalar  does this scalar end where both agree
+#     _reject_unsupported_escape    is this escape implemented on both sides
+#     _reject_unbalanced            does this quoted or bracketed token close
+#
+#   THE READER -- turns text into data, and runs only when PyYAML is absent.
+#     _simple_yaml_load             block structure: indentation and nesting
+#     _simple_yaml_scalar_load      one value's type
+#     _simple_yaml_key_load         one key's text (a name, never a value)
+#     _simple_yaml_flow_mapping_load  one { } mapping
+#     _unescape_double_quoted       one double-quoted body's escapes
+#
+#   SHARED TEXT PRIMITIVES -- used by both, which is why they are here and
+#   not inside either.
+#     _partition_key                where a key ends and its value begins
+#     _split_top_level              where one flow item ends and the next starts
+#     _strip_inline_comment         where a value ends and a comment begins
+#
+#   The writer (_simple_yaml_dump and below) is further down, next to
+#   dump_yaml, because it is the part that changes on its own.
+#
+# THE PAIRS THAT MUST AGREE. These are the seams, and each one has been wrong
+# at least once:
+#
+#   _partition_key and _split_top_level must answer "is this colon a
+#   separator" and "is this quote an opener" the same way, in every context.
+#   Both once said yes anywhere, and both produced silent divergence.
+#
+#   _simple_yaml_scalar_dump and _reject_ambiguous_scalar must agree on what
+#   needs quoting. They no longer can disagree: the dumper asks the guard
+#   (_would_be_refused_unquoted) rather than keeping a second list.
+#
+#   _reject_unsupported_escape and _unescape_double_quoted must implement the
+#   same escape set. They share _YAML_ESCAPES for that reason.
+#
+#   _reject_reserved_key and _normalize_config_keys together decide which key
+#   spellings are safe: a numeric key needs no rule because normalisation
+#   makes 2 and "2" the same name, while a boolean one does.
+#
+# Adding a rule means naming which question it answers and which of these
+# pairs it touches. A rule that does not fit an existing question is a sign
+# the question list is wrong, not that the rule needs a new home.
+#
+# PyYAML implements YAML 1.1, which reads a number of unquoted scalars in
+# ways the built-in parser deliberately does not: 0755 is octal (493), 1:30
+# is sexagesimal (90), 0x1f is hex, 1_000 has digit separators, `yes` is
+# boolean True, and 2026-01-01 is a date object. The built-in parser reads
+# every one of those as either a plain decimal number or a string.
+#
+# That means the SAME config file could place a window at two different
+# coordinates depending only on whether PyYAML happens to be installed --
+# silently, because both readings are valid numbers that pass validation.
+# For a tool whose whole point is running unmodified on machines where
+# nothing can be installed, that is the worst possible failure mode.
+#
+# Rather than teach the built-in parser all of YAML 1.1 (a large amount of
+# code, and it would import YAML 1.1's footguns on purpose), these forms are
+# rejected before either backend sees them. Both backends then behave
+# identically: a clear error naming the value and how to fix it. Nothing is
+# lost, because xtm's schema is pixel geometry and a handful of strings --
+# no config has a legitimate use for octal, hex, sexagesimal or dates, and
+# any of them can still be written as a quoted string.
+#
+# Each pattern is anchored and matches a WHOLE token, so ordinary values that
+# merely start with a digit, dot or dash -- `.config/xtm`, `-e`, `2>&1` --
+# are untouched.
 
+# Every numeric pattern accepts a leading '+' as well as '-'. YAML 1.1 does,
+# so "+0755" is octal to PyYAML exactly as "0755" is; a sign-blind pattern
+# would let the signed spelling through the guard it was written to close.
+_YAML_AMBIGUOUS_PATTERNS = (
+    (re.compile(r"^[-+]?0[0-9_]+\Z"),
+     "a leading zero, which PyYAML reads as octal and the built-in parser "
+     "reads as decimal"),
+    (re.compile(r"^[-+]?0[xXbBoO][0-9a-fA-F_]+\Z"),
+     "a base prefix, which only PyYAML understands"),
 
-def _would_be_refused_unquoted(s: str) -> bool:
-    """Whether the parity guard would refuse `s` as an unquoted scalar.
+    (re.compile(r"^[-+]?[0-9][0-9_]*(:[0-9]{1,2})+(\.[0-9_]*)?\Z"),
+     "colons, which PyYAML reads as a sexagesimal number (1:30 becomes 90)"),
+    (re.compile(r"^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)[eE][-+]?[0-9]+\Z"),
+     "scientific notation, which the two parsers disagree about"),
+    (re.compile(r"^[-+]?\.(inf|Inf|INF|nan|NaN|NAN)\Z"),
+     "an infinity or not-a-number literal, which only PyYAML understands"),
+    (re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ][0-9:.+\-Zz]*)?\Z"),
+     "a date, which PyYAML turns into a date object"),
+)
 
-    Defined here and used by the dumper so that the rule lives in exactly
-    one place. _reject_ambiguous_scalar is defined further down the file;
-    Python resolves the name at call time, and the dumper never runs at
-    import time, so the forward reference is fine.
-    """
-    try:
-        _reject_ambiguous_scalar(s, "dump")
-    except XtmError:
-        return True
-    return False
-
-
-def _reads_back_as_a_different_number(s: str) -> bool:
-    """Whether YAML would read `s` as a number that prints differently."""
-    for parse in (int, float):
-        try:
-            return str(parse(s)) != s
-        except ValueError:
-            continue
-    return False
-
-
-def _simple_yaml_scalar_dump(v: Any) -> str:
-    """Render one scalar for the dependency-free dumper, quoting anything
-    that would not survive the round trip unquoted."""
-    if v is None:
-        return "null"
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, (int, float)):
-        return str(v)
-    s = str(v)
-    needs_quoting = (
-        s == ""
-        or s in _YAML_RESERVED_WORDS
-        or bool(_YAML_LOOKS_NUMERIC_RE.match(s))
-        # A spelling YAML reads as a number whose TEXT differs -- "9." is
-        # the float 9.0, "07" the integer 7. As a value the difference is
-        # invisible; as a key it renames the profile or slot, which is why
-        # the guard refuses it. Quoting here is what stops xtm writing a
-        # config its own guard would then refuse to read.
-        or _reads_back_as_a_different_number(s)
-        or bool(re.search(r'[:#\[\]{},"\'\n\t]', s))
-        or s.strip() != s
-        or s.startswith(("-", "?", "&", "*", "!", "%", "@", "`", ">", "|"))
-        # The decisive test, and the reason the list above is only a fast
-        # path: ask the parity guard itself whether it would refuse this
-        # text unquoted. Keeping a second list of what needs quoting is how
-        # the dumper came to write `display: :0` and `title: 7_`, both of
-        # which the guard then refused -- a saved config that would not load
-        # again. One rule, consulted from both sides, cannot drift.
-        or _would_be_refused_unquoted(s)
-    )
-    if needs_quoting:
-        # A newline or a tab has to leave as an escape. Written literally
-        # inside the quotes it splits the line, and the reader -- which is
-        # line-based -- then refuses the file the dumper just wrote. The
-        # guard refuses every input that could carry one today, so this is
-        # the second rule keeping that true rather than the first.
-        escaped = (s.replace("\\", "\\\\").replace('"', '\\"')
-                    .replace("\n", "\\n").replace("\t", "\\t"))
-        return '"' + escaped + '"'
-    return s
-
-
-def _simple_yaml_dump(data: Dict[str, Any], indent: int = 0) -> str:
-    """Minimal YAML writer for the shape xtm's config actually uses:
-    nested mappings of scalars, with flow-style lists as values."""
-    lines = []
-    pad = "  " * indent
-    for key, value in data.items():
-        key_text = _simple_yaml_scalar_dump(str(key))
-        if isinstance(value, dict):
-            if not value:
-                lines.append("%s%s: {}" % (pad, key_text))
-            else:
-                lines.append("%s%s:" % (pad, key_text))
-                lines.append(_simple_yaml_dump(value, indent + 1))
-        elif isinstance(value, (list, tuple)):
-            items = ", ".join(_simple_yaml_scalar_dump(v) for v in value)
-            lines.append("%s%s: [%s]" % (pad, key_text, items))
-        else:
-            lines.append("%s%s: %s" % (pad, key_text, _simple_yaml_scalar_dump(value)))
-    return "\n".join(lines)
+# A number once its digit separators are stripped. Used to spot "1_000" and
+# "1_0.5" without the regex accidentally matching plain "1.5" -- an earlier
+# attempt to fold this into the pattern table above did exactly that and
+# rejected every ordinary decimal.
+_YAML_NUMBER_RE = re.compile(
+    r"^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?\Z")
 
 
 def _split_top_level(text: str, separator: str = ",") -> List[str]:
@@ -762,62 +773,6 @@ def _strip_inline_comment(line: str) -> str:
         if ch == "#" and (i == 0 or line[i - 1] in " \t"):
             return line[:i]
     return line
-
-
-# --------------------------------------------------------------------------
-# Cross-backend ambiguity guard
-# --------------------------------------------------------------------------
-#
-# PyYAML implements YAML 1.1, which reads a number of unquoted scalars in
-# ways the built-in parser deliberately does not: 0755 is octal (493), 1:30
-# is sexagesimal (90), 0x1f is hex, 1_000 has digit separators, `yes` is
-# boolean True, and 2026-01-01 is a date object. The built-in parser reads
-# every one of those as either a plain decimal number or a string.
-#
-# That means the SAME config file could place a window at two different
-# coordinates depending only on whether PyYAML happens to be installed --
-# silently, because both readings are valid numbers that pass validation.
-# For a tool whose whole point is running unmodified on machines where
-# nothing can be installed, that is the worst possible failure mode.
-#
-# Rather than teach the built-in parser all of YAML 1.1 (a large amount of
-# code, and it would import YAML 1.1's footguns on purpose), these forms are
-# rejected before either backend sees them. Both backends then behave
-# identically: a clear error naming the value and how to fix it. Nothing is
-# lost, because xtm's schema is pixel geometry and a handful of strings --
-# no config has a legitimate use for octal, hex, sexagesimal or dates, and
-# any of them can still be written as a quoted string.
-#
-# Each pattern is anchored and matches a WHOLE token, so ordinary values that
-# merely start with a digit, dot or dash -- `.config/xtm`, `-e`, `2>&1` --
-# are untouched.
-
-# Every numeric pattern accepts a leading '+' as well as '-'. YAML 1.1 does,
-# so "+0755" is octal to PyYAML exactly as "0755" is; a sign-blind pattern
-# would let the signed spelling through the guard it was written to close.
-_YAML_AMBIGUOUS_PATTERNS = (
-    (re.compile(r"^[-+]?0[0-9_]+\Z"),
-     "a leading zero, which PyYAML reads as octal and the built-in parser "
-     "reads as decimal"),
-    (re.compile(r"^[-+]?0[xXbBoO][0-9a-fA-F_]+\Z"),
-     "a base prefix, which only PyYAML understands"),
-
-    (re.compile(r"^[-+]?[0-9][0-9_]*(:[0-9]{1,2})+(\.[0-9_]*)?\Z"),
-     "colons, which PyYAML reads as a sexagesimal number (1:30 becomes 90)"),
-    (re.compile(r"^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)[eE][-+]?[0-9]+\Z"),
-     "scientific notation, which the two parsers disagree about"),
-    (re.compile(r"^[-+]?\.(inf|Inf|INF|nan|NaN|NAN)\Z"),
-     "an infinity or not-a-number literal, which only PyYAML understands"),
-    (re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ][0-9:.+\-Zz]*)?\Z"),
-     "a date, which PyYAML turns into a date object"),
-)
-
-# A number once its digit separators are stripped. Used to spot "1_000" and
-# "1_0.5" without the regex accidentally matching plain "1.5" -- an earlier
-# attempt to fold this into the pattern table above did exactly that and
-# rejected every ordinary decimal.
-_YAML_NUMBER_RE = re.compile(
-    r"^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?\Z")
 
 
 def _has_digit_separators(raw: str) -> bool:
@@ -1604,6 +1559,108 @@ def _simple_yaml_load(text: str) -> Dict[str, Any]:
 
     settle_pending_as_null()
     return root
+
+
+# Bare words that would be read back as non-string YAML types, so the
+# dependency-free dumper must quote them when they occur as strings (a
+# font literally named "Null" has to round-trip as the string "Null",
+# not as Python None).
+_YAML_RESERVED_WORDS = {
+    "true", "True", "TRUE", "false", "False", "FALSE",
+    "null", "Null", "NULL", "None", "~",
+    "yes", "Yes", "YES", "no", "No", "NO",
+    "on", "On", "ON", "off", "Off", "OFF",
+}
+_YAML_LOOKS_NUMERIC_RE = re.compile(r"^-?\d+(\.\d+)?$")
+
+
+def _would_be_refused_unquoted(s: str) -> bool:
+    """Whether the parity guard would refuse `s` as an unquoted scalar.
+
+    Defined here and used by the dumper so that the rule lives in exactly
+    one place. _reject_ambiguous_scalar is defined further down the file;
+    Python resolves the name at call time, and the dumper never runs at
+    import time, so the forward reference is fine.
+    """
+    try:
+        _reject_ambiguous_scalar(s, "dump")
+    except XtmError:
+        return True
+    return False
+
+
+def _reads_back_as_a_different_number(s: str) -> bool:
+    """Whether YAML would read `s` as a number that prints differently."""
+    for parse in (int, float):
+        try:
+            return str(parse(s)) != s
+        except ValueError:
+            continue
+    return False
+
+
+def _simple_yaml_scalar_dump(v: Any) -> str:
+    """Render one scalar for the dependency-free dumper, quoting anything
+    that would not survive the round trip unquoted."""
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    s = str(v)
+    needs_quoting = (
+        s == ""
+        or s in _YAML_RESERVED_WORDS
+        or bool(_YAML_LOOKS_NUMERIC_RE.match(s))
+        # A spelling YAML reads as a number whose TEXT differs -- "9." is
+        # the float 9.0, "07" the integer 7. As a value the difference is
+        # invisible; as a key it renames the profile or slot, which is why
+        # the guard refuses it. Quoting here is what stops xtm writing a
+        # config its own guard would then refuse to read.
+        or _reads_back_as_a_different_number(s)
+        or bool(re.search(r'[:#\[\]{},"\'\n\t]', s))
+        or s.strip() != s
+        or s.startswith(("-", "?", "&", "*", "!", "%", "@", "`", ">", "|"))
+        # The decisive test, and the reason the list above is only a fast
+        # path: ask the parity guard itself whether it would refuse this
+        # text unquoted. Keeping a second list of what needs quoting is how
+        # the dumper came to write `display: :0` and `title: 7_`, both of
+        # which the guard then refused -- a saved config that would not load
+        # again. One rule, consulted from both sides, cannot drift.
+        or _would_be_refused_unquoted(s)
+    )
+    if needs_quoting:
+        # A newline or a tab has to leave as an escape. Written literally
+        # inside the quotes it splits the line, and the reader -- which is
+        # line-based -- then refuses the file the dumper just wrote. The
+        # guard refuses every input that could carry one today, so this is
+        # the second rule keeping that true rather than the first.
+        escaped = (s.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n").replace("\t", "\\t"))
+        return '"' + escaped + '"'
+    return s
+
+
+def _simple_yaml_dump(data: Dict[str, Any], indent: int = 0) -> str:
+    """Minimal YAML writer for the shape xtm's config actually uses:
+    nested mappings of scalars, with flow-style lists as values."""
+    lines = []
+    pad = "  " * indent
+    for key, value in data.items():
+        key_text = _simple_yaml_scalar_dump(str(key))
+        if isinstance(value, dict):
+            if not value:
+                lines.append("%s%s: {}" % (pad, key_text))
+            else:
+                lines.append("%s%s:" % (pad, key_text))
+                lines.append(_simple_yaml_dump(value, indent + 1))
+        elif isinstance(value, (list, tuple)):
+            items = ", ".join(_simple_yaml_scalar_dump(v) for v in value)
+            lines.append("%s%s: [%s]" % (pad, key_text, items))
+        else:
+            lines.append("%s%s: %s" % (pad, key_text, _simple_yaml_scalar_dump(value)))
+    return "\n".join(lines)
 
 
 def dump_yaml(data: Dict[str, Any]) -> str:
