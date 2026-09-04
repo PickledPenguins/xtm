@@ -78,6 +78,35 @@ jobs:
           docker run --rm -v "$PWD:/w" -w /w python:3.6-slim \
             sh -c "$INSTALL python -m unittest discover -t . -s tests"
 
+  # Mutation and property runs are their own job: both are slower than the
+  # suite and neither is a pass/fail signal about this change alone -- a
+  # surviving mutant means a test is missing, which is a gap in the suite
+  # rather than a fault in the commit that revealed it.
+  suite-quality:
+    name: mutation · properties
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: python -m pip install --disable-pip-version-check PyYAML
+
+      # Every mutant must be killed by the suite. A survivor is reported
+      # with the decision it broke and the tests that should have noticed.
+      - name: Mutation catalogue
+        run: python tests/mutation/run.py
+
+      # Generated inputs against stated properties. No third-party
+      # dependency: the engine is in tests/property/engine.py, for the same
+      # reason the tool has none.
+      - name: Property tests
+        run: python tests/property/run.py
+
   check:
     name: lint · coverage · clean tree
     runs-on: ubuntu-latest
@@ -93,21 +122,29 @@ jobs:
         run: python -m pip install --disable-pip-version-check coverage pyflakes PyYAML
 
       - name: Lint
-        run: |
-          python -m pyflakes xtm.py $(find tests -name '*.py')
-          python -m py_compile xtm.py $(find tests -name '*.py')
+        run: scripts/run_tests.sh --lint
 
-      # make coverage sets up subprocess tracking. Without it the integration
-      # tests, which run xtm.py as a child process, contribute nothing and
-      # the figure drops from ~94% to ~63%.
+      # The documentation must describe the tool that ships with it: every
+      # option, exit code, environment variable, config key and emitted JSON
+      # key, enumerated from the code and looked for in the document that
+      # owns it.
+      - name: Documentation contract
+        run: python -m unittest tests.test_documentation
+
       - name: Examples
         run: make examples
 
-      # Catches a test that only passes because an earlier module left
-      # global state behind.
+      # `make test` runs each module in its own interpreter, which catches a
+      # test that only passes because an earlier module left global state
+      # behind. The matrix job above runs them together, so both shapes are
+      # covered.
       - name: Each test module in isolation
-        run: make test-isolated
+        run: make test
 
+      # scripts/run_tests.sh --coverage sets up subprocess tracking. Without
+      # it the integration tests, which run xtm.py as a child process,
+      # contribute nothing and the figure drops from ~97% to ~63%. The floor
+      # in .coveragerc fails the job on a drop.
       - name: Coverage
         run: make coverage
 

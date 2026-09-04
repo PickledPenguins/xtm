@@ -213,18 +213,23 @@ docs/                  This document set; see the README index.
 
 tests/
   support.py           Fake external tools and the shared base classes.
+  test_documentation.py  The docs must describe the tool that ships with them.
   unit/                Pure logic: YAML, validation, geometry, config, CLI.
   integration/         xtm run as a subprocess against the fakes.
   differential/        The two YAML backends must agree.
+  property/            Stated invariants over generated input, plus the engine.
+  mutation/            Decisions broken on purpose; the suite must notice.
+  concurrency/         Real processes contending for the config and the lock.
   fault_injection/     Failure paths a healthy filesystem never reaches.
   load/                Cost budgets.
   safety/              --dry-run invariants.
   examples/            The shipped examples must still describe the tool.
 
 examples/
-  run.py               Runs each example and compares it with expected.json.
+  run.py               Runs each example, and --negative the ones meant to fail.
   README.md            Index of the examples.
   NN-name/             config.yaml, README.md, expected.json.
+  negative/NN-name/    config.yaml, README.md, expected-error.txt.
 ```
 
 ## Assumptions and limitations

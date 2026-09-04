@@ -54,12 +54,16 @@ hosts where nothing can be installed, and it would otherwise be tested only in i
 | Directory | Covers |
 |---|---|
 | `tests/unit/` | Pure logic: YAML, validation, geometry, config, commands, CLI parsing |
-| `tests/integration/` | xtm as a subprocess against the fakes: basics, environments, malformed input, reporting, packaging, windows |
+| `tests/integration/` | xtm as a subprocess against the fakes: basics, environments, malformed input, reporting, packaging, windows, command failures |
 | `tests/differential/` | The two YAML backends must read every config identically |
-| `tests/fault_injection/` | Failure paths a healthy filesystem never reaches |
+| `tests/property/` | Stated invariants over generated configs, names and geometries |
+| `tests/mutation/` | Decisions deliberately broken, which the suite must notice |
+| `tests/concurrency/` | Real processes contending for the config, the lock and the state file |
+| `tests/fault_injection/` | Failure paths a healthy filesystem never reaches, and the world outside the process |
 | `tests/load/` | Cost budgets: enumeration calls per tool, scaling |
 | `tests/safety/` | `--dry-run` changes nothing |
 | `tests/examples/` | Every shipped example still describes the tool |
+| `tests/test_documentation.py` | The documentation describes the tool that ships with it |
 
 Classes of risk that carry their own groups, and what each protects:
 
@@ -92,6 +96,46 @@ Classes of risk that carry their own groups, and what each protects:
 - **Capture scope** — foreign windows skipped by default and added with `--capture-new`,
   known slots still updated, stray attribution.
 
+## Properties
+
+`tests/property/` states what must be true of *every* input rather than of a chosen one:
+what xtm writes it can read back on both backends, what it writes survives its own parity
+guard, parsing inverts the geometry format, stack offsets are monotonic in the index, a
+valid name survives a round trip as a key, an explicit `session:` is never prefixed, and
+key normalisation is idempotent.
+
+The engine is `tests/property/engine.py` — forty lines of generate, check, shrink.
+Hypothesis is deliberately not used: xtm's premise is running where nothing can be
+installed, and a property test that skips because a dependency is missing tests nothing.
+What that gives up is real shrinking strategy and a corpus; what it keeps is many inputs
+per property, fixed seeds so a failure reproduces, and a counterexample small enough to
+read.
+
+Two defects came out of these on the runs that introduced them, both the same shape: the
+dumper writing a config the guard then refuses. That class is closed now — the dumper asks
+the guard whether it would refuse a scalar unquoted rather than keeping its own list.
+
+## Mutation
+
+`tests/mutation/run.py` is a catalogue of decisions deliberately broken — the colon rule,
+the quote rules, the indicator set, resize before move, the sign of frame compensation, the
+stack offset, the switch keep set, edit-time validation, the config lock — each naming the
+test modules that ought to fail because of it.
+
+**A surviving mutant is a missing test.** Write the test; never soften the mutant. A stale
+mutant means the code moved: re-point it after checking the decision is still being made
+somewhere.
+
+A checked-in catalogue rather than a mutation tool, for the same reason as the property
+engine: it adds no dependency, it is reviewable, and naming the modules per mutant keeps a
+full run to a couple of minutes.
+
+## Concurrency
+
+`tests/concurrency/` starts real processes, because the lock is an `flock` held by a
+process and a lost update is a property of separate memory. Each race repeats eight times —
+a race that passes once has not been tested.
+
 ## The YAML parity tests
 
 `tests/differential/test_yaml_backends.py` is where the backend contract lives, and it is
@@ -115,24 +159,29 @@ is the strictest of the three numbers and therefore holds the other two above it
 
 | Metric | Result |
 |---|---|
-| Statements | 1969 |
-| Line coverage | **96.3%** |
-| Branch coverage | **93.5%** |
-| Combined | **95.4%** — the figure `fail_under` enforces |
-| Tests | 531 |
+| Statements | 1987 |
+| Line coverage | **98.0%** |
+| Branch coverage | **96.0%** |
+| Combined | **97.4%** — the figure `fail_under` enforces |
+| Tests | 610 |
 
-Measured at commit `431caba`, 2026-09-04. The floor is enforced rather than reported:
-`.coveragerc` sets `fail_under`, so a drop fails the run.
+Measured at commit `37f8c30`, 2026-09-04. The floor is enforced rather than reported:
+`.coveragerc` sets `fail_under`, so a drop fails the run. It moves in steps, each earned by
+the tests that raised the number — 95 to 96 to 97 — rather than to match a figure that
+drifted upward on its own.
 
 Coverage requires subprocess tracking, and this is not optional: most command code runs in a
 child process, so a plain `coverage run -m unittest` reports about 63% — a measurement
 artefact, not a regression. `scripts/run_tests.sh --coverage` writes the `.pth` file and
 sets `COVERAGE_PROCESS_START` itself. **If you see 63%, you bypassed the entry point.**
 
-The uncovered remainder is almost entirely defensive error handling that cannot be triggered
-without breaking the filesystem underneath a running process: `OSError` branches around
-`fsync`, lock acquisition and temp-file cleanup, and the `ImportError` fallbacks for `fcntl`
-and PyYAML.
+The uncovered remainder is 39 statements and 37 partial branches, almost entirely defensive
+error handling that cannot be triggered without breaking the filesystem underneath a running
+process: `OSError` branches around `fsync`, lock acquisition and temp-file cleanup, the
+`ImportError` fallbacks for `fcntl` and PyYAML, and guards that exist so a future edit fails
+loudly. Reaching a round 98 from there would mean asserting on internals, which buys a
+number and pays for it with a suite that breaks when the code is refactored rather than when
+it is wrong.
 
 ## Standards
 

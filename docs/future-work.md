@@ -35,6 +35,16 @@ written down.
   configurations live in one process.
 - **A changelog.** The commit log is the release history and a tag names each release; a
   second record beside it would drift from the first.
+- **Hypothesis for the property tests.** It is the obvious choice and would give real
+  shrinking, a corpus and statistics. It is absent on every interpreter here, and xtm's
+  premise is running where nothing can be installed — a property test that skips because a
+  dependency is missing tests nothing. `tests/property/engine.py` is forty lines and runs
+  everywhere the suite does. Revisit if the shrinking becomes the bottleneck in reading a
+  failure.
+- **A mutation tool** (`mutmut`, `cosmic-ray`) instead of the checked-in catalogue. Same
+  reasoning, plus one more: naming the modules that should kill each mutant keeps a full run
+  to a couple of minutes, where a tool would spend most of its time on lines nobody would
+  break.
 - **Refusing a plain numeric key** such as `123:` in the config. PyYAML types it as an
   integer and the built-in reader as text, but `_normalize_config_keys` turns both into the
   same name, so there is nothing left to disagree about. The boolean and null spellings are
@@ -51,8 +61,10 @@ written down.
   would close the class rather than the instance. The cost is that every legitimate value
   shape then has to be enumerated, and the last such enumeration took three passes to get
   right.
-- **Whether the coverage floor should ratchet.** It sits at 95 against 95.4 achieved, which
-  leaves about eleven uncovered units of slack — enough that a refactor does not fail the
-  build before it reaches review, and small enough that a genuinely untested feature does.
-  Raising it is worth doing as a deliberate push, with the tests that earn each step, rather
-  than to match a number that drifted upward on its own.
+- **Whether the coverage floor should reach 98.** Settled for now at 97 against 97.4
+  achieved, after a deliberate push from 95.4 that added the command-failure, validation-
+  message and untidy-screen tests. What is left is 39 statements and 37 partial branches of
+  error handling that needs the filesystem to break underneath a running process, plus the
+  `fcntl` and PyYAML import fallbacks. Reaching 98 from there means asserting on internals.
+  Revisit if a way appears to reach those paths through behaviour rather than through
+  mocking.
