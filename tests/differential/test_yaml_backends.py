@@ -362,6 +362,42 @@ class TestYamlBackendEquivalence(unittest.TestCase):
             self.assertEqual(pyyaml_[0], "rejected",
                              "%s should be refused, got %r" % (value, pyyaml_))
 
+    def test_an_ambiguous_key_is_refused_by_both(self):
+        """A key is typed the way a value is, so it can diverge the same way.
+
+        `yes:` is the key True to PyYAML and the key "yes" to the built-in
+        parser, and the normalisation that follows turns those into the
+        profile names "True" and "yes" -- one config file naming two
+        different profiles depending on what is installed.
+
+        A purely numeric key is deliberately NOT refused: PyYAML's 2 and
+        the built-in parser's "2" both normalise to the name "2", so they
+        already agree where it counts.
+        """
+        for key in ("yes", "no", "on", "off", "0755", "1:30", "1_000"):
+            for template in ("profiles:\n  %s: {}\n",
+                             "profiles:\n  a: {%s: 1}\n"):
+                text = template % (key,)
+                builtin, pyyaml_ = self._both(text)
+                self.assertEqual(
+                    builtin[0], "rejected",
+                    "the key %r should be refused, got %r" % (key, builtin))
+                self.assertEqual(
+                    pyyaml_[0], "rejected",
+                    "the key %r should be refused, got %r" % (key, pyyaml_))
+
+    def test_a_quoted_key_keeps_its_text(self):
+        """Quoting a key is how the user says it is a name, and it works."""
+        for key in ('"2"', "'2'", '"true"', '"1:30"'):
+            text = "profiles:\n  %s: {}\n" % (key,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_,
+                             "disagreement on the quoted key %s: %r vs %r"
+                             % (key, builtin, pyyaml_))
+            self.assertEqual(builtin[0], "ok",
+                             "%s should be accepted, got %r" % (key, builtin))
+            self.assertEqual(list(builtin[1]["profiles"]), [key[1:-1]])
+
     def test_an_opening_quote_must_still_close(self):
         """The half of that rule which has to keep firing."""
         for token in ('"unterminated', "'unterminated", '"x" trailing',
@@ -592,6 +628,8 @@ class TestYamlBackendFuzz(unittest.TestCase):
         "value": "profiles:\n  a: %s\n",
         "flow mapping value": "profiles:\n  a: {k: %s}\n",
         "flow sequence item": "profiles:\n  a: [%s]\n",
+        "key": "profiles:\n  %s: {}\n",
+        "flow mapping key": "profiles:\n  a: {%s: 1}\n",
     }
     TOKENS_PER_LENGTH = 400
     MAX_LENGTH = 9
@@ -603,6 +641,25 @@ class TestYamlBackendFuzz(unittest.TestCase):
         self._saved = xtm.HAVE_PYYAML
         self.addCleanup(setattr, xtm, "HAVE_PYYAML", self._saved)
 
+    @staticmethod
+    def _as_names(value):
+        """The same structure with every mapping key as its text.
+
+        YAML types a key the way it types a value, so PyYAML hands back
+        the integer 2 for `2:` where the built-in parser hands back "2".
+        xtm looks every name up as text and `_normalize_config_keys`
+        already forces profile and session names back to str after
+        loading, so agreement "up to the text of a key" is the property
+        that actually has to hold. Comparing raw would report a
+        difference the tool cannot observe.
+        """
+        if isinstance(value, dict):
+            return dict((str(k), TestYamlBackendFuzz._as_names(v))
+                        for k, v in value.items())
+        if isinstance(value, list):
+            return [TestYamlBackendFuzz._as_names(v) for v in value]
+        return value
+
     def _reading(self, text, use_pyyaml):
         """How one backend reads `text`, with every refusal reading alike.
 
@@ -611,7 +668,7 @@ class TestYamlBackendFuzz(unittest.TestCase):
         """
         xtm.HAVE_PYYAML = use_pyyaml
         try:
-            return ("ok", xtm.load_yaml(text))
+            return ("ok", self._as_names(xtm.load_yaml(text)))
         except xtm.XtmError:
             return ("refused", None)
 

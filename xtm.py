@@ -910,7 +910,15 @@ def _scan_for_ambiguous_scalars(text: str) -> None:
                 % (context, line.split()[0]))
         if line == "-" or line.startswith("- "):
             # Block sequence item: the whole remainder is the value.
-            _scan_value(line[1:].strip(), context)
+            item = line[1:].strip()
+            _, item_sep, _ = _partition_key(item)
+            if item_sep and not item.startswith(("[", "{", '"', "'")):
+                die("%s: %r opens a mapping inside a list item. PyYAML reads "
+                    "it as one and the built-in parser has no nested mapping "
+                    "to read it into, so the two disagree. xtm's config has "
+                    "no use for it: write the mapping under its own key."
+                    % (context, line))
+            _scan_value(item, context)
             continue
         key, _, value = _partition_key(line)
         _reject_reserved_key(key.strip(), context)
@@ -1010,15 +1018,47 @@ def _reject_flow_entry(part: str, sep: str, value: str, context: str) -> None:
             % (context, part))
 
 
-def _reject_reserved_key(key: str, context: str) -> None:
+# Which indicators may open a KEY depends on where the key sits. PyYAML
+# reads `:x: 1` and `?x: 1` as ordinary block keys and refuses neither, so
+# refusing them here would make xtm stricter than PyYAML in block context.
+# Inside a flow mapping the same two are structure: `{:x: 1}` is refused
+# outright and `{?x: 1}` becomes the key "x" with the indicator eaten,
+# which is a silent disagreement with the built-in parser's "?x".
+# `[` and `{` are here as well as `]` and `}`: a key that OPENS a flow
+# collection is structure to PyYAML, which refuses `{<+/A: 1}` as a key,
+# while the built-in parser read it as an ordinary name.
+_YAML_BLOCK_KEY_INDICATORS = "&*!%@`|>,[]{}"
+
+# Spellings YAML gives a type rather than a name. A numeric key is absent
+# on purpose: PyYAML's 2 and the built-in parser's "2" both normalise to
+# the name "2", while PyYAML's None and True normalise to "None" and
+# "True" against the built-in parser's "~" and "true".
+_YAML_TYPED_KEY_SPELLINGS = ("~", "null", "Null", "NULL",
+                             "true", "True", "TRUE",
+                             "false", "False", "FALSE")
+
+
+def _reject_reserved_key(key: str, context: str,
+                         in_flow: bool = False) -> None:
     """Refuse a key that only PyYAML gives meaning to.
 
     Quoted keys are exempt for the same reason quoted values are: quoting
     is how a user says "this is a name", and both backends agree on it.
     """
     if key[:1] in "\"'":
+        # A quoted key must close on its last character and carry nothing
+        # after it, exactly as a quoted value must: PyYAML refuses
+        # `""!||90:` and the built-in parser read it as an ordinary name.
+        _reject_unbalanced(key)
         return
-    if key[:1] in _YAML_INDICATOR_CHARS:
+    if in_flow:
+        # Inside a flow mapping a bracket or brace ends the key, so
+        # PyYAML refuses `{1a{]: 1}` while the built-in parser read the
+        # whole thing as a name.
+        _reject_flow_indicator_in_scalar(key, context)
+    indicators = (_YAML_INDICATOR_CHARS if in_flow
+                  else _YAML_BLOCK_KEY_INDICATORS)
+    if key[:1] in indicators:
         die("%s: the key %s begins with %r, which YAML reads as a structural "
             "indicator rather than as a name. PyYAML refuses it and the "
             "built-in parser reads it as an ordinary key. Quote it as \"%s\" "
@@ -1029,6 +1069,44 @@ def _reject_reserved_key(key: str, context: str) -> None:
             "key, so this config would mean different things on two machines "
             "with no error on either. Write the keys out in full."
             % (context, key))
+    # The ambiguity rules apply to a key as much as to a value: `yes:` is
+    # the key True to PyYAML and the key "yes" to the built-in parser, and
+    # _normalize_config_keys turns those into "True" and "yes" -- two
+    # different profile names. A purely NUMERIC key needs no rule here,
+    # because that same normalisation makes 2 and "2" the same name.
+    _reject_ambiguous_scalar(key, context, in_flow)
+    _reject_renumbered_key(key, context)
+    if key in _YAML_TYPED_KEY_SPELLINGS:
+        die("%s: the key %s is a YAML null or boolean rather than a name. "
+            "PyYAML reads it as that value and the built-in parser reads "
+            "the word, so the two end up naming different things. Quote it "
+            "as \"%s\"." % (context, key, key))
+
+
+def _reject_renumbered_key(key: str, context: str) -> None:
+    """Refuse a numeric key whose text changes when YAML reads it.
+
+    `123:` is safe: PyYAML types it as the integer 123, the built-in
+    parser keeps the text, and _normalize_config_keys turns both into the
+    name "123". `7.:` is not: PyYAML reads the float 7.0 and normalises
+    to "7.0" where the built-in parser normalises to "7.", so the same
+    line names two different profiles.
+
+    The test is exactly that -- whether the name survives the round trip
+    -- rather than "is it numeric", so the ordinary numeric names people
+    actually use keep working.
+    """
+    for parse in (int, float):
+        try:
+            parsed = parse(key)
+        except ValueError:
+            continue
+        if str(parsed) != key:
+            die("%s: the key %s is a number whose text changes when YAML "
+                "reads it -- PyYAML makes it %s and the built-in parser "
+                "keeps %s, so the two name different things. Quote it as "
+                "\"%s\"." % (context, key, parsed, key, key))
+        return
 
 
 def _reject_flow_indicator_in_scalar(raw: str, context: str) -> None:
@@ -1097,7 +1175,7 @@ def _scan_value(value: str, context: str, in_flow: bool = False) -> None:
             key, sep, inner = _partition_key(part.strip())
             _reject_flow_entry(part.strip(), sep, inner, context)
             if part.strip():
-                _reject_reserved_key(key.strip(), context)
+                _reject_reserved_key(key.strip(), context, in_flow=True)
                 _scan_value(inner.strip(), context, in_flow=True)
         return
     if value.startswith("[") and value.endswith("]"):
@@ -1124,10 +1202,20 @@ def _partition_key(line: str) -> Tuple[str, str, str]:
             if ch == quote:
                 quote = ""
             continue
-        if ch in "\"'":
+        # Only a quote that OPENS the key is a quote. Mid-key it is an
+        # ordinary character in a plain scalar -- PyYAML reads `4~x'5: {}`
+        # as the name "4~x'5" -- and treating it as a delimiter swallowed
+        # the colon that follows, so the built-in parser reported a
+        # malformed line for a config PyYAML reads.
+        if ch in "\"'" and i == 0:
             quote = ch
             continue
-        if ch == ":":
+        # A colon separates a key from a value only when a space or the
+        # end of the line follows it. `119%:~5: {}` is one name to
+        # PyYAML, not the key `119%`, and splitting at every colon made
+        # the built-in parser read a different key -- or refuse the line
+        # outright -- for a config PyYAML reads without complaint.
+        if ch == ":" and line[i + 1:i + 2] in ("", " "):
             return line[:i], ":", line[i + 1:]
     return line, "", ""
 
@@ -1304,6 +1392,27 @@ def _simple_yaml_scalar_load(tok: str, in_flow: bool = False) -> Any:
     return tok
 
 
+def _simple_yaml_key_load(tok: str) -> str:
+    """Read one mapping key, which is a name rather than a value.
+
+    A key has already been separated from its value by _partition_key, so
+    what remains is text: `oo@>:` is a perfectly good name to PyYAML, and
+    running the value rules over it refused names PyYAML accepts. Only
+    the quoting is interpreted here, because quoting is how a user says
+    where a name begins and ends.
+
+    Everything a key is looked up by is a string in xtm, and
+    _normalize_config_keys forces PyYAML's typed keys back to str, so
+    returning the text is also what makes the two backends agree.
+    """
+    tok = tok.strip()
+    if len(tok) >= 2 and tok[0] == tok[-1] == '"':
+        return tok[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    if len(tok) >= 2 and tok[0] == tok[-1] == "'":
+        return tok[1:-1].replace("''", "'")
+    return tok
+
+
 def _simple_yaml_flow_mapping_load(tok: str) -> Dict[str, Any]:
     """Parse a flow-style mapping such as {x: 0, y: 0, width: 900}.
 
@@ -1322,7 +1431,7 @@ def _simple_yaml_flow_mapping_load(tok: str) -> Dict[str, Any]:
         key, sep, value = _partition_key(part)
         if not sep:
             die("Malformed flow mapping entry %r in config." % (part,))
-        key = _simple_yaml_scalar_load(key.strip())
+        key = _simple_yaml_key_load(key)
         # in_flow for the same reason the sequence branch passes it: inside
         # a flow collection a leading dash is ordinary text, not the block
         # sequence indicator, and PyYAML reads `{title: -}` as "-".
@@ -1409,7 +1518,7 @@ def _simple_yaml_load(text: str) -> Dict[str, Any]:
         key, sep, rest = _partition_key(content)
         if not sep:
             die("Malformed config line: %r" % (content,))
-        key = str(_simple_yaml_scalar_load(key.strip()))
+        key = _simple_yaml_key_load(key)
         rest = rest.strip()
         if rest == "":
             pending = (indent, parent, key)
