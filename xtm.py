@@ -653,21 +653,36 @@ def _simple_yaml_dump(data: Dict[str, Any], indent: int = 0) -> str:
 def _split_top_level(text: str, separator: str = ",") -> List[str]:
     """Split on `separator` while ignoring separators nested inside
     quotes, brackets or braces. Needed to parse flow-style collections
-    such as {x: 0, y: 0} and [a, b] without a full YAML engine."""
+    such as {x: 0, y: 0} and [a, b] without a full YAML engine.
+
+    A quote counts as one only where a scalar may begin -- after "[",
+    "{", a separator, or a key's ": ". Everywhere else YAML reads it as
+    an ordinary character in a plain scalar, and treating it as a
+    delimiter suppressed the split PyYAML performs: `{command: echo
+    "hi, there"}` was one command here and a truncated command plus a
+    stray key to PyYAML, so the same config ran two different commands
+    depending on which backend read it.
+    """
     parts = []  # type: List[str]
     depth = 0
     quote = ""
+    at_item_start = True
     current = []  # type: List[str]
-    for ch in text:
+    for index, ch in enumerate(text):
         if quote:
             current.append(ch)
             if ch == quote:
                 quote = ""
             continue
-        if ch in "\"'":
+        if ch in "\"'" and at_item_start:
             quote = ch
             current.append(ch)
+            at_item_start = False
             continue
+        if ch not in " \t":
+            at_item_start = (ch in "[{" or ch == separator
+                             or (ch == ":"
+                                 and text[index + 1:index + 2] in ("", " ")))
         if ch in "[{":
             depth += 1
         elif ch in "]}":
@@ -786,7 +801,11 @@ _YAML_AMBIGUOUS_WORDS = ("yes", "no", "on", "off")
 # `]` and `}` are here rather than in _reject_unbalanced_flow because a
 # value may not OPEN with a closing bracket: PyYAML refuses `a: ]x` as a
 # stray flow indicator, and nothing legitimate starts that way.
-_YAML_INDICATOR_CHARS = "&*!%@`|>,]}"
+# `?` and `:` join them as the FIRST character of a plain scalar: PyYAML
+# reads them as the complex-key and value indicators and refuses `a: ?x`
+# and `a: :x`, while the built-in parser read both as ordinary text, so
+# the config loaded only where PyYAML was absent.
+_YAML_INDICATOR_CHARS = "&*!%@`|>,]}?:"
 
 # Whole tokens PyYAML refuses as a VALUE and the built-in parser reads as
 # ordinary text. Both are YAML 1.1 spellings rather than indicators, so they
@@ -808,15 +827,32 @@ _YAML_RESERVED_KEYS = ("<<",)
 _YAML_DOCUMENT_MARKERS = ("---", "...")
 
 
-def _reject_ambiguous_scalar(tok: str, context: str) -> None:
+def _reject_ambiguous_scalar(tok: str, context: str,
+                             in_flow: bool = False) -> None:
     """Refuse one unquoted scalar that the two YAML backends read differently.
 
     Quoted scalars are exempt: quoting is exactly how a user says "this is
     the literal string", and both backends agree on quoted text.
     """
     raw = tok.strip()
-    if not raw or raw[0] in "\"'":
+    if not raw:
         return
+    if raw[0] == '"':
+        _reject_unsupported_escape(raw, context)
+        return
+    if raw[0] == "'":
+        return
+    if in_flow:
+        _reject_flow_indicator_in_scalar(raw, context)
+        if raw.startswith("- "):
+            # A bare "-" is the string "-" to both backends and stays
+            # legal; "- x" is a block sequence item, which PyYAML refuses
+            # inside a flow collection while the built-in parser read it
+            # as text.
+            die("%s: the value %s inside a flow collection begins with a "
+                "block sequence indicator, which PyYAML refuses there while "
+                "the built-in parser reads it as text. Quote it if the dash "
+                "is meant literally." % (context, raw))
     if raw in _YAML_RESERVED_VALUE_TOKENS:
         die("%s: the unquoted value %s is reserved in YAML, so PyYAML "
             "refuses it while the built-in parser reads it as text and this "
@@ -920,6 +956,13 @@ def _reject_flow_item(item: str, whole: str, context: str) -> None:
     `xterm_args: [-fa, "Monospace:size=11"]` is a fontconfig name, not a
     mapping, and quoting is how the user already says so.
     """
+    if item.startswith("- "):
+        # A bare "-" stays legal: PyYAML reads `[-]` as the one-item list
+        # ["-"], and so does the built-in parser.
+        die("%s: the list item %s begins with a block sequence indicator, "
+            "which PyYAML refuses inside a flow sequence while the built-in "
+            "parser reads it as text. Write the item as plain text, or quote "
+            "it." % (context, item))
     if not item:
         die("%s: the list %s has an empty item, usually a trailing comma. "
             "PyYAML drops it and the built-in parser reads it as a null "
@@ -928,7 +971,12 @@ def _reject_flow_item(item: str, whole: str, context: str) -> None:
     if item[0] in "\"'[{":
         return
     _, sep, _ = _partition_key(item)
-    if sep:
+    # endswith(":") as well as a colon-plus-space: a trailing colon is
+    # still a key to PyYAML, which reads `[a:]` as a one-item list holding
+    # the mapping {"a": None}, while the built-in parser refuses it. Only
+    # _partition_key's "colon then space" spelling was checked, so the
+    # trailing one reached the loader and the two disagreed.
+    if sep or item.endswith(":"):
         die("%s: the list item %s contains a colon, which PyYAML may read "
             "as a nested mapping rather than as text. Quote it as \"%s\" if "
             "it is meant to be text." % (context, item, item))
@@ -947,6 +995,11 @@ def _reject_flow_entry(part: str, sep: str, value: str, context: str) -> None:
     entry to PyYAML, and nothing the built-in parser can represent. Neither
     spelling has a use in an xtm config, and both have an obvious fix.
     """
+    if not part:
+        die("%s: the flow mapping has an empty entry, usually a stray or "
+            "trailing comma. PyYAML refuses it and the built-in parser drops "
+            "it, so the two disagree about the mapping's contents."
+            % (context,))
     if not sep:
         die("%s: the flow mapping entry %s has no value. Write it as "
             "'key: value'." % (context, part))
@@ -978,25 +1031,82 @@ def _reject_reserved_key(key: str, context: str) -> None:
             % (context, key))
 
 
-def _scan_value(value: str, context: str) -> None:
+def _reject_flow_indicator_in_scalar(raw: str, context: str) -> None:
+    """Refuse a plain scalar inside [ ] or { } that carries an indicator.
+
+    Inside a flow collection a bracket or a brace ends the scalar, so
+    PyYAML refuses `[a{b]` and `{k: a]b}` outright while the built-in
+    parser splits only on the top-level commas and hands the text back.
+    In BLOCK context the same characters are ordinary -- `title: 3{x}`
+    is a perfectly good value -- which is why this rule applies only
+    where the scan is already inside a flow collection.
+
+    Commas and quotes are deliberately absent: PyYAML reads `[a"b]` as
+    the one-item list `['a"b']` and treats a comma as a separator, so
+    refusing either here would make the built-in parser stricter than
+    PyYAML, which is the same divergence pointing the other way.
+    """
+    for ch in raw:
+        if ch in "[]{}":
+            die("%s: the value %s inside a flow collection contains %r, "
+                "which YAML reads as structure there rather than as text. "
+                "PyYAML refuses it and the built-in parser reads it as "
+                "text, so the two disagree. Quote the whole value, or move "
+                "it onto its own line." % (context, raw, ch))
+
+
+def _reject_unsupported_escape(raw: str, context: str) -> None:
+    """Refuse an escape in a double-quoted scalar that the two backends
+    read differently.
+
+    A double-quoted scalar is the one quoted form YAML processes escapes
+    in, so it is the one place where quoting does NOT mean the two
+    backends agree: PyYAML turns `"a\\tb"` into a real tab and the
+    built-in loader, which understands only `\\"` and `\\\\`, keeps the
+    backslash and the letter. Neither reports anything, so the same
+    config placed a differently-titled window on two machines. PyYAML
+    also refuses an escape YAML does not define (`"\\z"`) while the
+    built-in loader accepts it.
+
+    Single quotes have no escapes at all in YAML, which is why they are
+    the fix this message names.
+    """
+    index = 1
+    while index < len(raw) - 1:
+        if raw[index] != "\\":
+            index += 1
+            continue
+        following = raw[index + 1:index + 2]
+        if following not in ('"', "\\"):
+            die("%s: the double-quoted value %s contains the escape %s, "
+                "which PyYAML interprets and the built-in parser does not, "
+                "so this config would mean different things depending on "
+                "whether PyYAML is installed. Use single quotes if the "
+                "backslash is meant literally."
+                % (context, raw, "\\" + following if following else "\\"))
+        index += 2
+
+
+def _scan_value(value: str, context: str, in_flow: bool = False) -> None:
     """Check one value, descending into flow collections."""
     if not value:
         return
     if value.startswith("{") and value.endswith("}"):
-        for part in _split_top_level(value[1:-1]):
+        inner_text = value[1:-1].strip()
+        for part in ([] if not inner_text else _split_top_level(inner_text)):
+            key, sep, inner = _partition_key(part.strip())
+            _reject_flow_entry(part.strip(), sep, inner, context)
             if part.strip():
-                key, sep, inner = _partition_key(part.strip())
-                _reject_flow_entry(part.strip(), sep, inner, context)
                 _reject_reserved_key(key.strip(), context)
-                _scan_value(inner.strip(), context)
+                _scan_value(inner.strip(), context, in_flow=True)
         return
     if value.startswith("[") and value.endswith("]"):
         inner = value[1:-1].strip()
         for part in ([] if not inner else _split_top_level(inner)):
             _reject_flow_item(part.strip(), value, context)
-            _scan_value(part.strip(), context)
+            _scan_value(part.strip(), context, in_flow=True)
         return
-    _reject_ambiguous_scalar(value, context)
+    _reject_ambiguous_scalar(value, context, in_flow)
 
 
 def _partition_key(line: str) -> Tuple[str, str, str]:
@@ -1078,9 +1188,17 @@ def _reject_unbalanced_flow(tok: str) -> None:
     quote = ""
     depth = 0
     # A quote only opens a quoted scalar where an item may begin -- after
-    # "[", "{" or "," and any spaces. Elsewhere it is an ordinary character
-    # in a plain scalar, which is why `[a"b]` is a one-item list to PyYAML
-    # rather than an unterminated quote.
+    # "[", "{", "," or a key's ": ", and any spaces. Elsewhere it is an
+    # ordinary character in a plain scalar, which is why `[a"b]` is a
+    # one-item list to PyYAML rather than an unterminated quote.
+    #
+    # The colon belongs in that set because a mapping's VALUE begins after
+    # it: leaving it out made `{title: "v}w"}` read as plain text, counted
+    # the brace inside the quotes as structure, and refused a config
+    # PyYAML accepts -- one that would then load only where PyYAML is
+    # installed. It counts only when a space or the end of the token
+    # follows, which is exactly when YAML treats it as a separator rather
+    # than as a character in a plain scalar.
     at_item_start = True
     for index, ch in enumerate(tok):
         if quote:
@@ -1099,7 +1217,9 @@ def _reject_unbalanced_flow(tok: str) -> None:
             if depth < 0:
                 die("Unbalanced brackets or braces in config value: %s" % (tok,))
         if ch not in " \t":
-            at_item_start = ch in "[{,"
+            at_item_start = (ch in "[{,"
+                             or (ch == ":"
+                                 and tok[index + 1:index + 2] in ("", " ")))
     if quote:
         die("Unterminated %s quote in config value: %s" % (quote, tok))
     if depth or tok[-1] != closing:
@@ -1203,7 +1323,10 @@ def _simple_yaml_flow_mapping_load(tok: str) -> Dict[str, Any]:
         if not sep:
             die("Malformed flow mapping entry %r in config." % (part,))
         key = _simple_yaml_scalar_load(key.strip())
-        result[str(key)] = _simple_yaml_scalar_load(value)
+        # in_flow for the same reason the sequence branch passes it: inside
+        # a flow collection a leading dash is ordinary text, not the block
+        # sequence indicator, and PyYAML reads `{title: -}` as "-".
+        result[str(key)] = _simple_yaml_scalar_load(value, in_flow=True)
     return result
 
 
@@ -1213,11 +1336,11 @@ def _simple_yaml_load(text: str) -> Dict[str, Any]:
 
     Only mappings of mappings of scalars/flow-collections are supported,
     which is all xtm's config ever needs. A bare "key:" with nothing after
-    it always starts a nested mapping rather than meaning an explicit
-    null: that is indistinguishable from a genuinely empty mapping using
-    the line alone, and a nested mapping is what xtm wants in every case
-    that can actually occur (an empty `sessions:` block should become {},
-    not None).
+    it is a null value, which is what YAML says it is and what PyYAML
+    returns. Reading it as an empty mapping instead made `empty:` a valid
+    empty profile on a machine without PyYAML and a fatal "must be a
+    mapping" on one with it, so the same config file was usable on one
+    host and not the other.
     """
     lines = []  # type: List[Tuple[int, str]]
     for raw in text.split("\n"):
@@ -1240,10 +1363,10 @@ def _simple_yaml_load(text: str) -> Dict[str, Any]:
     # at all. It is therefore held here until the following line settles it.
     pending = None  # type: Optional[Tuple[int, Dict[str, Any], str]]
 
-    def settle_pending_as_empty() -> None:
-        """A bare "key:" with no children is an empty mapping, as documented."""
+    def settle_pending_as_null() -> None:
+        """A bare "key:" with no children is null, as PyYAML reads it."""
         if pending is not None:
-            pending[1][pending[2]] = {}
+            pending[1][pending[2]] = None
 
     for indent, content in lines:
         is_item = content == "-" or content.startswith("- ")
@@ -1275,7 +1398,7 @@ def _simple_yaml_load(text: str) -> Dict[str, Any]:
                 pending[1][pending[2]] = nested
                 stack.append((pending[0], nested))
             else:
-                settle_pending_as_empty()
+                settle_pending_as_null()
             pending = None
 
         while len(stack) > 1 and stack[-1][0] >= indent:
@@ -1293,7 +1416,7 @@ def _simple_yaml_load(text: str) -> Dict[str, Any]:
         else:
             parent[key] = _simple_yaml_scalar_load(rest)
 
-    settle_pending_as_empty()
+    settle_pending_as_null()
     return root
 
 

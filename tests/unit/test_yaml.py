@@ -43,6 +43,16 @@ class TestSimpleYaml(unittest.TestCase):
         data = {"a": {"command": 'echo "hi" && echo \'there\''}}
         self.assertEqual(self.round_trip(data), data)
 
+    def test_a_doubled_quote_closes_nothing_in_a_single_quoted_scalar(self):
+        """'' is YAML's escape for a quote inside single quotes.
+
+        The scan checks that a quoted value closes on its last character
+        and nowhere earlier, so it has to know that the doubled quote is
+        one character of text rather than the end of the scalar.
+        """
+        parsed = xtm._simple_yaml_load("a:\n  b: 'it''s here'\n")
+        self.assertEqual(parsed["a"]["b"], "it's here")
+
     def test_leading_dash_string_round_trips(self):
         self.assertEqual(self.round_trip({"a": {"b": "-fa"}})["a"]["b"], "-fa")
 

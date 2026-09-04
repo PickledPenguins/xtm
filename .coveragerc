@@ -46,8 +46,8 @@ skip_covered = False
 # COMBINED figure -- statements and branch exits over one denominator. The
 # three figures currently stand at:
 #
-#     line coverage      96.3%   (1837 / 1907 statements)
-#     branch coverage    93.5%   (823 / 880 branch exits)
+#     line coverage      96.3%   (1868 / 1939 statements)
+#     branch coverage    93.5%   (845 / 904 branch exits)
 #     combined           95.4%   <- what fail_under below compares against
 #
 # The combined figure is the strictest of the three, so holding the floor

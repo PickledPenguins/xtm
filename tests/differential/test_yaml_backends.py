@@ -222,6 +222,146 @@ class TestYamlBackendEquivalence(unittest.TestCase):
             self.assertEqual(builtin[0], "ok",
                              "%r should be accepted, got %r" % (token, builtin))
 
+    def test_a_quoted_value_may_contain_a_bracket(self):
+        """A bracket inside a quoted flow-mapping value is ordinary text.
+
+        The quote that opens a mapping's VALUE follows a colon, not a
+        comma or a brace, so a scan that only opened a quoted scalar after
+        "[", "{" and "," read the value as plain text and counted the
+        bracket inside it as structure. `title: "v}w"` then closed the
+        mapping early and the built-in parser refused a config PyYAML
+        reads without complaint -- a config that loads on a machine with
+        PyYAML installed and fails on one without it, which is the
+        divergence this whole module exists to prevent.
+        """
+        for value in ('"v}w"', '"v]w"', '"{"', '"["', '"]"', '"a, b"'):
+            text = ('profiles:\n  default:\n    sessions:\n'
+                    '      s: {x: 0, y: 0, width: 1, height: 1, title: %s}\n'
+                    % (value,))
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(
+                builtin, pyyaml_,
+                "backends disagree on the quoted value %s: built-in gave %r, "
+                "PyYAML gave %r" % (value, builtin, pyyaml_))
+            self.assertEqual(builtin[0], "ok",
+                             "%s should be accepted, got %r" % (value, builtin))
+
+    def test_a_dash_is_ordinary_text_in_a_flow_mapping_too(self):
+        """`{title: -}` is the one-character string "-" to both backends.
+
+        A dash opens a block sequence only where a block sequence may
+        begin, which is not inside a flow collection. The exemption was
+        given to flow SEQUENCE items and not to flow MAPPING values, so
+        the built-in parser refused `{title: -}` while PyYAML read it.
+        """
+        text = ('profiles:\n  default:\n    sessions:\n'
+                '      s: {x: 0, y: 0, width: 1, height: 1, title: -}\n')
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin, pyyaml_,
+                         "backends disagree on a dash as a flow-mapping "
+                         "value: built-in gave %r, PyYAML gave %r"
+                         % (builtin, pyyaml_))
+        self.assertEqual(builtin[0], "ok")
+
+    def test_a_quoted_comma_inside_a_flow_value_splits_the_same_way(self):
+        """`{command: echo "hi, there"}` must mean one thing, not two.
+
+        A quote opens a quoted scalar only where a scalar may begin. Mid
+        scalar it is ordinary text, so YAML still splits the entry at the
+        comma; the built-in splitter treated the quote as a delimiter,
+        did not split, and read one command where PyYAML read a truncated
+        command and a stray key. Silent on both sides, and it changed
+        what the terminal would run.
+        """
+        text = ('profiles:\n  default:\n    sessions:\n'
+                '      s: {x: 0, y: 0, width: 1, height: 1, '
+                'command: echo "hi, there"}\n')
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin, pyyaml_,
+                         "backends disagree on a quoted comma inside a flow "
+                         "value: built-in gave %r, PyYAML gave %r"
+                         % (builtin, pyyaml_))
+
+    def test_escapes_in_a_double_quoted_value_are_refused(self):
+        """Double quotes are the one quoted form YAML processes escapes in.
+
+        PyYAML turns "a\\tb" into a real tab; the built-in loader knows
+        only \\" and \\\\ and keeps the backslash. Neither reported
+        anything, so a title or command meant two different strings on
+        two machines. Refusing the escape is what makes the two agree,
+        and single quotes are the spelling that carries a literal
+        backslash.
+        """
+        for value in ('"a\\tb"', '"a\\nb"', '"\\u00e9"', '"a\\zb"'):
+            text = "profiles:\n  a: %s\n" % (value,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "%s should be refused, got %r" % (value, builtin))
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "%s should be refused, got %r" % (value, pyyaml_))
+        for value in ('"a\\\\b"', '"a\\"b"', "'a\\tb'"):
+            text = "profiles:\n  a: %s\n" % (value,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_,
+                             "backends disagree on %s: %r vs %r"
+                             % (value, builtin, pyyaml_))
+            self.assertEqual(builtin[0], "ok",
+                             "%s should be accepted, got %r" % (value, builtin))
+
+    def test_a_key_with_no_value_is_null_in_both(self):
+        """`empty:` is null, which is what PyYAML makes of it.
+
+        Reading it as an empty mapping instead made a profile written
+        with no body a valid empty profile without PyYAML and a fatal
+        "must be a mapping" with it -- one config file, usable on one
+        machine and not the other.
+        """
+        text = "profiles:\n  default:\n    prefix: d-\n  empty:\n"
+        builtin, pyyaml_ = self._both(text)
+        self.assertEqual(builtin, pyyaml_,
+                         "backends disagree on a key with no value: %r vs %r"
+                         % (builtin, pyyaml_))
+        self.assertIsNone(builtin[1]["profiles"]["empty"])
+
+    def test_single_quotes_carry_an_ambiguous_value_unchanged(self):
+        """Single quotes have no escapes, so they are the safe spelling.
+
+        Whatever is between them is text to both backends, which is what
+        the escape rule for double quotes tells the user to fall back to.
+        """
+        for token in ("yes", "0755", "1:30", "a\\tb", "it''s"):
+            text = "profiles:\n  a: '%s'\n" % (token,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_,
+                             "disagreement on the single-quoted %r: %r vs %r"
+                             % (token, builtin, pyyaml_))
+            self.assertEqual(builtin[0], "ok",
+                             "single-quoted %r should be accepted, got %r"
+                             % (token, builtin))
+
+    def test_an_empty_flow_mapping_entry_is_refused_by_both(self):
+        """`{,}` and `{a: 1,,}` are a stray comma, and the two backends
+        disagree about what is left: PyYAML refuses the input outright
+        while the built-in parser dropped the empty entry and carried on.
+        """
+        for value in ("{,}", "{x: 1,,}"):
+            text = "profiles:\n  a: %s\n" % (value,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "%s should be refused, got %r" % (value, builtin))
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "%s should be refused, got %r" % (value, pyyaml_))
+
+    def test_a_flow_key_opening_with_an_indicator_is_refused_by_both(self):
+        """A key is as capable of carrying an indicator as a value is."""
+        for value in ("{&k: 1}", "{*k: 1}", "{!k: 1}"):
+            text = "profiles:\n  a: %s\n" % (value,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "%s should be refused, got %r" % (value, builtin))
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "%s should be refused, got %r" % (value, pyyaml_))
+
     def test_an_opening_quote_must_still_close(self):
         """The half of that rule which has to keep firing."""
         for token in ('"unterminated', "'unterminated", '"x" trailing',
@@ -438,7 +578,21 @@ class TestYamlBackendFuzz(unittest.TestCase):
     #   [ ] { } " ' and a tab                      collection and quoting
     #       characters, which found the divergences pointing the OTHER way,
     #       where the built-in parser refused input PyYAML reads happily
-    ALPHABET = "0123456789+-._:eExXbBoOaAfF/ &*!%@`|><=,~[]{}\"'\t"
+    # The backslash is here because a double-quoted scalar is the one
+    # quoted form YAML processes escapes in, so it is the one place a
+    # quote does not mean the backends agree.
+    ALPHABET = "0123456789+-._:eExXbBoOaAfF/ &*!%@`|><=,~[]{}\"'\t\\"
+
+    # Every token is rendered into each of these, because a token's
+    # meaning depends on where it sits: `"v}w"` is ordinary text as a
+    # bare value and structure inside a flow collection, which is how a
+    # regression that only affected flow mappings survived a fuzzer that
+    # only tested bare values.
+    POSITIONS = {
+        "value": "profiles:\n  a: %s\n",
+        "flow mapping value": "profiles:\n  a: {k: %s}\n",
+        "flow sequence item": "profiles:\n  a: [%s]\n",
+    }
     TOKENS_PER_LENGTH = 400
     MAX_LENGTH = 9
 
@@ -476,11 +630,21 @@ class TestYamlBackendFuzz(unittest.TestCase):
                 # line; neither is a scalar any more.
                 if not token or "#" in token or "\n" in token:
                     continue
-                text = "profiles:\n  a: %s\n" % (token,)
-                builtin = self._reading(text, False)
-                pyyaml_ = self._reading(text, True)
-                self.assertEqual(
-                    builtin, pyyaml_,
-                    "seed %d: the value %r is read differently depending on "
-                    "whether PyYAML is installed -- built-in gave %r, PyYAML "
-                    "gave %r" % (seed, token, builtin, pyyaml_))
+                for where, template in self.POSITIONS.items():
+                    # A token carrying a top-level comma stops being one
+                    # value inside a flow mapping and becomes further
+                    # ENTRIES, so what is under test is no longer the
+                    # token in value position. Key-position agreement is
+                    # its own question and is not what this test asks.
+                    if (where == "flow mapping value"
+                            and len(xtm._split_top_level(token)) > 1):
+                        continue
+                    text = template % (token,)
+                    builtin = self._reading(text, False)
+                    pyyaml_ = self._reading(text, True)
+                    self.assertEqual(
+                        builtin, pyyaml_,
+                        "seed %d: %r in %s position is read differently "
+                        "depending on whether PyYAML is installed -- built-in "
+                        "gave %r, PyYAML gave %r"
+                        % (seed, token, where, builtin, pyyaml_))
