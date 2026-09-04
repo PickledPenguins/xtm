@@ -53,9 +53,9 @@ skip_covered = False
 # COMBINED figure -- statements and branch exits over one denominator. The
 # three figures currently stand at:
 #
-#     line coverage      97.5%   (1937 / 1987 statements)
-#     branch coverage    94.7%   (871 / 920 branch exits)
-#     combined           96.6%   <- what fail_under below compares against
+#     line coverage      97.8%   (1944 / 1987 statements)
+#     branch coverage    95.4%   (878 / 920 branch exits)
+#     combined           97.1%   <- what fail_under below compares against
 #
 # The combined figure is the strictest of the three, so holding the floor
 # there keeps the other two above it as well.
@@ -67,7 +67,7 @@ skip_covered = False
 # platform fallbacks for fcntl and PyYAML. Chasing those by asserting on
 # internals would make the suite more brittle without making the tool more
 # correct.
-fail_under = 96
+fail_under = 97
 
 exclude_also =
     # Non-POSIX platforms only; unreachable on the systems xtm targets.
