@@ -54,7 +54,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 __version__ = "0.5"
 # Versioning scheme: 0.<N>, N incrementing by 1 each release (0.9 -> 0.10,
-# never rolling over to 1.0). See CHANGELOG.md for what changed per release.
+# never rolling over to 1.0). The commit log is the record of what changed.
 
 # --------------------------------------------------------------------------
 # Type aliases. Config data is loaded dynamically and validated at runtime,

@@ -536,4 +536,3 @@ xtm() {
 | [docs/reference.md](docs/reference.md) | How placement works, window identification, frame compensation, every option in depth, profile auto-selection, YAML handling, limitations. |
 | [docs/development.md](docs/development.md) | Architecture, design decisions, extending the tool, data structures, and how the test suite works. |
 | [examples/](examples/) | Six worked configurations, each with a README. They run in CI, so they cannot drift from the tool. |
-| [CHANGELOG.md](CHANGELOG.md) | What changed in each release. |

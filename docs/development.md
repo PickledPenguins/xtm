@@ -132,7 +132,8 @@ single-line message with the traceback available under `--debug`.
 - **Comment intent, not mechanism.** Explain why a non-obvious choice was
   made; the code already says what it does.
 - **Version bump per release**, incrementing the last component only
-  (`0.9` → `0.10`), with a matching `CHANGELOG.md` entry.
+  (`0.9` → `0.10`). The commit log is the release history; there is no changelog
+  beside it to fall out of step with it.
 
 ### Before releasing
 
@@ -383,7 +384,6 @@ Makefile               make test / coverage / lint / examples / check / clean.
 README.md              User guide.
 docs/reference.md      Behavioural detail: placement, identification, options.
 docs/development.md    This document.
-CHANGELOG.md           Release history.
 
 tests/
   support.py           Fake external tools and the shared base classes.
@@ -438,4 +438,4 @@ structure around it instead.
 | 0.2 | `xwininfo` accepted for read-back; PID-aware client selection at open time; `--debug` and `--log-file`. |
 | 0.1 | Initial version: open, reset, reset-all, update-profile, new-profile, list. |
 
-See `CHANGELOG.md` for the full detail of each release.
+`git log` carries the detail of each release; a tag names each one.
