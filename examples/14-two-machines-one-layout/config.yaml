@@ -1,0 +1,27 @@
+# One profile serving several machines, and one bound to a single host.
+profiles:
+  # A hostname list: this profile is available on either build box, and
+  # hidden everywhere else.
+  build:
+    match: {hostname: [build-1, build-2]}
+    prefix: build-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      compile: {x: 0, y: 0, width: 1280, height: 1400}
+      tests: {x: 1280, y: 0, width: 640, height: 1400}
+
+  # A glob: every workstation in the fleet with the same screen.
+  desk:
+    match: {hostname: "workstation-*"}
+    prefix: desk-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+
+  # No match block, so this one is global: available on every machine, and
+  # never auto-selected, because being available everywhere is not evidence
+  # that it belongs here.
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      shell: {x: 0, y: 0, width: 960, height: 800}

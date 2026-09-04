@@ -1,0 +1,1 @@
+default              INVALID: Profile 'default': slots 'alpha' and 'beta' both resolve to session 'desk-beta'. Give one of them a different 'session'.

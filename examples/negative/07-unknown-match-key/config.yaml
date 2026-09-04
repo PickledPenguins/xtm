@@ -1,0 +1,7 @@
+# Matching on DISPLAY was removed in 0.4. A config still using it fails
+# with an explanation rather than silently never matching.
+profiles:
+  lab:
+    match: {display: "|0"}
+    sessions:
+      shell: {x: 0, y: 0, width: 900, height: 700}

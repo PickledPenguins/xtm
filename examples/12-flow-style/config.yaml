@@ -1,0 +1,4 @@
+# The same profile written compactly. Both spellings load identically under
+# either YAML backend; xtm writes the block form when it saves.
+profiles:
+  default: {prefix: d-, on_switch: detach, stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}, sessions: {editor: {x: 0, y: 0, width: 1200, height: 1400}, shell: {x: 1200, y: 0, width: 720, height: 1400}}}

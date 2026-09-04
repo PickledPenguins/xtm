@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "",
+  "profile": "default",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "editor",
+      "shared": false,
+      "title": "0755"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "shell",
+      "session": "shell",
+      "shared": false,
+      "title": "yes"
+    },
+    {
+      "command": "grep -e ^\\d",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "logs",
+      "shared": false,
+      "title": "1:30"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

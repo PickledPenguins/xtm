@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "",
+  "profile": "default",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": "~/projects/current",
+      "name": "project",
+      "session": "project",
+      "shared": false,
+      "title": "xtm:project"
+    },
+    {
+      "command": "journalctl -f",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": "/var/log",
+      "name": "logs",
+      "session": "logs",
+      "shared": false,
+      "title": "xtm:logs"
+    },
+    {
+      "command": "bash -lc 'make watch; exec bash'",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": "~/projects/current",
+      "name": "build",
+      "session": "build",
+      "shared": false,
+      "title": "xtm:build"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

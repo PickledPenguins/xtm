@@ -1,0 +1,9 @@
+# Stacking: where a session with no configured position goes.
+profiles:
+  default:
+    # Every unplaced window lands here, each one offset from the last so
+    # they do not hide each other completely. The Nth window is at
+    # x + N*offset_x, y + N*offset_y.
+    stack: {x: 100, y: 80, width: 800, height: 600, offset_x: 60, offset_y: 45}
+    sessions:
+      main: {x: 0, y: 0, width: 1000, height: 1400}

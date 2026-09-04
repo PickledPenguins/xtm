@@ -1,0 +1,31 @@
+# Where each session starts, and what it runs.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      project:
+        x: 0
+        y: 0
+        width: 1200
+        height: 1400
+        # ~ is expanded. The directory applies when the session is CREATED;
+        # attaching to one that already exists does nothing here, exactly as
+        # tmux itself behaves.
+        cwd: ~/projects/current
+      logs:
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        cwd: /var/log
+        # The command replaces the pane's shell, so the pane closes when the
+        # command exits. Wrap it if you want the shell back afterwards:
+        #   command: bash -lc 'journalctl -f; exec bash'
+        command: journalctl -f
+      build:
+        x: 1200
+        y: 700
+        width: 720
+        height: 700
+        cwd: ~/projects/current
+        command: bash -lc 'make watch; exec bash'

@@ -1,0 +1,18 @@
+# Window titles: a template per profile, an override per slot.
+profiles:
+  default:
+    # {slot}, {session} and {profile} are substituted. The default template
+    # is "xtm:{session}", which is also what window identification expects to
+    # find -- xtm looks windows up by instance name, so a custom title is
+    # safe.
+    title: "{profile} · {slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      logs:
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        # A slot may override the profile template outright.
+        title: "LOGS — do not close"

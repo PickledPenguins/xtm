@@ -1,0 +1,1 @@
+xtm: error: CONFIG line 5: the flow mapping entry x:0 has no value. Write it as 'key: value'.

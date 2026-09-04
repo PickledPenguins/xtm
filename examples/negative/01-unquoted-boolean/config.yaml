@@ -1,0 +1,6 @@
+# `yes` unquoted is the boolean true in YAML 1.1: PyYAML reads a boolean
+# and the built-in reader reads the word. Quote it.
+profiles:
+  default:
+    sessions:
+      shell: {x: 0, y: 0, width: 900, height: 700, title: yes}

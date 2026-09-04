@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "full-",
+  "profile": "full",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "full-editor",
+      "shared": false,
+      "title": "full/editor"
+    },
+    {
+      "command": "journalctl -f",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": "/var/log",
+      "name": "logs",
+      "session": "full-logs",
+      "shared": false,
+      "title": "LOGS"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "notes",
+      "shared": true,
+      "title": "full/notes"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

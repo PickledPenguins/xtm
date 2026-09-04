@@ -1,0 +1,7 @@
+# Both slots resolve to desk-beta, so they would fight over one window.
+profiles:
+  default:
+    prefix: desk-
+    sessions:
+      alpha: {session: desk-beta, x: 0, y: 0, width: 900, height: 700}
+      beta: {x: 900, y: 0, width: 900, height: 700}

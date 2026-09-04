@@ -1,0 +1,5 @@
+# A colon separates a key from its value only when a space follows it.
+profiles:
+  default:
+    sessions:
+      shell: {x:0, y:0, width:900, height:700}

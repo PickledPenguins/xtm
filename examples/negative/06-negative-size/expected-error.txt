@@ -1,0 +1,1 @@
+default              INVALID: profile 'default' slot 'shell': 'width' and 'height' must be positive (got width=-900, height=700).

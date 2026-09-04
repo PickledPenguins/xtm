@@ -94,3 +94,54 @@ class TestExamples(unittest.TestCase):
                             "%s has no expected.json" % (directory.name,))
             payload = json.loads(expected.read_text())
             self.assertIn("sessions", payload, directory.name)
+
+
+class TestNegativeExamples(unittest.TestCase):
+    """Every config in examples/negative/ must fail, as recorded.
+
+    A rule is easiest to understand from the config that breaks it and the
+    sentence the tool answers with, so these are documentation first. They
+    are also the only place the exact wording of a refusal is pinned:
+    change a message and one of these fails, which is the prompt to decide
+    whether the new wording is better rather than to find out later.
+    """
+
+    NEGATIVE = EXAMPLES / "negative"
+
+    def negative_dirs(self):
+        return sorted(d for d in self.NEGATIVE.iterdir() if d.is_dir())
+
+    def test_there_are_negative_examples_to_run(self):
+        self.assertGreaterEqual(len(self.negative_dirs()), 8)
+
+    def test_each_one_carries_a_readme_and_a_recorded_error(self):
+        for directory in self.negative_dirs():
+            self.assertTrue((directory / "config.yaml").exists(),
+                            "%s has no config.yaml" % (directory.name,))
+            readme = directory / "README.md"
+            self.assertTrue(readme.exists(),
+                            "%s has no README.md" % (directory.name,))
+            self.assertIn("**The fix:**", readme.read_text(),
+                          "%s does not say what the fix is" % (directory.name,))
+            recorded = directory / "expected-error.txt"
+            self.assertTrue(recorded.exists(),
+                            "%s has no expected-error.txt" % (directory.name,))
+            self.assertGreater(len(recorded.read_text().strip()), 20,
+                               "%s recorded an empty message"
+                               % (directory.name,))
+
+    def test_every_negative_example_fails_as_recorded(self):
+        result = subprocess.run(
+            [sys.executable, str(EXAMPLES / "run.py"), "--negative"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        self.assertEqual(result.returncode, 0,
+                         "negative examples did not fail as recorded:\n%s\n%s"
+                         % (result.stdout, result.stderr))
+
+    def test_every_negative_example_is_listed_in_the_index(self):
+        index = (EXAMPLES / "README.md").read_text()
+        for directory in self.negative_dirs():
+            self.assertIn(directory.name, index,
+                          "negative/%s is not mentioned in examples/README.md"
+                          % (directory.name,))

@@ -138,6 +138,7 @@ run_mutation() {
 run_examples() {
     echo "--- examples"
     $PYTHON examples/run.py
+    $PYTHON examples/run.py --negative
 }
 
 [ "$want_lint" = 1 ] && run_lint

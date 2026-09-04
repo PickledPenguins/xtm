@@ -606,6 +606,21 @@ _YAML_RESERVED_WORDS = {
 _YAML_LOOKS_NUMERIC_RE = re.compile(r"^-?\d+(\.\d+)?$")
 
 
+def _would_be_refused_unquoted(s: str) -> bool:
+    """Whether the parity guard would refuse `s` as an unquoted scalar.
+
+    Defined here and used by the dumper so that the rule lives in exactly
+    one place. _reject_ambiguous_scalar is defined further down the file;
+    Python resolves the name at call time, and the dumper never runs at
+    import time, so the forward reference is fine.
+    """
+    try:
+        _reject_ambiguous_scalar(s, "dump")
+    except XtmError:
+        return True
+    return False
+
+
 def _reads_back_as_a_different_number(s: str) -> bool:
     """Whether YAML would read `s` as a number that prints differently."""
     for parse in (int, float):
@@ -639,6 +654,13 @@ def _simple_yaml_scalar_dump(v: Any) -> str:
         or bool(re.search(r'[:#\[\]{},"\'\n]', s))
         or s.strip() != s
         or s.startswith(("-", "?", "&", "*", "!", "%", "@", "`", ">", "|"))
+        # The decisive test, and the reason the list above is only a fast
+        # path: ask the parity guard itself whether it would refuse this
+        # text unquoted. Keeping a second list of what needs quoting is how
+        # the dumper came to write `display: :0` and `title: 7_`, both of
+        # which the guard then refused -- a saved config that would not load
+        # again. One rule, consulted from both sides, cannot drift.
+        or _would_be_refused_unquoted(s)
     )
     if needs_quoting:
         return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -1558,10 +1580,25 @@ def dump_yaml(data: Dict[str, Any]) -> str:
     """
     if HAVE_PYYAML:
         try:
-            return _pyyaml.safe_dump(data, sort_keys=False, default_flow_style=False)
+            text = _pyyaml.safe_dump(data, sort_keys=False,
+                                     default_flow_style=False)
         except TypeError:
             logger.debug("PyYAML is too old for sort_keys=; using the "
                          "built-in dumper to preserve config key order.")
+        else:
+            # PyYAML quotes what PyYAML would misread, which is not the same
+            # set as what the two backends would read differently: it writes
+            # `display: :0` unquoted, and the parity guard then refuses the
+            # file on the way back in. Saving a config must never produce one
+            # xtm will not load, so the output is checked and the built-in
+            # dumper -- which quotes for the guard's rules -- is used instead
+            # when it would not survive.
+            try:
+                _scan_for_ambiguous_scalars(text)
+                return text
+            except XtmError as e:
+                logger.debug("PyYAML's output would not survive the config "
+                             "guard (%s); using the built-in dumper.", e)
     return _simple_yaml_dump(data) + "\n"
 
 

@@ -1,0 +1,23 @@
+# Per-slot xterm arguments: fonts, colours, scrollback.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor:
+        x: 0
+        y: 0
+        width: 1200
+        height: 1400
+        # Appended to the xterm command line as written. A font name
+        # containing a colon MUST be quoted: unquoted, YAML would read it as
+        # a nested mapping, and the two YAML backends would disagree about
+        # what it means.
+        xterm_args: [-fa, "Monospace:size=11", -fs, "11"]
+      logs:
+        x: 1200
+        y: 0
+        width: 720
+        height: 1400
+        # A dark background for the window that scrolls, and a deep
+        # scrollback buffer for the one that logs.
+        xterm_args: [-bg, "#1a1a2a", -fg, "#c8c8d0", -sl, "50000"]

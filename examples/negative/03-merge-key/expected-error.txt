@@ -1,0 +1,1 @@
+xtm: error: CONFIG line 6: << is a YAML merge key. PyYAML merges the mapping it names into this one and the built-in parser treats it as an ordinary key, so this config would mean different things on two machines with no error on either. Write the keys out in full.

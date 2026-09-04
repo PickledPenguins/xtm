@@ -1,0 +1,36 @@
+# Every key in one profile, as a reference rather than as advice: a real
+# config rarely needs all of this at once.
+profiles:
+  full:
+    match: {hostname: "*"}          # bound, but to everything
+    prefix: full-                   # slots become full-<slot>
+    on_switch: detach               # leave | detach | kill
+    title: "{profile}/{slot}"       # {slot} {session} {profile}
+    stack:                          # fallback placement for unnamed sessions
+      x: 60
+      y: 60
+      width: 880
+      height: 640
+      offset_x: 35
+      offset_y: 25
+    sessions:
+      editor:                       # a slot with only geometry
+        x: 0
+        y: 0
+        width: 1200
+        height: 1400
+      logs:                         # geometry plus launch settings
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        command: journalctl -f
+        cwd: /var/log
+        xterm_args: [-bg, "#101018"]
+        title: "LOGS"               # overrides the profile template
+      notes:                        # an explicitly named, shared session
+        session: notes              # never prefixed; survives a switch
+        x: 1200
+        y: 700
+        width: 720
+        height: 700

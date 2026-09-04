@@ -1,0 +1,30 @@
+# What happens to a profile's windows when you switch away from it.
+profiles:
+  # Windows close, sessions keep running. Reattaching restores everything.
+  # This is the default when on_switch is not set.
+  work:
+    prefix: work-
+    on_switch: detach
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      notes: {session: notes, x: 1200, y: 0, width: 720, height: 1400}
+
+  # Windows are left exactly as they are. Use this when two layouts are
+  # meant to coexist on one screen.
+  reading:
+    prefix: read-
+    on_switch: leave
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      docs: {x: 0, y: 0, width: 960, height: 1400}
+      notes: {session: notes, x: 960, y: 0, width: 960, height: 1400}
+
+  # Sessions are destroyed, taking their tabs, panes and running jobs. Use
+  # it for a throwaway context you never want to come back to.
+  demo:
+    prefix: demo-
+    on_switch: kill
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      slides: {x: 0, y: 0, width: 1920, height: 1400}

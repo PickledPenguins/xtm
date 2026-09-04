@@ -1,0 +1,37 @@
+{
+  "on_switch": "detach",
+  "prefix": "",
+  "profile": "default",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "editor",
+      "shared": false,
+      "title": "default \u00b7 editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "logs",
+      "shared": false,
+      "title": "LOGS \u2014 do not close"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

@@ -1,0 +1,8 @@
+# The merge key is the dangerous one: no error on either side, and two
+# different meanings.
+profiles:
+  base: {prefix: b-, sessions: {}}
+  default:
+    <<: {prefix: b-}
+    sessions:
+      shell: {x: 0, y: 0, width: 900, height: 700}

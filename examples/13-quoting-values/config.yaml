@@ -1,0 +1,36 @@
+# Values that must be quoted, and why.
+#
+# PyYAML implements YAML 1.1 and the built-in reader does not, so a handful
+# of unquoted spellings would mean different things depending on which one
+# is installed. xtm refuses those before either reader sees them, which is
+# what makes a config portable to a machine where nothing can be installed.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor:
+        x: 0
+        y: 0
+        width: 1200
+        height: 1400
+        # "0755" unquoted is octal 493 to PyYAML and decimal 755 to the
+        # built-in reader. Quoted, it is the text both of them read.
+        title: "0755"
+      shell:
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        # "yes" unquoted is the boolean true under YAML 1.1.
+        title: "yes"
+      logs:
+        x: 1200
+        y: 700
+        width: 720
+        height: 700
+        # A time-looking value: 1:30 is sexagesimal 90 to PyYAML.
+        title: "1:30"
+        # A backslash is literal inside SINGLE quotes. Inside double quotes
+        # YAML processes escapes, which the built-in reader does not
+        # implement, so xtm refuses the double-quoted form.
+        command: 'grep -e ^\d'

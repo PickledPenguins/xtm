@@ -17,6 +17,7 @@ reading it.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -82,9 +83,85 @@ def run_example(directory, env_extra=None):
         return strip_volatile(json.loads(result.stdout))
 
 
+NEGATIVE = HERE / "negative"
+
+
+def run_negative(directory):
+    """Run one config that is meant to fail; return its combined output.
+
+    The config is copied into a temporary directory first. xtm adds the
+    reserved `default` profile to a config that lacks it and saves that
+    immediately, so pointing it at the example directory itself would
+    rewrite the very file the example is about -- expanding its flow style,
+    dropping its comments, and in one case turning the deliberately broken
+    line into a valid one.
+    """
+    with tempfile.TemporaryDirectory(prefix="xtm-negative-") as tmp:
+        tmp = Path(tmp)
+        (tmp / "cfg").mkdir()
+        (tmp / "cfg" / "config.yaml").write_bytes(
+            (directory / "config.yaml").read_bytes())
+        env = dict(os.environ)
+        env.update({"XTM_CONFIG_DIR": str(tmp / "cfg"),
+                    "XTM_STATE_DIR": str(tmp / "state"),
+                    "PATH": ""})
+        result = subprocess.run([sys.executable, str(XTM), "--validate"],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                universal_newlines=True, env=env, timeout=60)
+        return result.returncode, result.stdout
+
+
+def check_negatives(names, show):
+    """Every negative example must fail, with the message it recorded."""
+    failures = []
+    for name in names:
+        directory = NEGATIVE / name
+        code, output = run_negative(directory)
+        decisive = ""
+        for line in output.split("\n"):
+            if "error:" in line or "INVALID:" in line:
+                # The config lives in a temporary directory that changes
+                # every run, so the recorded message names it as CONFIG.
+                decisive = re.sub(r'/tmp/xtm-negative-[^/]+/cfg/config\.yaml',
+                                  'CONFIG', line.strip())
+                break
+        if show:
+            print("%s\nrc=%d\n%s\n" % (name, code, decisive))
+            continue
+        expected_file = directory / "expected-error.txt"
+        if not expected_file.exists():
+            failures.append("%s has no expected-error.txt" % (name,))
+            continue
+        expected = expected_file.read_text().strip()
+        if code == 0:
+            failures.append("%s was accepted; it is meant to fail" % (name,))
+        elif expected not in decisive:
+            failures.append("%s said:\n     %s\n  expected:\n     %s"
+                            % (name, decisive, expected))
+        else:
+            print("ok       negative/%s" % (name,))
+    return failures
+
+
 def main(argv):
     show = "--show" in argv
     argv = [a for a in argv if a != "--show"]
+
+    if "--negative" in argv:
+        argv = [a for a in argv if a != "--negative"]
+        names = argv or sorted(d.name for d in NEGATIVE.iterdir()
+                               if d.is_dir())
+        failures = check_negatives(names, show)
+        if failures:
+            print("\n%d negative example(s) did not fail as recorded:\n"
+                  % (len(failures),))
+            for failure in failures:
+                print("  %s" % (failure,))
+            return 1
+        if not show:
+            print("\n%d negative example(s) refused as recorded." % (len(names),))
+        return 0
 
     names = argv or sorted(d.name for d in HERE.iterdir()
                            if d.is_dir() and (d / "config.yaml").exists())

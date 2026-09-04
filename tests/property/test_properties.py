@@ -17,7 +17,11 @@ from tests.property.engine import check
 from tests.support import xtm
 
 NAME_CHARS = string.ascii_letters + string.digits + "._-"
-SCALAR_CHARS = string.ascii_letters + string.digits + " ._-/@%+=~"
+# Deliberately includes YAML's structural characters. A generator limited to
+# safe-looking text is a generator that cannot find the bug where the dumper
+# writes something the parity guard then refuses -- which is exactly what it
+# missed the first time: `display: :0` came back out of PyYAML unquoted.
+SCALAR_CHARS = string.ascii_letters + string.digits + " ._-/@%+=~:#*&!|>,[]{}'\""
 
 
 def a_name(rng, minimum=1, maximum=12):
