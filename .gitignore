@@ -3,18 +3,18 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Test and coverage artifacts.
-# .coverage.* matters more than it looks: the integration tests run xtm.py as
-# a subprocess and the suite is measured with parallel=True, so a single
-# coverage run leaves one data file per subprocess -- hundreds of them.
+# Everything the suite, the coverage run and the tools generate. One
+# directory rather than a list: .coveragerc writes its data and its HTML
+# there, scripts/run_tests.sh puts the coverage bootstrap and the bytecode
+# cache there, and `make check` proves nothing escaped it.
+.build/
+
+# The names the same tools use when run by hand, outside the entry point.
 .coverage
 .coverage.*
 coverage.xml
 coverage.json
 htmlcov/
-# Created by `make coverage`: holds the .pth file that starts coverage in
-# each subprocess.
-.coverage-bootstrap/
 .pytest_cache/
 .tox/
 .nox/

@@ -1,89 +1,81 @@
 # xtm developer tasks.
 #
-# The important target is `coverage`. Measuring xtm correctly is not just
-# `coverage run`: the integration tests execute xtm.py as a subprocess, so
-# the child processes have to start coverage themselves. That needs a .pth
-# file on PYTHONPATH plus COVERAGE_PROCESS_START, which is what this target
-# sets up. Skipping it reports ~63% instead of ~94% -- an artefact of the
-# measurement, not a regression in the tests.
+# Every target here delegates to scripts/run_tests.sh, which is the one place
+# that knows how to run anything in this repository. Run it directly when a
+# target does not pass the option you want:
+#
+#     scripts/run_tests.sh test_yaml        one module
+#     scripts/run_tests.sh --shared         one interpreter, for a quick answer
+#     scripts/run_tests.sh --help           every option
+#
+# Generated files all land under .build/, which `make check` asserts.
 
 PYTHON ?= python3
-COVDIR := .coverage-bootstrap
+RUN    := PYTHON=$(PYTHON) scripts/run_tests.sh
 
-.PHONY: help test test-isolated coverage coverage-html lint examples clean check
+.PHONY: help test test-shared coverage coverage-html lint examples property \
+        mutation check clean
 
 help:
-	@echo "make test           Run the full suite"
-	@echo "make test-isolated  Run each test module on its own"
-	@echo "make coverage       Run the suite under coverage (with subprocess tracking)"
-	@echo "make coverage-html  As above, then write htmlcov/"
+	@echo "make test           Every test module, each in its own interpreter"
+	@echo "make test-shared    The suite in one interpreter (faster, weaker)"
+	@echo "make coverage       The suite under coverage, gated by the floor"
+	@echo "make coverage-html  As above, then write .build/htmlcov/"
+	@echo "make property       Property tests, when Hypothesis is available"
+	@echo "make mutation       The mutation catalogue"
 	@echo "make lint           pyflakes + compile check"
-	@echo "make examples       Run every example against its recorded output"
-	@echo "make check          lint, coverage, and a clean-tree assertion"
-	@echo "make clean          Remove build and test artefacts"
+	@echo "make examples       Every example against its recorded output"
+	@echo "make check          Everything, plus a clean-tree assertion"
+	@echo "make clean          Remove .build/ and stray artefacts"
 
 test:
-	$(PYTHON) -m unittest discover -t . -s tests -v
+	$(RUN)
 
-# Runs every test module in a fresh interpreter, so a test that only passes
-# because an earlier module left global state behind fails here. xtm keeps a
-# few module-level globals (DRY_RUN, the resolved config paths, the logger's
-# level), which makes that failure mode real: one such dependency was found
-# exactly this way.
-test-isolated:
-	@set -e; for m in $$(find tests -name 'test_*.py' | sed 's|/|.|g; s|\.py$$||' | sort); do \
-		echo "--- $$m"; $(PYTHON) -m unittest "$$m" || exit 1; \
-	done
-	@echo "Every test module passes on its own."
+test-shared:
+	$(RUN) --shared
 
-# The .pth file is executed at interpreter startup in EVERY child process,
-# which is the only hook that runs early enough to measure a subprocess from
-# its first line.
-$(COVDIR)/coverage-subprocess.pth:
-	@mkdir -p $(COVDIR)
-	@printf 'import coverage; coverage.process_startup()\n' > $@
-
-coverage: $(COVDIR)/coverage-subprocess.pth
-	@rm -f .coverage .coverage.*
-	COVERAGE_PROCESS_START=$(CURDIR)/.coveragerc \
-	PYTHONPATH=$(CURDIR)/$(COVDIR) \
-		$(PYTHON) -m coverage run -m unittest discover -t . -s tests
-	$(PYTHON) -m coverage combine
-	$(PYTHON) -m coverage report
+coverage:
+	$(RUN) --coverage
 
 coverage-html: coverage
 	$(PYTHON) -m coverage html
-	@echo "Wrote htmlcov/index.html"
+	@echo "Wrote .build/htmlcov/index.html"
 
-examples:
-	$(PYTHON) examples/run.py
+property:
+	$(RUN) --property
+
+mutation:
+	$(RUN) --mutation
 
 lint:
-	$(PYTHON) -m pyflakes xtm.py $(shell find tests -name '*.py')
-	$(PYTHON) -m py_compile xtm.py $(shell find tests -name '*.py')
+	$(RUN) --lint
 
-# Asserts a full run leaves no new files behind, which is what proves
-# .gitignore actually covers every artefact the suite produces.
+examples:
+	$(RUN) --examples
+
+# Asserts a full run leaves no new files behind, which is what proves .build/
+# actually absorbs every artefact the suite produces.
 #
 # Compares the tree before and after rather than requiring it to be clean
-# outright: a developer running this with work in progress should not be
-# told their own edits are build artefacts. Only a DIFFERENCE across the run
-# is a missing .gitignore entry.
-check: lint examples test-isolated
-	@mkdir -p $(COVDIR)
-	@git status --porcelain > $(COVDIR)/tree-before.txt
-	@$(MAKE) --no-print-directory coverage
-	@git status --porcelain > $(COVDIR)/tree-after.txt
-	@if ! diff -u $(COVDIR)/tree-before.txt $(COVDIR)/tree-after.txt \
-	        > $(COVDIR)/tree-diff.txt; then \
+# outright: a developer running this with work in progress should not be told
+# their own edits are build artefacts. Only a DIFFERENCE across the run is a
+# missing .gitignore entry.
+check:
+	@mkdir -p .build
+	@git status --porcelain > .build/tree-before.txt
+	@$(RUN) --full
+	@git status --porcelain > .build/tree-after.txt
+	@if ! diff -u .build/tree-before.txt .build/tree-after.txt \
+	        > .build/tree-diff.txt; then \
 		echo "A full run left new files behind:"; \
-		grep '^+[^+]' $(COVDIR)/tree-diff.txt; \
-		echo "Add the offending paths to .gitignore."; \
+		grep '^+[^+]' .build/tree-diff.txt; \
+		echo "Add the offending paths to .gitignore, or write them under .build/."; \
 		exit 1; \
 	fi
 	@echo "Working tree unchanged by a full run."
 
 clean:
-	rm -rf $(COVDIR) htmlcov .pytest_cache __pycache__
+	rm -rf .build .coverage-bootstrap htmlcov .pytest_cache __pycache__
 	rm -f .coverage .coverage.* coverage.xml coverage.json
+	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 	find . -name '*.pyc' -delete

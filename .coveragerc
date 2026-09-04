@@ -25,6 +25,10 @@
 branch = True
 parallel = True
 source = xtm
+# Every generated file lands under .build/, which is the one gitignored
+# directory in this tree. Without this the parallel data files -- one per
+# subprocess, hundreds of them -- land in the project root.
+data_file = .build/coverage/.coverage
 
 [paths]
 # The parent process imports xtm as a module while the children execute
@@ -33,6 +37,9 @@ source = xtm
 source =
     xtm.py
     */xtm.py
+
+[html]
+directory = .build/htmlcov
 
 [report]
 precision = 1
