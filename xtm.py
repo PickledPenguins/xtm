@@ -839,8 +839,10 @@ def _reject_ambiguous_scalar(tok: str, context: str,
         return
     if raw[0] == '"':
         _reject_unsupported_escape(raw, context)
+        _reject_control_characters(raw, context)
         return
     if raw[0] == "'":
+        _reject_control_characters(raw, context)
         return
     if in_flow:
         _reject_flow_indicator_in_scalar(raw, context)
@@ -864,6 +866,7 @@ def _reject_ambiguous_scalar(tok: str, context: str,
             "be read differently depending on whether PyYAML is installed. "
             "Quote it as \"%s\" if you mean the literal text."
             % (context, raw, raw[0], raw))
+    _reject_control_characters(raw, context)
     if raw.lower() in _YAML_AMBIGUOUS_WORDS:
         die("%s: the unquoted value %s is read as a boolean by PyYAML and as "
             "text by the built-in parser, so this config would behave "
@@ -1050,6 +1053,13 @@ def _reject_reserved_key(key: str, context: str,
         # after it, exactly as a quoted value must: PyYAML refuses
         # `""!||90:` and the built-in parser read it as an ordinary name.
         _reject_unbalanced(key)
+        if key[:1] == '"':
+            # And it carries escapes, exactly as a quoted value does. This
+            # rule used to apply to values only, so `"a\nb":` was a name
+            # with a real newline under PyYAML and the literal four
+            # characters without it -- two profile names, no error either
+            # way.
+            _reject_unsupported_escape(key, context)
         return
     if in_flow:
         # Inside a flow mapping a bracket or brace ends the key, so
@@ -1131,6 +1141,22 @@ def _reject_flow_indicator_in_scalar(raw: str, context: str) -> None:
                 "PyYAML refuses it and the built-in parser reads it as "
                 "text, so the two disagree. Quote the whole value, or move "
                 "it onto its own line." % (context, raw, ch))
+
+
+def _reject_control_characters(raw: str, context: str) -> None:
+    """Refuse a raw control character the two backends do not agree on.
+
+    A newline and a tab have escapes on both sides; nothing else below
+    space does. Written raw into a quoted value the built-in reader takes
+    it back happily and PyYAML refuses the file, so a config saved with
+    one loads on half the machines it is copied to.
+    """
+    for char in raw:
+        if char < " " and char not in "\n\t":
+            die("%s: the value %r contains the control character %r, which "
+                "the two YAML readers do not agree on and neither can write "
+                "back safely. Remove it, or write it as text."
+                % (context, raw, char))
 
 
 def _reject_unsupported_escape(raw: str, context: str) -> None:
@@ -1439,7 +1465,10 @@ def _simple_yaml_key_load(tok: str) -> str:
     """
     tok = tok.strip()
     if len(tok) >= 2 and tok[0] == tok[-1] == '"':
-        return tok[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        # The same unescaper the value path uses. A second implementation
+        # here is what let a quoted key resolve a different escape set from
+        # the value beside it.
+        return _unescape_double_quoted(tok[1:-1])
     if len(tok) >= 2 and tok[0] == tok[-1] == "'":
         return tok[1:-1].replace("''", "'")
     return tok
@@ -1619,7 +1648,11 @@ def _simple_yaml_scalar_dump(v: Any) -> str:
         # the guard refuses it. Quoting here is what stops xtm writing a
         # config its own guard would then refuse to read.
         or _reads_back_as_a_different_number(s)
-        or bool(re.search(r'[:#\[\]{},"\'\n\t]', s))
+        or bool(re.search(r'[:#\[\]{},"\']', s))
+        # Any control character, not the two that have escapes: a raw one
+        # inside the quotes is what the guard above refuses on the way back
+        # in, so writing it would produce a file xtm could not read.
+        or any(c < " " for c in s)
         or s.strip() != s
         or s.startswith(("-", "?", "&", "*", "!", "%", "@", "`", ">", "|"))
         # The decisive test, and the reason the list above is only a fast
@@ -2140,6 +2173,12 @@ def edit_profile(config: ConfigDict, profile_name: str, what: str) -> Any:
         restore()
         die("%s would leave profile %r invalid, so nothing was changed. %s"
             % (what, profile_name, e))
+    except BaseException:
+        # Anything else out of the validator is a bug rather than a refusal,
+        # and the profile must still not be left carrying an edit that was
+        # never accepted. Restore, then let it propagate unwrapped.
+        restore()
+        raise
 
 
 def resolve_session_name(profile: ProfileDict, slot: str) -> str:

@@ -171,6 +171,13 @@ back the text and the two would disagree in silence.
 newline or a tab is written escaped, since writing it raw would split the line that the
 reader then has to parse.
 
+Every **other** control character — a carriage return, a NUL, a bell — is refused outright,
+quoted or not. Neither side can write one back safely: the built-in reader takes a raw one
+in its stride and PyYAML refuses the file, so a config carrying one would load on half the
+machines it was copied to.
+
+A key is quoted text too, and carries the same escapes with the same rules.
+
 ### Keys
 
 A key is a name, and xtm looks every name up as text. PyYAML types a key the way it types a

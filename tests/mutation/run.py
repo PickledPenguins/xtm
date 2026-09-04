@@ -158,6 +158,32 @@ CATALOGUE = [
         "Without the re-validation, --set can write a config every later "
         "command rejects."),
     Mutant(
+        "yaml-control-characters-refused",
+        'if char < " " and char not in "\\n\\t":',
+        "if False:",
+        YAML,
+        "A raw control character other than a newline or a tab is written "
+        "by one backend and refused by the other."),
+    Mutant(
+        "yaml-key-escapes-are-checked",
+        "        if key[:1] == '\"':\n"
+        "            # And it carries escapes",
+        "        if False:\n"
+        "            # And it carries escapes",
+        YAML,
+        "A quoted key carries escapes exactly as a quoted value does; "
+        "unchecked, `\"a\\nb\":` is one name under PyYAML and another "
+        "without it, with no error either way."),
+    Mutant(
+        "edit-profile-restores-on-an-unexpected-error",
+        "    except BaseException:\n"
+        "        # Anything else out of the validator is a bug rather than",
+        "    except (ValueError,):\n"
+        "        # Anything else out of the validator is a bug rather than",
+        CONFIG,
+        "A failure inside the validator must still leave the profile as it "
+        "was; the edit was never accepted."),
+    Mutant(
         "config-lock-prevents-lost-updates",
         "                fcntl.flock(self._handle.fileno(),\n"
         "                            fcntl.LOCK_EX | fcntl.LOCK_NB)\n"

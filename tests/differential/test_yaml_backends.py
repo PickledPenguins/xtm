@@ -405,6 +405,66 @@ class TestYamlBackendEquivalence(unittest.TestCase):
                     pyyaml_[0], "rejected",
                     "the key %r should be refused, got %r" % (key, pyyaml_))
 
+    def test_a_quoted_key_resolves_the_same_escapes_a_value_does(self):
+        """A key is quoted text, and quoted text has escapes.
+
+        The escape rules were applied to values only, and a quoted key
+        returned from the guard before reaching them: `"a\\nb":` was a name
+        containing a real newline under PyYAML and the literal four
+        characters without it. Both loaded, neither complained, and the
+        config named two different profiles depending on what was
+        installed.
+        """
+        for key, expected in (('"a\\nb"', "a\nb"), ('"a\\tb"', "a\tb"),
+                              ('"a\\\\b"', "a\\b"), ("'a\\nb'", "a\\nb")):
+            for template in ("profiles:\n  %s: {}\n",
+                             "profiles:\n  a: {%s: 1}\n"):
+                text = template % (key,)
+                builtin, pyyaml_ = self._both(text)
+                self.assertEqual(
+                    builtin, pyyaml_,
+                    "backends disagree on the key %s: %r vs %r"
+                    % (key, builtin, pyyaml_))
+                self.assertEqual(builtin[0], "ok",
+                                 "%s should be accepted, got %r" % (key, builtin))
+        keys = list(self._both("profiles:\n  \"a\\nb\": {}\n")[0][1]["profiles"])
+        self.assertEqual(["a\nb"], keys,
+                         "the escape was not resolved in the key")
+
+    def test_a_quoted_key_carrying_an_unimplemented_escape_is_refused(self):
+        """The other half of the same rule, and the loud one.
+
+        PyYAML resolves \\u and \\x; the built-in reader does not, so a key
+        carrying one is refused by both rather than read two ways.
+        """
+        for key in ('"a\\zb"', '"\\u00e9"', '"\\x41"'):
+            text = "profiles:\n  %s: {}\n" % (key,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin[0], "rejected",
+                             "the key %s should be refused, got %r"
+                             % (key, builtin))
+            self.assertEqual(pyyaml_[0], "rejected",
+                             "the key %s should be refused, got %r"
+                             % (key, pyyaml_))
+
+    def test_a_raw_control_character_is_refused_by_both(self):
+        """Only a newline and a tab have escapes on both sides.
+
+        Anything else below space was written raw by the built-in dumper
+        and refused by the PyYAML path on the way back, so a saved config
+        loaded on half the machines it was copied to.
+        """
+        for char in ("\r", "\x00", "\x07", "\x0b"):
+            for value in ('"a%sb"' % (char,), "'a%sb'" % (char,), "a%sb" % (char,)):
+                text = "profiles:\n  a: {title: %s}\n" % (value,)
+                builtin, pyyaml_ = self._both(text)
+                self.assertEqual(builtin[0], "rejected",
+                                 "%r should be refused, got %r"
+                                 % (value, builtin))
+                self.assertEqual(pyyaml_[0], "rejected",
+                                 "%r should be refused, got %r"
+                                 % (value, pyyaml_))
+
     def test_a_quoted_key_keeps_its_text(self):
         """Quoting a key is how the user says it is a name, and it works."""
         for key in ('"2"', "'2'", '"true"', '"1:30"'):

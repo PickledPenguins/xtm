@@ -269,6 +269,28 @@ class TestEditProfileErrors(unittest.TestCase):
         self.assertEqual(before, config["profiles"]["desk"],
                          "the profile was left half-edited")
 
+    def test_an_unexpected_error_from_the_validator_still_restores(self):
+        """A bug in validation must not leave the edit half-applied.
+
+        Only XtmError was caught around the validation, so a TypeError out
+        of the validator propagated with the rejected edit still in the
+        profile.
+        """
+        config = self.config()
+        before = xtm._deep_copy(config["profiles"]["desk"])
+        original = xtm.validate_profile
+
+        def exploding(*_args, **_kwargs):
+            raise TypeError("validator bug")
+
+        xtm.validate_profile = exploding
+        self.addCleanup(setattr, xtm, "validate_profile", original)
+        with self.assertRaises(TypeError):
+            with xtm.edit_profile(config, "desk", "Setting slot 'x'"):
+                config["profiles"]["desk"]["sessions"]["ghost"] = {"x": 0}
+        self.assertEqual(before, config["profiles"]["desk"],
+                         "the profile kept an edit its validation never accepted")
+
     def test_a_validation_failure_says_the_edit_was_refused(self):
         config = self.config()
         with self.assertRaises(xtm.XtmError) as caught:
