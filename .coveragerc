@@ -53,9 +53,9 @@ skip_covered = False
 # COMBINED figure -- statements and branch exits over one denominator. The
 # three figures currently stand at:
 #
-#     line coverage      97.8%   (1944 / 1987 statements)
-#     branch coverage    95.4%   (878 / 920 branch exits)
-#     combined           97.1%   <- what fail_under below compares against
+#     line coverage      98.0%   (1948 / 1987 statements)
+#     branch coverage    96.0%   (883 / 920 branch exits)
+#     combined           97.4%   <- what fail_under below compares against
 #
 # The combined figure is the strictest of the three, so holding the floor
 # there keeps the other two above it as well.
@@ -68,6 +68,15 @@ skip_covered = False
 # internals would make the suite more brittle without making the tool more
 # correct.
 fail_under = 97
+
+# 97.4% is where the ratchet stopped, and the reason is in the numbers: what
+# is left is 39 statements and 37 partial branches, almost all of them error
+# handling that needs the filesystem to break underneath a running process,
+# the ImportError fallbacks for fcntl and PyYAML, and a handful of guards
+# that exist so a future edit fails loudly rather than silently. Reaching a
+# round 98 from here would mean asserting on internals, which buys a number
+# at the cost of a suite that breaks when the code is refactored rather than
+# when it is wrong.
 
 exclude_also =
     # Non-POSIX platforms only; unreachable on the systems xtm targets.
