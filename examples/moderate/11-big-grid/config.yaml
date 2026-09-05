@@ -1,0 +1,18 @@
+# Twelve equal cells on a 3840x2160 screen, four across and three down.
+profiles:
+  grid:
+    prefix: g-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      r1c1: {x: 0, y: 0, width: 960, height: 720}
+      r1c2: {x: 960, y: 0, width: 960, height: 720}
+      r1c3: {x: 1920, y: 0, width: 960, height: 720}
+      r1c4: {x: 2880, y: 0, width: 960, height: 720}
+      r2c1: {x: 0, y: 720, width: 960, height: 720}
+      r2c2: {x: 960, y: 720, width: 960, height: 720}
+      r2c3: {x: 1920, y: 720, width: 960, height: 720}
+      r2c4: {x: 2880, y: 720, width: 960, height: 720}
+      r3c1: {x: 0, y: 1440, width: 960, height: 720}
+      r3c2: {x: 960, y: 1440, width: 960, height: 720}
+      r3c3: {x: 1920, y: 1440, width: 960, height: 720}
+      r3c4: {x: 2880, y: 1440, width: 960, height: 720}

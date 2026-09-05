@@ -1,0 +1,65 @@
+{
+  "on_switch": "detach",
+  "prefix": "r-",
+  "profile": "remote",
+  "sessions": [
+    {
+      "command": "ssh build-host -t 'cd /srv/build && exec bash -l'",
+      "configured": {
+        "height": 700,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "build",
+      "session": "r-build",
+      "shared": false,
+      "title": "build@remote"
+    },
+    {
+      "command": "ssh log-host -t 'journalctl -f'",
+      "configured": {
+        "height": 700,
+        "width": 1200,
+        "x": 0,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "r-logs",
+      "shared": false,
+      "title": "logs@remote"
+    },
+    {
+      "command": "ssh db-host -t 'psql service'",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "db",
+      "session": "r-db",
+      "shared": false,
+      "title": "db@remote"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": "~/work",
+      "name": "local",
+      "session": "r-local",
+      "shared": false,
+      "title": "local@remote"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

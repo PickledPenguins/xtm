@@ -1,0 +1,177 @@
+{
+  "on_switch": "detach",
+  "prefix": "g-",
+  "profile": "grid",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "r1c1",
+      "session": "g-r1c1",
+      "shared": false,
+      "title": "xtm:g-r1c1"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 960,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "r1c2",
+      "session": "g-r1c2",
+      "shared": false,
+      "title": "xtm:g-r1c2"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 1920,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "r1c3",
+      "session": "g-r1c3",
+      "shared": false,
+      "title": "xtm:g-r1c3"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 2880,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "r1c4",
+      "session": "g-r1c4",
+      "shared": false,
+      "title": "xtm:g-r1c4"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 0,
+        "y": 720
+      },
+      "cwd": null,
+      "name": "r2c1",
+      "session": "g-r2c1",
+      "shared": false,
+      "title": "xtm:g-r2c1"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 960,
+        "y": 720
+      },
+      "cwd": null,
+      "name": "r2c2",
+      "session": "g-r2c2",
+      "shared": false,
+      "title": "xtm:g-r2c2"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 1920,
+        "y": 720
+      },
+      "cwd": null,
+      "name": "r2c3",
+      "session": "g-r2c3",
+      "shared": false,
+      "title": "xtm:g-r2c3"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 2880,
+        "y": 720
+      },
+      "cwd": null,
+      "name": "r2c4",
+      "session": "g-r2c4",
+      "shared": false,
+      "title": "xtm:g-r2c4"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 0,
+        "y": 1440
+      },
+      "cwd": null,
+      "name": "r3c1",
+      "session": "g-r3c1",
+      "shared": false,
+      "title": "xtm:g-r3c1"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 960,
+        "y": 1440
+      },
+      "cwd": null,
+      "name": "r3c2",
+      "session": "g-r3c2",
+      "shared": false,
+      "title": "xtm:g-r3c2"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 1920,
+        "y": 1440
+      },
+      "cwd": null,
+      "name": "r3c3",
+      "session": "g-r3c3",
+      "shared": false,
+      "title": "xtm:g-r3c3"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 720,
+        "width": 960,
+        "x": 2880,
+        "y": 1440
+      },
+      "cwd": null,
+      "name": "r3c4",
+      "session": "g-r3c4",
+      "shared": false,
+      "title": "xtm:g-r3c4"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

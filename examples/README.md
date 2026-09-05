@@ -1,52 +1,86 @@
 # Examples
 
-Sixteen worked configurations, each one a scenario you might actually have, and eight configs that are meant to fail.
+Forty worked configurations and eight that are meant to fail. Every one is a test: each
+directory holds a `config.yaml`, a `README.md` explaining what it demonstrates, and an
+`expected.json` recording what `xtm` reports for it, so an example that stops matching the
+tool fails the build rather than quietly rotting.
 
-They come at three levels. **Simple** examples show one idea on the smallest useful config -- start at 01. **Moderate** ones combine a few, which is where most real configs live. The **complex** one puts every mechanism in the tool into a single file, because the way they interact is the part no other example can show.
+They come at three levels, and the point of having many is that you should be able to find
+one close to what you want and change three values rather than starting from the manual.
 
-Every example is also a test. Each directory holds a `config.yaml`, a
-`README.md` explaining what it demonstrates and why it is written that way,
-and an `expected.json` recording what `xtm` reports for it. CI runs all of
-them, so an example that stops matching the tool it documents fails the
-build rather than quietly rotting.
+- **simple/** — one idea, the smallest useful config. Start at `simple/01-one-screen`.
+- **moderate/** — several features interacting, at the size people really have.
+- **complex/** — every mechanism at once. No single feature is under test; the interaction is.
 
 ## Running them
 
 ```bash
-make examples          # run all of them
-python3 examples/run.py 03-machine-specific-profiles    # just one
-python3 examples/run.py --show 03-machine-specific-profiles
+make examples                                  # all of them, then the ones meant to fail
+python3 examples/run.py simple/01-one-screen   # just one
+python3 examples/run.py --show complex/03-day-in-the-life
+python3 examples/run.py --negative             # the configs that must be refused
 ```
 
-`--show` prints what `xtm` currently reports instead of comparing it,
-which is how you update an `expected.json` after deliberately changing
-behaviour.
+`--show` prints what `xtm` currently reports instead of comparing it, which is how you
+update an `expected.json` after deliberately changing behaviour.
 
-Nothing is installed, no X server is used and no window is opened: the
-runner points `xtm` at the example's config with `XTM_CONFIG_DIR` and asks
-it to report, so running these is safe on any machine.
+Nothing is installed, no X server is used and no window is opened: the runner points `xtm`
+at the example's config and asks it to report, so running these is safe on any machine.
 
-## The examples
+## Simple
 
-| | Demonstrates |
+| | Shows |
 |---|---|
-| [01-single-desktop](01-single-desktop/) | The smallest useful config: three windows in fixed positions. Start here. |
-| [02-multi-monitor](02-multi-monitor/) | Negative coordinates for a monitor left of the primary, and why `x,y,w,h` is used instead of X geometry strings. |
-| [03-machine-specific-profiles](03-machine-specific-profiles/) | One config file shared across a laptop and a workstation, with `match.hostname` selecting the right layout per machine. |
-| [04-shared-sessions](04-shared-sessions/) | `prefix` for profile-owned sessions, and an explicit `session:` for one deliberately shared between profiles. |
-| [05-startup-commands](05-startup-commands/) | `command`, `cwd` and `xterm_args`, including colour-coding a production window differently from a development one. |
-| [06-no-pyyaml](06-no-pyyaml/) | The dependency-free path: the same config read with PyYAML blocked, proving a config means one thing on every machine. |
-| [07-window-titles](07-window-titles/) | `title:` as a profile template and as a per-slot override, and why a title is cosmetic rather than identity. |
-| [08-stacking-strays](08-stacking-strays/) | `stack:` as the fallback position, and how offsets accumulate for each unplaced window. |
-| [09-switching-profiles](09-switching-profiles/) | All three `on_switch` modes, and a session shared by two profiles surviving a switch. |
-| [10-xterm-appearance](10-xterm-appearance/) | `xterm_args` for fonts, colours and scrollback, and why a font name with a colon must be quoted. |
-| [11-working-directories](11-working-directories/) | `cwd` and `command`, when each applies, and the idiom for keeping a pane alive after the command exits. |
-| [12-flow-style](12-flow-style/) | The compact `{…}` spelling, the space YAML requires after every colon, and what a rewrite does to it. |
-| [13-quoting-values](13-quoting-values/) | The four shapes that need quotes, and the difference between single and double quotes. |
-| [14-two-machines-one-layout](14-two-machines-one-layout/) | A hostname list and a glob, plus what makes a profile global and why a global one is never auto-selected. |
-| [15-everything](15-everything/) | Every profile and slot key in one config, as a reference rather than as advice. |
-| [complex-01-everything-at-once](complex-01-everything-at-once/) | **Complex.** Every mechanism at once: two ownership models, two disposal modes, three binding shapes, a shared session, and the quoting rules inside a working config. |
+| [simple/01-one-screen](simple/01-one-screen/) | The smallest config that is actually useful: three windows in fixed |
+| [simple/02-two-monitors](simple/02-two-monitors/) | Two monitors, with the secondary positioned to the **left** of the primary. |
+| [simple/03-startup-commands](simple/03-startup-commands/) | What a window runs when it opens, where it starts, and what it looks like. |
+| [simple/04-window-titles](simple/04-window-titles/) | What the window manager shows in the title bar, and how to control it. |
+| [simple/05-stacking](simple/05-stacking/) | One configured window, and somewhere for everything else to go. |
+| [simple/06-xterm-appearance](simple/06-xterm-appearance/) | Giving one window a different font, and another a dark background. |
+| [simple/07-working-directories](simple/07-working-directories/) | Starting each session somewhere useful, with something already running. |
+| [simple/08-flow-style](simple/08-flow-style/) | One line per profile, for a config you edit rather than generate. |
+| [simple/09-quoting-values](simple/09-quoting-values/) | The four shapes that need quotes, in one config. |
+| [simple/10-prefix](simple/10-prefix/) | One key, and the ownership model it creates. |
+| [simple/11-explicit-session](simple/11-explicit-session/) | The exception to the prefix, and the only way to share. |
+| [simple/12-on-switch](simple/12-on-switch/) | One key that decides what leaving a profile costs. |
+| [simple/13-negative-coordinates](simple/13-negative-coordinates/) | A monitor left of the origin, and why the geometry format |
+| [simple/14-empty-profile](simple/14-empty-profile/) | Valid, and the state every new machine starts in. |
+| [simple/15-comments](simple/15-comments/) | They are supported on the way in, and lost on the way out. |
 
+## Moderate
+
+| | Shows |
+|---|---|
+| [moderate/01-machine-specific-profiles](moderate/01-machine-specific-profiles/) | A single config file synced across a laptop and a workstation, where each |
+| [moderate/02-shared-sessions](moderate/02-shared-sessions/) | Two profiles that reuse the same slot names without fighting, plus one |
+| [moderate/03-no-pyyaml](moderate/03-no-pyyaml/) | The same config read twice: once with PyYAML, once with it hidden. The two |
+| [moderate/04-switching-profiles](moderate/04-switching-profiles/) | Three profiles, one per disposal mode, and a session shared by two of them. |
+| [moderate/05-two-machines-one-layout](moderate/05-two-machines-one-layout/) | Binding profiles to hosts without duplicating them. |
+| [moderate/06-every-key](moderate/06-every-key/) | A reference config using every profile and slot key xtm accepts. |
+| [moderate/07-dev-and-prod](moderate/07-dev-and-prod/) | Two profiles for two contexts, made hard to confuse. |
+| [moderate/08-laptop-and-dock](moderate/08-laptop-and-dock/) | Two layouts for one machine, switched by hand. |
+| [moderate/09-monitoring-wall](moderate/09-monitoring-wall/) | Eight commands tiled, and somewhere for the ninth window. |
+| [moderate/10-remote-work](moderate/10-remote-work/) | `command` doing the real work it was added for. |
+| [moderate/11-big-grid](moderate/11-big-grid/) | The boilerplate for a tiled screen, and the arithmetic |
+| [moderate/12-title-templates](moderate/12-title-templates/) | Three ways a window gets its title, in one profile. |
+| [moderate/13-mixed-quoting](moderate/13-mixed-quoting/) | The four quoting rules, applied where they actually come |
+| [moderate/14-captured-layout](moderate/14-captured-layout/) | What the tool writes when you let it, and how to read it. |
+| [moderate/15-three-profiles-one-notes](moderate/15-three-profiles-one-notes/) | The shared-session pattern at the size people really use |
+
+## Complex
+
+| | Shows |
+|---|---|
+| [complex/01-everything-at-once](complex/01-everything-at-once/) | Every mechanism xtm has, in one config, interacting. |
+| [complex/02-fleet](complex/02-fleet/) | Four machine classes, three binding shapes, and one |
+| [complex/03-day-in-the-life](complex/03-day-in-the-life/) | What a real desktop looks like when everything is in use |
+| [complex/04-overlapping-slot-names](complex/04-overlapping-slot-names/) | Collision, non-collision, and the migration case, in one |
+| [complex/05-switch-matrix](complex/05-switch-matrix/) | Three disposal modes and two shared sessions, arranged so |
+| [complex/06-quoting-minefield](complex/06-quoting-minefield/) | Nine values that mean two different things unquoted, all |
+| [complex/07-deep-flow](complex/07-deep-flow/) | One line per profile, nested four deep, and legal. |
+| [complex/08-stack-heavy](complex/08-stack-heavy/) | What happens when most windows are not in the profile. |
+| [complex/09-edge-geometry](complex/09-edge-geometry/) | Every boundary value in one profile, all of them legal. |
+| [complex/10-migration](complex/10-migration/) | Three generations of the same profile in one file, which |
 ## Configs that are meant to fail
 
 `negative/` holds eight configs xtm refuses, each with the message it is

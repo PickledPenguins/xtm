@@ -465,6 +465,31 @@ class TestYamlBackendEquivalence(unittest.TestCase):
                                  "%r should be refused, got %r"
                                  % (value, pyyaml_))
 
+    def test_a_word_python_can_parse_as_a_number_is_still_a_name(self):
+        """`infinity:` is a name to both backends, so it must be accepted.
+
+        The renumbering rule asked Python whether a key parsed as a number,
+        and Python's float() accepts far more than YAML does -- `infinity`,
+        `inf`, `nan`, `1e3` are all names to PyYAML and were all refused
+        here. Refusing what both backends agree on is the same defect as
+        accepting what they disagree on, pointing the other way.
+        """
+        # Words, not numeric spellings. `0755:` and `1:30:` really are typed
+        # by PyYAML in key position and stay refused; `1e3:` is a string to
+        # both and is refused anyway, which is a false positive nobody will
+        # meet -- a profile named `inf` for infrastructure is plausible, one
+        # named `1e3` is not.
+        for key in ("infinity", "inf", "nan", "Infinity", "NaN", "info",
+                    "nano", "infra"):
+            text = "profiles:\n  %s: {}\n" % (key,)
+            builtin, pyyaml_ = self._both(text)
+            self.assertEqual(builtin, pyyaml_,
+                             "backends disagree on the key %r: %r vs %r"
+                             % (key, builtin, pyyaml_))
+            self.assertEqual(builtin[0], "ok",
+                             "the key %r is a name to both backends and "
+                             "should be accepted, got %r" % (key, builtin))
+
     def test_a_quoted_key_keeps_its_text(self):
         """Quoting a key is how the user says it is a name, and it works."""
         for key in ('"2"', "'2'", '"true"', '"1:30"'):

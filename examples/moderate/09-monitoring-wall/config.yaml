@@ -1,0 +1,18 @@
+# Eight panes of monitoring on one large screen, plus room for whatever
+# else gets opened during an incident.
+profiles:
+  wall:
+    prefix: mon-
+    title: "{slot}"
+    # Anything opened that is not one of the eight below lands here, offset
+    # so successive windows do not hide each other.
+    stack: {x: 200, y: 200, width: 1200, height: 800, offset_x: 60, offset_y: 40}
+    sessions:
+      alerts: {x: 0, y: 0, width: 960, height: 700, command: watch -n5 alertcli list}
+      hosts: {x: 960, y: 0, width: 960, height: 700, command: watch -n10 hostcli status}
+      queue: {x: 1920, y: 0, width: 960, height: 700, command: watch -n5 queuecli depth}
+      errors: {x: 2880, y: 0, width: 960, height: 700, command: journalctl -p err -f}
+      deploys: {x: 0, y: 700, width: 960, height: 700, command: watch -n30 deploycli recent}
+      traffic: {x: 960, y: 700, width: 960, height: 700, command: watch -n5 trafficcli rps}
+      db: {x: 1920, y: 700, width: 960, height: 700, command: watch -n10 dbcli slow}
+      shell: {x: 2880, y: 700, width: 960, height: 700}

@@ -1,0 +1,65 @@
+{
+  "on_switch": "detach",
+  "prefix": "e-",
+  "profile": "edges",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 600,
+        "width": 800,
+        "x": -3840,
+        "y": -2160
+      },
+      "cwd": null,
+      "name": "far-left",
+      "session": "e-far-left",
+      "shared": false,
+      "title": "xtm:e-far-left"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 1,
+        "width": 1,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "tiny",
+      "session": "e-tiny",
+      "shared": false,
+      "title": "xtm:e-tiny"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 9000,
+        "width": 16000,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "huge",
+      "session": "e-huge",
+      "shared": false,
+      "title": "xtm:e-huge"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 100,
+        "width": 100,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "origin",
+      "session": "e-origin",
+      "shared": false,
+      "title": "xtm:e-origin"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

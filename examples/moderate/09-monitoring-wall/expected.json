@@ -1,0 +1,121 @@
+{
+  "on_switch": "detach",
+  "prefix": "mon-",
+  "profile": "wall",
+  "sessions": [
+    {
+      "command": "watch -n5 alertcli list",
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "alerts",
+      "session": "mon-alerts",
+      "shared": false,
+      "title": "alerts"
+    },
+    {
+      "command": "watch -n10 hostcli status",
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 960,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "hosts",
+      "session": "mon-hosts",
+      "shared": false,
+      "title": "hosts"
+    },
+    {
+      "command": "watch -n5 queuecli depth",
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 1920,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "queue",
+      "session": "mon-queue",
+      "shared": false,
+      "title": "queue"
+    },
+    {
+      "command": "journalctl -p err -f",
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 2880,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "errors",
+      "session": "mon-errors",
+      "shared": false,
+      "title": "errors"
+    },
+    {
+      "command": "watch -n30 deploycli recent",
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 0,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "deploys",
+      "session": "mon-deploys",
+      "shared": false,
+      "title": "deploys"
+    },
+    {
+      "command": "watch -n5 trafficcli rps",
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 960,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "traffic",
+      "session": "mon-traffic",
+      "shared": false,
+      "title": "traffic"
+    },
+    {
+      "command": "watch -n10 dbcli slow",
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 1920,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "db",
+      "session": "mon-db",
+      "shared": false,
+      "title": "db"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 2880,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "shell",
+      "session": "mon-shell",
+      "shared": false,
+      "title": "shell"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

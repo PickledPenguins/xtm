@@ -1,0 +1,51 @@
+{
+  "on_switch": "leave",
+  "prefix": "k-",
+  "profile": "keeper",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "owned",
+      "session": "k-owned",
+      "shared": false,
+      "title": "xtm:k-owned"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 960,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "shared-with-detacher",
+      "session": "sd",
+      "shared": true,
+      "title": "xtm:sd"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 960,
+        "x": 0,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "shared-with-killer",
+      "session": "sk",
+      "shared": true,
+      "title": "xtm:sk"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

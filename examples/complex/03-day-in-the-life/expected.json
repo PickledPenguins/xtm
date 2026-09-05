@@ -1,0 +1,121 @@
+{
+  "on_switch": "detach",
+  "prefix": "day-",
+  "profile": "day",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 1920,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "day-editor",
+      "shared": false,
+      "title": "editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 500,
+        "width": 960,
+        "x": 0,
+        "y": 700
+      },
+      "cwd": "~/work/service",
+      "name": "terminal",
+      "session": "day-terminal",
+      "shared": false,
+      "title": "terminal"
+    },
+    {
+      "command": "bash -lc 'pytest --looponfail; exec bash'",
+      "configured": {
+        "height": 500,
+        "width": 960,
+        "x": 960,
+        "y": 700
+      },
+      "cwd": "~/work/service",
+      "name": "tests",
+      "session": "day-tests",
+      "shared": false,
+      "title": "tests"
+    },
+    {
+      "command": "journalctl --user -u service -f",
+      "configured": {
+        "height": 720,
+        "width": 1280,
+        "x": 1920,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "day-logs",
+      "shared": false,
+      "title": "logs"
+    },
+    {
+      "command": "watch -n5 'curl -s localhost:9100/metrics | tail -40'",
+      "configured": {
+        "height": 720,
+        "width": 1280,
+        "x": 3200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "metrics",
+      "session": "day-metrics",
+      "shared": false,
+      "title": "metrics"
+    },
+    {
+      "command": "psql service",
+      "configured": {
+        "height": 720,
+        "width": 1280,
+        "x": 1920,
+        "y": 720
+      },
+      "cwd": "~/work/service",
+      "name": "db",
+      "session": "day-db",
+      "shared": false,
+      "title": "db"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 360,
+        "width": 1280,
+        "x": 3200,
+        "y": 720
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "notes",
+      "shared": true,
+      "title": "notes"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 360,
+        "width": 1280,
+        "x": 3200,
+        "y": 1080
+      },
+      "cwd": null,
+      "name": "scratch",
+      "session": "scratch",
+      "shared": true,
+      "title": "scratch"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

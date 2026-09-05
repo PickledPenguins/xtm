@@ -1,0 +1,11 @@
+# A second monitor to the LEFT of the primary one.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      # x is negative because this screen starts 1920 pixels left of the
+      # primary monitor's origin. This is why xtm takes x,y,width,height
+      # rather than an X geometry string, where a leading '-' means
+      # "measured from the opposite edge" instead.
+      left-editor: {x: -1920, y: 0, width: 1920, height: 1080}
+      main-shell: {x: 0, y: 0, width: 1280, height: 1400}

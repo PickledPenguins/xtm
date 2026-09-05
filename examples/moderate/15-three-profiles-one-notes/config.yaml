@@ -1,0 +1,26 @@
+# Three contexts, one notebook that follows you between them.
+profiles:
+  work:
+    prefix: work-
+    on_switch: detach
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      notes: {session: notes, x: 1200, y: 0, width: 720, height: 1400}
+
+  study:
+    prefix: study-
+    on_switch: detach
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      reader: {x: 0, y: 0, width: 1400, height: 1400}
+      notes: {session: notes, x: 1400, y: 0, width: 520, height: 1400}
+
+  admin:
+    prefix: admin-
+    on_switch: kill
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      mail: {x: 0, y: 0, width: 960, height: 1400}
+      calendar: {x: 960, y: 0, width: 960, height: 700}
+      notes: {session: notes, x: 960, y: 700, width: 960, height: 700}

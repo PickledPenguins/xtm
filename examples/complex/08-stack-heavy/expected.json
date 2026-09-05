@@ -1,0 +1,37 @@
+{
+  "on_switch": "detach",
+  "prefix": "ad-",
+  "profile": "adhoc",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1080,
+        "width": 1920,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "main",
+      "session": "ad-main",
+      "shared": false,
+      "title": "xtm:ad-main"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 1080,
+        "width": 960,
+        "x": 1920,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "reference",
+      "session": "ad-reference",
+      "shared": false,
+      "title": "xtm:ad-reference"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

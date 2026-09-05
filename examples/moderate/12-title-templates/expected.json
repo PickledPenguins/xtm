@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "desk-",
+  "profile": "desk",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "desk-editor",
+      "shared": false,
+      "title": "desk/editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "desk-logs",
+      "shared": false,
+      "title": "LOGS -- do not close"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "notes",
+      "shared": true,
+      "title": "notes"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

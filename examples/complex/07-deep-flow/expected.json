@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "c-",
+  "profile": "compact",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "c-editor",
+      "shared": false,
+      "title": "editor"
+    },
+    {
+      "command": "journalctl -f",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "c-logs",
+      "shared": false,
+      "title": "logs"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "notes",
+      "shared": true,
+      "title": "notes"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

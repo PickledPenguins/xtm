@@ -1,0 +1,14 @@
+# Titles: the profile template, the fields it can use, and per-slot overrides.
+profiles:
+  desk:
+    prefix: desk-
+    # {slot}, {session} and {profile} are the fields. The default template is
+    # "xtm:{session}".
+    title: "{profile}/{slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      # Overrides the template outright: a fixed string.
+      logs: {x: 1200, y: 0, width: 720, height: 700, title: "LOGS -- do not close"}
+      # Overrides it with a template of its own, using a different field.
+      notes: {session: notes, x: 1200, y: 700, width: 720, height: 700, title: "{session}"}

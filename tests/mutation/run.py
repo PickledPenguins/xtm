@@ -158,6 +158,14 @@ CATALOGUE = [
         "Without the re-validation, --set can write a config every later "
         "command rejects."),
     Mutant(
+        "yaml-renumbered-key-asks-yaml-not-python",
+        "    if not _YAML_NUMBER_RE.match(key):\n        return",
+        "    if False:\n        return",
+        YAML,
+        "Python's float() accepts infinity, inf, nan and 1e3; YAML reads "
+        "none of them as a number in key position, so asking Python refuses "
+        "names both backends agree on."),
+    Mutant(
         "yaml-control-characters-refused",
         'if char < " " and char not in "\\n\\t":',
         "if False:",

@@ -238,8 +238,10 @@ tests/
 
 examples/
   run.py               Runs each example, and --negative the ones meant to fail.
-  README.md            Index of the examples.
-  NN-name/             config.yaml, README.md, expected.json.
+  README.md            Index of the examples, by level.
+  simple/NN-name/      one idea: config.yaml, README.md, expected.json.
+  moderate/NN-name/    several features interacting.
+  complex/NN-name/     every mechanism at once.
   negative/NN-name/    config.yaml, README.md, expected-error.txt.
 ```
 

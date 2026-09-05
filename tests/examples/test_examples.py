@@ -21,10 +21,24 @@ from tests.support import (
 EXAMPLES = REPO_ROOT / "examples"
 
 
-def example_dirs():
+TIERS = ("simple", "moderate", "complex")
+
+# What a catalogue is for is that a reader finds their own case in it, so the
+# floor is on variety: enough simple cases that every feature has one, enough
+# moderate ones for the combinations people really make, and enough complex
+# ones that the interactions are shown more than once.
+TIER_MINIMUM = {"simple": 15, "moderate": 15, "complex": 10}
+
+
+def example_dirs(tier=None):
     """Every example directory, in the order they are meant to be read."""
-    return sorted(d for d in EXAMPLES.iterdir()
-                  if d.is_dir() and (d / "config.yaml").exists())
+    found = []
+    for name in ((tier,) if tier else TIERS):
+        directory = EXAMPLES / name
+        if directory.is_dir():
+            found.extend(sorted(d for d in directory.iterdir()
+                                if d.is_dir() and (d / "config.yaml").exists()))
+    return found
 
 
 class TestExamples(unittest.TestCase):
@@ -33,6 +47,24 @@ class TestExamples(unittest.TestCase):
         # Guards the rest of this file: if discovery broke, every other test
         # here would vacuously pass over an empty list.
         self.assertGreaterEqual(len(example_dirs()), 6)
+
+    def test_each_tier_carries_enough_cases(self):
+        """A catalogue too thin to find your own case in sends the reader to
+        the manual, which is what it exists to save them from."""
+        for tier, minimum in sorted(TIER_MINIMUM.items()):
+            found = len(example_dirs(tier))
+            self.assertGreaterEqual(
+                found, minimum,
+                "examples/%s/ has %d cases, below the %d this catalogue holds "
+                "itself to" % (tier, found, minimum))
+
+    def test_every_example_says_which_level_it_is(self):
+        """The README's level line is how a reader picks where to start."""
+        for directory in example_dirs():
+            readme = (directory / "README.md").read_text()
+            self.assertIn("Level:", readme,
+                          "%s/%s does not say which level it is"
+                          % (directory.parent.name, directory.name))
 
     def test_every_example_matches_its_recorded_output(self):
         result = subprocess.run(

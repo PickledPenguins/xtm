@@ -1,0 +1,6 @@
+# A profile with no slots yet. Perfectly valid, and where a new machine
+# starts before you capture a layout.
+profiles:
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions: {}

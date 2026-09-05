@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "mo-",
+  "profile": "modern",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "mo-editor",
+      "shared": false,
+      "title": "modern/editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "shell",
+      "session": "mo-shell",
+      "shared": false,
+      "title": "modern/shell"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "mo-notes",
+      "shared": false,
+      "title": "modern/notes"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

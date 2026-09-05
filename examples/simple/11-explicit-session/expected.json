@@ -1,0 +1,37 @@
+{
+  "on_switch": "detach",
+  "prefix": "desk-",
+  "profile": "default",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "desk-editor",
+      "shared": false,
+      "title": "xtm:desk-editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "notes",
+      "session": "notes",
+      "shared": true,
+      "title": "xtm:notes"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

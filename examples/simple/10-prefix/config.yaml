@@ -1,0 +1,10 @@
+# A prefix makes a profile own its sessions.
+profiles:
+  default:
+    # Every slot below becomes desk-<slot> as a tmux session. Two profiles
+    # can then both have a slot called "editor" without colliding.
+    prefix: desk-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      shell: {x: 1200, y: 0, width: 720, height: 1400}

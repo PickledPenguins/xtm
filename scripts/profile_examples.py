@@ -39,10 +39,20 @@ OUTPUT_DIR = REPO_ROOT / ".build" / "profile"
 OWN_CODE = "xtm.py"
 
 
+TIERS = ("simple", "moderate", "complex")
+
+
 def example_dirs(pattern=""):
-    found = [d for d in sorted(EXAMPLES.iterdir())
-             if d.is_dir() and (d / "config.yaml").exists()]
-    return [d for d in found if pattern in d.name]
+    """Every example, in reading order: simple, then moderate, then complex."""
+    found = []
+    for tier in TIERS:
+        directory = EXAMPLES / tier
+        if not directory.is_dir():
+            continue
+        found.extend(d for d in sorted(directory.iterdir())
+                     if d.is_dir() and (d / "config.yaml").exists())
+    return [d for d in found
+            if pattern in "%s/%s" % (d.parent.name, d.name)]
 
 
 def run_one(directory):
@@ -55,8 +65,10 @@ def run_one(directory):
         (tmp / "cfg").mkdir()
         (tmp / "cfg" / "config.yaml").write_bytes(
             (directory / "config.yaml").read_bytes())
+        flags_file = directory / "flags"
+        extra = flags_file.read_text().split() if flags_file.exists() else []
         argv = ["--config", str(tmp / "cfg" / "config.yaml"),
-                "--state-dir", str(tmp / "state"), "--quiet", "--json"]
+                "--state-dir", str(tmp / "state"), "--quiet", "--json"] + extra
         if profile_name:
             argv += ["--profile", profile_name]
         argv.append("--list")

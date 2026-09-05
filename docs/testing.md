@@ -84,7 +84,7 @@ hosts where nothing can be installed, and it would otherwise be tested only in i
 | `tests/fault_injection/` | Failure paths a healthy filesystem never reaches, and the world outside the process |
 | `tests/load/` | Cost budgets: enumeration calls per tool, scaling |
 | `tests/safety/` | `--dry-run` changes nothing |
-| `tests/examples/` | Every shipped example still describes the tool |
+| `tests/examples/` | Every shipped example still describes the tool, at all three levels |
 | `tests/test_documentation.py` | The documentation describes the tool that ships with it |
 
 Classes of risk that carry their own groups, and what each protects:

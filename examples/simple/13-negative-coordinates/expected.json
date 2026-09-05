@@ -1,0 +1,37 @@
+{
+  "on_switch": "detach",
+  "prefix": "",
+  "profile": "default",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1080,
+        "width": 1920,
+        "x": -1920,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "left-editor",
+      "session": "left-editor",
+      "shared": false,
+      "title": "xtm:left-editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1280,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "main-shell",
+      "session": "main-shell",
+      "shared": false,
+      "title": "xtm:main-shell"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

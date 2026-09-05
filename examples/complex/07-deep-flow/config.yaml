@@ -1,0 +1,5 @@
+# The whole config in flow style, nested as deeply as xtm's schema goes.
+# Every one of these is legal, and reads identically under both backends.
+profiles:
+  compact: {prefix: c-, on_switch: detach, title: "{slot}", match: {hostname: "*"}, stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}, sessions: {editor: {x: 0, y: 0, width: 1200, height: 1400}, logs: {x: 1200, y: 0, width: 720, height: 700, command: journalctl -f, xterm_args: [-bg, "#101018", -sl, "50000"]}, notes: {session: notes, x: 1200, y: 700, width: 720, height: 700, title: "notes"}}}
+  default: {stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}, sessions: {}}

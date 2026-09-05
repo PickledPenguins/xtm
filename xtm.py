@@ -1106,6 +1106,13 @@ def _reject_renumbered_key(key: str, context: str) -> None:
     -- rather than "is it numeric", so the ordinary numeric names people
     actually use keep working.
     """
+    # Ask YAML's number syntax, not Python's. float() accepts "infinity",
+    # "inf", "nan" and "1e3"; YAML reads none of those as a number in key
+    # position, so asking Python refused names both backends agree on --
+    # which is the same defect as accepting what they disagree on, pointing
+    # the other way.
+    if not _YAML_NUMBER_RE.match(key):
+        return
     for parse in (int, float):
         try:
             parsed = parse(key)

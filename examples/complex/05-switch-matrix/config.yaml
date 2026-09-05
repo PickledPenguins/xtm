@@ -1,0 +1,27 @@
+# Every disposal mode, crossed with shared and owned sessions, so that one
+# switch does three different things at once.
+profiles:
+  keeper:
+    prefix: k-
+    on_switch: leave
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      owned: {x: 0, y: 0, width: 960, height: 700}
+      shared-with-detacher: {session: sd, x: 960, y: 0, width: 960, height: 700}
+      shared-with-killer: {session: sk, x: 0, y: 700, width: 960, height: 700}
+
+  detacher:
+    prefix: d-
+    on_switch: detach
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      owned: {x: 0, y: 0, width: 960, height: 700}
+      shared-with-detacher: {session: sd, x: 960, y: 0, width: 960, height: 700}
+
+  killer:
+    prefix: x-
+    on_switch: kill
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      owned: {x: 0, y: 0, width: 960, height: 700}
+      shared-with-killer: {session: sk, x: 960, y: 0, width: 960, height: 700}

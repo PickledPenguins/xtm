@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "dev-",
+  "profile": "dev",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1200,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "dev-editor",
+      "shared": false,
+      "title": "dev: editor"
+    },
+    {
+      "command": "bash -lc 'make watch; exec bash'",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": "~/projects/thing",
+      "name": "test",
+      "session": "dev-test",
+      "shared": false,
+      "title": "dev: test"
+    },
+    {
+      "command": "journalctl --user -f",
+      "configured": {
+        "height": 700,
+        "width": 720,
+        "x": 1200,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "dev-logs",
+      "shared": false,
+      "title": "dev: logs"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

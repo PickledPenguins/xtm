@@ -52,6 +52,14 @@ def run_example(directory, env_extra=None):
     if profile_file.exists():
         profile = profile_file.read_text().strip()
 
+    # An example whose subject is a machine-bound profile cannot be reported
+    # on any other machine without --all, since a bound profile is hidden
+    # elsewhere by design. A `flags` file carries what such an example needs.
+    extra_flags = []
+    flags_file = directory / "flags"
+    if flags_file.exists():
+        extra_flags = flags_file.read_text().split()
+
     with tempfile.TemporaryDirectory(prefix="xtm-example-") as tmp:
         tmp = Path(tmp)
         (tmp / "cfg").mkdir()
@@ -68,7 +76,7 @@ def run_example(directory, env_extra=None):
         })
         env.update(env_extra or {})
 
-        argv = [sys.executable, str(XTM)]
+        argv = [sys.executable, str(XTM)] + extra_flags
         if profile:
             argv.append(profile)
         argv += ["--list", "--json"]
@@ -83,6 +91,25 @@ def run_example(directory, env_extra=None):
 
 
 NEGATIVE = HERE / "negative"
+
+# Examples live one level down, in the tier that says how much they combine:
+# simple/ shows one idea, moderate/ a few interacting, complex/ every
+# mechanism at once. A caller names an example by its path from examples/,
+# so `simple/01-one-screen`.
+TIERS = ("simple", "moderate", "complex")
+
+
+def example_names():
+    """Every example, in the order they are meant to be read."""
+    found = []
+    for tier in TIERS:
+        directory = HERE / tier
+        if not directory.is_dir():
+            continue
+        found.extend("%s/%s" % (tier, d.name)
+                     for d in sorted(directory.iterdir())
+                     if d.is_dir() and (d / "config.yaml").exists())
+    return found
 
 
 def run_negative(directory):
@@ -166,8 +193,7 @@ def main(argv):
             print("\n%d negative example(s) refused as recorded." % (len(names),))
         return 0
 
-    names = argv or sorted(d.name for d in HERE.iterdir()
-                           if d.is_dir() and (d / "config.yaml").exists())
+    names = argv or example_names()
     failures = []
     for name in names:
         directory = HERE / name

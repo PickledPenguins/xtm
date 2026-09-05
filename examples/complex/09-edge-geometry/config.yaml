@@ -1,0 +1,18 @@
+# Legal geometry at its extremes. Every value here validates; the point is
+# that the boundaries are where a config breaks, not the middle.
+profiles:
+  edges:
+    prefix: e-
+    # Zero offsets: every stray lands in exactly the same place, deliberately.
+    stack: {x: 0, y: 0, width: 1, height: 1, offset_x: 0, offset_y: 0}
+    sessions:
+      # Far left of a monitor placed left of the origin.
+      far-left: {x: -3840, y: -2160, width: 800, height: 600}
+      # One pixel: the smallest legal size.
+      tiny: {x: 0, y: 0, width: 1, height: 1}
+      # Larger than any real screen, which is legal -- the window manager
+      # decides what to do about it.
+      huge: {x: 0, y: 0, width: 16000, height: 9000}
+      # Exactly at the origin, which is the boundary between the negative
+      # and positive cases above.
+      origin: {x: 0, y: 0, width: 100, height: 100}

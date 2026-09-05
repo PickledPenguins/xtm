@@ -1,0 +1,12 @@
+# A profile that configures almost nothing on purpose, and leans on the
+# stack for everything else -- the shape of an incident, or a machine you
+# have not laid out yet.
+profiles:
+  adhoc:
+    prefix: ad-
+    # Two anchors, and a stack tuned so that a dozen unplaced windows walk
+    # diagonally across the screen without leaving it.
+    stack: {x: 300, y: 150, width: 1100, height: 750, offset_x: 45, offset_y: 30}
+    sessions:
+      main: {x: 0, y: 0, width: 1920, height: 1080}
+      reference: {x: 1920, y: 0, width: 960, height: 1080}

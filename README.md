@@ -101,6 +101,6 @@ Then `xtm desk --reset-all` opens `desk-work1` and `desk-logs` and places them.
 | [docs/architecture.md](docs/architecture.md) | How xtm is built, the design decisions, and how to extend it |
 | [docs/testing.md](docs/testing.md) | Running the suite, what each part covers, coverage |
 | [docs/future-work.md](docs/future-work.md) | Planned work, and decisions taken not to build something |
-| [examples/](examples/) | Six worked configurations, each with a README. They run as tests |
+| [examples/](examples/) | Forty worked configurations at three levels, plus eight meant to fail. They run as tests |
 
 The commit log is the release history; a tag names each release.

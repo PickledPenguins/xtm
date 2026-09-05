@@ -1,0 +1,42 @@
+# One person's actual desktop: eight windows, four of them running something,
+# two sharing sessions with other profiles, laid out across two monitors.
+profiles:
+  day:
+    prefix: day-
+    on_switch: detach
+    title: "{slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      # Left monitor, 1920x1200, three stacked.
+      editor: {x: 0, y: 0, width: 1920, height: 700}
+      terminal: {x: 0, y: 700, width: 960, height: 500, cwd: ~/work/service}
+      tests:
+        x: 960
+        y: 700
+        width: 960
+        height: 500
+        cwd: ~/work/service
+        command: bash -lc 'pytest --looponfail; exec bash'
+      # Right monitor, 2560x1440, five cells.
+      logs:
+        x: 1920
+        y: 0
+        width: 1280
+        height: 720
+        command: journalctl --user -u service -f
+        xterm_args: [-bg, "#101820", -sl, "20000"]
+      metrics:
+        x: 3200
+        y: 0
+        width: 1280
+        height: 720
+        command: watch -n5 'curl -s localhost:9100/metrics | tail -40'
+      db:
+        x: 1920
+        y: 720
+        width: 1280
+        height: 720
+        command: psql service
+        cwd: ~/work/service
+      notes: {session: notes, x: 3200, y: 720, width: 1280, height: 360}
+      scratch: {session: scratch, x: 3200, y: 1080, width: 1280, height: 360}

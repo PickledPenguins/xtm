@@ -78,6 +78,8 @@ profile:
 # missing .gitignore entry.
 check:
 	@mkdir -p .build
+	@echo "check: lint, examples, both suites, coverage, perf, properties, mutation"
+	@echo "check: expect roughly 12 minutes; each step announces itself"
 	@git status --porcelain > .build/tree-before.txt
 	@$(RUN) --full
 	@git status --porcelain > .build/tree-after.txt

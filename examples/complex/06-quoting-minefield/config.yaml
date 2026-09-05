@@ -1,0 +1,62 @@
+# Every value that needs quoting, in one working profile. Each of these is
+# read one way by PyYAML and another by the built-in parser unless quoted, so
+# a config that uses all of them is the test that quoting is enough.
+profiles:
+  desk:
+    prefix: desk-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      octal:
+        x: 0
+        y: 0
+        width: 600
+        height: 400
+        title: "0755"                    # octal 493 to PyYAML, decimal 755 without
+      sexagesimal:
+        x: 600
+        y: 0
+        width: 600
+        height: 400
+        title: "1:30"                    # 90 to PyYAML
+      boolean:
+        x: 1200
+        y: 0
+        width: 600
+        height: 400
+        title: "yes"                     # true to PyYAML
+      date:
+        x: 0
+        y: 400
+        width: 600
+        height: 400
+        title: "2026-01-01"              # a date object to PyYAML
+      separators:
+        x: 600
+        y: 400
+        width: 600
+        height: 400
+        title: "1_000"                   # 1000 to PyYAML
+      scientific:
+        x: 1200
+        y: 400
+        width: 600
+        height: 400
+        title: "1e3"                     # 1000.0 to the built-in parser
+      escapes:
+        x: 0
+        y: 800
+        width: 600
+        height: 400
+        command: 'grep -e "\d\+" log'    # single quotes: the backslashes are literal
+      font:
+        x: 600
+        y: 800
+        width: 600
+        height: 400
+        xterm_args: [-fa, "Monospace:size=11"]   # a colon inside a list item
+      infinity:
+        x: 1200
+        y: 800
+        width: 600
+        height: 400
+        title: ".inf"                    # infinity to PyYAML, text without

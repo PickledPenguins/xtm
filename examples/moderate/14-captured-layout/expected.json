@@ -1,0 +1,51 @@
+{
+  "on_switch": "detach",
+  "prefix": "captured-",
+  "profile": "captured",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1387,
+        "width": 1216,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "editor",
+      "shared": true,
+      "title": "xtm:editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 693,
+        "width": 704,
+        "x": 1216,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "shell",
+      "session": "shell",
+      "shared": true,
+      "title": "xtm:shell"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 694,
+        "width": 704,
+        "x": 1216,
+        "y": 693
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "logs",
+      "shared": true,
+      "title": "xtm:logs"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

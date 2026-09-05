@@ -1,0 +1,44 @@
+# One config file for a fleet: four machine classes, a shared notebook, and
+# a global fallback for anything not recognised.
+profiles:
+  # Bound to a list that mixes exact names with a glob.
+  build:
+    match: {hostname: [build-1, build-2, "builder-*"]}
+    prefix: b-
+    on_switch: kill
+    title: "build/{slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      compile: {x: 0, y: 0, width: 1280, height: 1400, command: bash -lc 'make -j; exec bash'}
+      tests: {x: 1280, y: 0, width: 640, height: 700, command: bash -lc 'make test; exec bash'}
+      logs: {x: 1280, y: 700, width: 640, height: 700, command: journalctl -f}
+      notes: {session: notes, x: 0, y: 1400, width: 1920, height: 300}
+
+  # Bound to a glob covering the desks.
+  desk:
+    match: {hostname: "workstation-*"}
+    prefix: d-
+    on_switch: detach
+    title: "{profile}/{slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      shell: {x: 1200, y: 0, width: 720, height: 700, cwd: ~/work}
+      notes: {session: notes, x: 1200, y: 700, width: 720, height: 700}
+
+  # One machine, named exactly.
+  headnode:
+    match: {hostname: headnode}
+    prefix: hn-
+    on_switch: leave
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      queue: {x: 0, y: 0, width: 1600, height: 900, command: watch -n10 squeue}
+      shell: {x: 0, y: 900, width: 1600, height: 500}
+
+  # No match block: available on every machine, never auto-selected, and the
+  # thing you land on when nothing else fits.
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      shell: {x: 0, y: 0, width: 1024, height: 768}

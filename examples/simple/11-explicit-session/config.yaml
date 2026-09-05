@@ -1,0 +1,16 @@
+# One slot opting out of the profile's prefix.
+profiles:
+  default:
+    prefix: desk-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      # 'session:' is used verbatim and never prefixed, so this slot is the
+      # tmux session "notes" -- which another profile can also name, and then
+      # the two share one running session.
+      notes:
+        session: notes
+        x: 1200
+        y: 0
+        width: 720
+        height: 1400

@@ -135,7 +135,7 @@ no_match() {
 }
 
 run_lint() {
-    echo "--- lint"
+    echo "--- lint ($(date +%H:%M:%S))"
     files="xtm.py $(find tests scripts -name '*.py' 2>/dev/null || true)"
     # shellcheck disable=SC2086
     $PYTHON -m pyflakes $files
@@ -159,18 +159,25 @@ run_unit() {
         fi
         return
     fi
-    found=0
+    total=$(modules | wc -l | tr -d " ")
+    [ "$total" = 0 ] && no_match
+    index=0
+    started=$(date +%s)
     for module in $(modules); do
-        found=1
-        echo "--- $module"
+        index=$((index + 1))
+        module_started=$(date +%s)
+        # The count and the elapsed time are the whole point: a run that
+        # takes two and a half minutes and says nothing looks like a hang,
+        # and the first question anyone has is which module is slow.
+        echo "--- [$index/$total] $module"
         $PYTHON -m unittest "$module"
+        echo "    done in $(($(date +%s) - module_started))s"
     done
-    [ "$found" = 1 ] || no_match
-    echo "Every test module passes on its own."
+    echo "Every test module passes on its own ($total modules, $(($(date +%s) - started))s)."
 }
 
 run_coverage() {
-    echo "--- coverage"
+    echo "--- coverage ($(date +%H:%M:%S))"
     # The .pth file runs at interpreter startup in EVERY child process, which
     # is the only hook early enough to measure a subprocess from its first
     # line. Without it the reported figure collapses to about 63%, which is a
@@ -188,7 +195,7 @@ run_coverage() {
 }
 
 run_perf() {
-    echo "--- performance"
+    echo "--- performance ($(date +%H:%M:%S))"
     # Outside both halves on purpose: a timing test inside a pass/fail suite
     # that mixes it with unit tests is a flaky test waiting to happen. The
     # baseline lives under .build/ and is per machine.
@@ -196,7 +203,7 @@ run_perf() {
 }
 
 run_property() {
-    echo "--- property"
+    echo "--- property ($(date +%H:%M:%S))"
     if [ ! -d "$ROOT/tests/property" ]; then
         echo "no property tests in this tree; skipped."
         return
@@ -205,7 +212,7 @@ run_property() {
 }
 
 run_mutation() {
-    echo "--- mutation"
+    echo "--- mutation ($(date +%H:%M:%S))"
     if [ ! -d "$ROOT/tests/mutation" ]; then
         echo "no mutation catalogue in this tree; skipped."
         return
@@ -214,7 +221,7 @@ run_mutation() {
 }
 
 run_examples() {
-    echo "--- examples"
+    echo "--- examples ($(date +%H:%M:%S))"
     $PYTHON examples/run.py
     $PYTHON examples/run.py --negative
     # The examples are the closest thing here to real usage, so a run that
@@ -223,7 +230,7 @@ run_examples() {
 }
 
 run_profile() {
-    echo "--- profile"
+    echo "--- profile ($(date +%H:%M:%S))"
     $PYTHON scripts/profile_examples.py
 }
 

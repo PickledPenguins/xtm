@@ -1,0 +1,27 @@
+# Three profiles that all use the same slot names, and stay out of each
+# other's way -- except where they deliberately do not.
+profiles:
+  alpha:
+    prefix: a-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      shell: {x: 1200, y: 0, width: 720, height: 700}
+      notes: {session: shared-notes, x: 1200, y: 700, width: 720, height: 700}
+
+  beta:
+    prefix: b-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 960, height: 1400}
+      shell: {x: 960, y: 0, width: 960, height: 700}
+      notes: {session: shared-notes, x: 960, y: 700, width: 960, height: 700}
+
+  # No prefix at all: its slots ARE its session names, which is how xtm
+  # behaved before prefixes existed and still behaves for a config that has
+  # not adopted them.
+  legacy:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1440, height: 900}
+      shell: {x: 0, y: 900, width: 1440, height: 500}

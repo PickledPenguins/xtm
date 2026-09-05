@@ -1,0 +1,31 @@
+# Real values that need quoting, in a config that also does something.
+profiles:
+  desk:
+    prefix: desk-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor:
+        x: 0
+        y: 0
+        width: 1200
+        height: 1400
+        # A fontconfig name contains a colon; unquoted, YAML would read the
+        # item as a nested mapping.
+        xterm_args: [-fa, "DejaVu Sans Mono:size=11"]
+      logs:
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        # Single quotes are literal text: the backslash survives.
+        command: 'grep -E "^[0-9]+\s+ERROR" /var/log/app.log'
+      backup:
+        x: 1200
+        y: 700
+        width: 720
+        height: 700
+        # "0755" unquoted is octal 493 to PyYAML and decimal 755 without it.
+        title: "0755"
+        # "off" unquoted is the boolean false in YAML 1.1.
+        cwd: ~/backups
+        command: 'rsync -a --delete ~/work/ backup:/srv/work/'

@@ -1,0 +1,30 @@
+# What `xtm --new-profile` writes, and why it looks like this.
+profiles:
+  captured:
+    # --new-profile writes the prefix explicitly, even though nothing here
+    # relies on it, so a later slot added by hand gets the same treatment.
+    prefix: captured-
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      # Every captured slot carries an explicit 'session:'. The sessions were
+      # already running under these names when they were captured, and
+      # applying the prefix afterwards would rename them out from under the
+      # windows they belong to.
+      editor:
+        session: editor
+        x: 0
+        y: 0
+        width: 1216
+        height: 1387
+      shell:
+        session: shell
+        x: 1216
+        y: 0
+        width: 704
+        height: 693
+      logs:
+        session: logs
+        x: 1216
+        y: 693
+        width: 704
+        height: 694

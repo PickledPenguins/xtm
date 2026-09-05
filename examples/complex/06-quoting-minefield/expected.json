@@ -1,0 +1,135 @@
+{
+  "on_switch": "detach",
+  "prefix": "desk-",
+  "profile": "desk",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "octal",
+      "session": "desk-octal",
+      "shared": false,
+      "title": "0755"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 600,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "sexagesimal",
+      "session": "desk-sexagesimal",
+      "shared": false,
+      "title": "1:30"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 1200,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "boolean",
+      "session": "desk-boolean",
+      "shared": false,
+      "title": "yes"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 0,
+        "y": 400
+      },
+      "cwd": null,
+      "name": "date",
+      "session": "desk-date",
+      "shared": false,
+      "title": "2026-01-01"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 600,
+        "y": 400
+      },
+      "cwd": null,
+      "name": "separators",
+      "session": "desk-separators",
+      "shared": false,
+      "title": "1_000"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 1200,
+        "y": 400
+      },
+      "cwd": null,
+      "name": "scientific",
+      "session": "desk-scientific",
+      "shared": false,
+      "title": "1e3"
+    },
+    {
+      "command": "grep -e \"\\d\\+\" log",
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 0,
+        "y": 800
+      },
+      "cwd": null,
+      "name": "escapes",
+      "session": "desk-escapes",
+      "shared": false,
+      "title": "xtm:desk-escapes"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 600,
+        "y": 800
+      },
+      "cwd": null,
+      "name": "font",
+      "session": "desk-font",
+      "shared": false,
+      "title": "xtm:desk-font"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 400,
+        "width": 600,
+        "x": 1200,
+        "y": 800
+      },
+      "cwd": null,
+      "name": "infinity",
+      "session": "desk-infinity",
+      "shared": false,
+      "title": ".inf"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

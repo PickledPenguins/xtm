@@ -1,0 +1,34 @@
+# A config caught mid-migration: one profile written before prefixes
+# existed, one written after, and one halfway.
+profiles:
+  # Pre-0.5: no prefix, so the slot names ARE the session names.
+  legacy:
+    on_switch: leave
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      shell: {x: 1200, y: 0, width: 720, height: 1400}
+
+  # Halfway: a prefix has been added, and the two sessions that were already
+  # running keep their old names with an explicit 'session:' so they are not
+  # renamed out from under their windows.
+  halfway:
+    prefix: hw-
+    on_switch: detach
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {session: editor, x: 0, y: 0, width: 1200, height: 1400}
+      shell: {session: shell, x: 1200, y: 0, width: 720, height: 700}
+      # Added after the prefix, so it is owned by the profile: hw-notes.
+      notes: {x: 1200, y: 700, width: 720, height: 700}
+
+  # Fully migrated: everything owned, nothing shared by accident.
+  modern:
+    prefix: mo-
+    on_switch: detach
+    title: "{profile}/{slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      shell: {x: 1200, y: 0, width: 720, height: 700}
+      notes: {x: 1200, y: 700, width: 720, height: 700}

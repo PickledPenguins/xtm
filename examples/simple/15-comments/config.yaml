@@ -1,0 +1,9 @@
+# Comments are read and are dropped on save. Both halves matter.
+profiles:
+  # A comment on its own line.
+  default:
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      # Above a slot,
+      editor: {x: 0, y: 0, width: 1200, height: 1400}   # and at the end of one.
+      shell: {x: 1200, y: 0, width: 720, height: 1400}

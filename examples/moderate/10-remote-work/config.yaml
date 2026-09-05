@@ -1,0 +1,29 @@
+# Working on three machines from one screen.
+profiles:
+  remote:
+    prefix: r-
+    title: "{slot}@remote"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      # -t forces a tty so the remote command gets one; without it, a remote
+      # program that expects a terminal misbehaves.
+      build:
+        x: 0
+        y: 0
+        width: 1200
+        height: 700
+        command: ssh build-host -t 'cd /srv/build && exec bash -l'
+      logs:
+        x: 0
+        y: 700
+        width: 1200
+        height: 700
+        command: ssh log-host -t 'journalctl -f'
+      db:
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        command: ssh db-host -t 'psql service'
+      # Local, and deliberately last: somewhere to stand when a host is down.
+      local: {x: 1200, y: 700, width: 720, height: 700, cwd: ~/work}

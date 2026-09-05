@@ -1,0 +1,9 @@
+# What happens to this profile's windows when you switch away from it.
+profiles:
+  default:
+    # leave | detach | kill. detach is the default: the window closes, the
+    # session and everything running in it stays alive.
+    on_switch: detach
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}

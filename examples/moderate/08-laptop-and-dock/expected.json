@@ -1,0 +1,65 @@
+{
+  "on_switch": "leave",
+  "prefix": "m-",
+  "profile": "docked",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 1600,
+        "x": 1440,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "m-editor",
+      "shared": false,
+      "title": "xtm:m-editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 1400,
+        "width": 960,
+        "x": 3040,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "reference",
+      "session": "m-reference",
+      "shared": false,
+      "title": "xtm:m-reference"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 1440,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "shell",
+      "session": "m-shell",
+      "shared": false,
+      "title": "xtm:m-shell"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 700,
+        "width": 1440,
+        "x": 0,
+        "y": 700
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "m-logs",
+      "shared": false,
+      "title": "xtm:m-logs"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}

@@ -1,0 +1,46 @@
+# Two contexts on one machine, told apart by colour as well as by name.
+profiles:
+  dev:
+    prefix: dev-
+    on_switch: detach
+    title: "dev: {slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      editor: {x: 0, y: 0, width: 1200, height: 1400}
+      test:
+        x: 1200
+        y: 0
+        width: 720
+        height: 700
+        command: bash -lc 'make watch; exec bash'
+        cwd: ~/projects/thing
+      logs:
+        x: 1200
+        y: 700
+        width: 720
+        height: 700
+        command: journalctl --user -f
+
+  # The same shape, deliberately harder to mistake for the first: a red
+  # background on every window, and sessions that are killed rather than
+  # detached when you leave, so nothing production-facing lingers.
+  prod:
+    prefix: prod-
+    on_switch: kill
+    title: "PROD: {slot}"
+    stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}
+    sessions:
+      shell:
+        x: 0
+        y: 0
+        width: 1200
+        height: 1400
+        command: ssh prod-gateway
+        xterm_args: [-bg, "#2a1010", -fg, "#ffd0d0"]
+      logs:
+        x: 1200
+        y: 0
+        width: 720
+        height: 1400
+        command: ssh prod-gateway -t 'journalctl -f'
+        xterm_args: [-bg, "#2a1010", -fg, "#ffd0d0"]
