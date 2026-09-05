@@ -4,7 +4,7 @@ How xtm is built, where each behaviour lives, and what to know before changing i
 
 ## Shape
 
-One file, `xtm.py`, about 4,200 lines including its documentation. The layout is bottom-up:
+One file, `xtm.py`, four and a half thousand lines including its documentation. The layout is bottom-up:
 primitives first, then the layers that use them, then the commands, then the CLI. There are
 four classes — a log formatter, the lock context manager, the error type and `RunContext`;
 everything else is a function over plain dictionaries loaded from YAML.
@@ -156,52 +156,19 @@ session name by hand:
 
 ## Extending the tool
 
-### Adding a command
+Where a change goes, the recipes for adding a command, a config key or a parity rule, and
+what each gate enforces are in [contributing.md](contributing.md). The parts that are
+design decisions rather than procedure stay here:
 
-`COMMANDS` near the bottom of the file is the single source of truth for dispatch. Each
-entry is `(argparse dest, handler, mutates_config, needs_profile)`:
-
-```python
-COMMANDS = (
-    ("open", cmd_open, False, True),
-    ...
-)
-```
-
-- **dest** must match the argparse destination of the option that triggers it, so
-  `--make-global` pairs with `make_global`.
-- **mutates_config** decides whether the run holds the config lock across load, modify and
-  save. Set it for anything that calls `save_config`.
-- **needs_profile** decides whether an unresolvable profile is fatal. Commands operating on
-  the config as a whole (listing, validating, renaming) set it `False`.
-
-A handler takes `(args, config, profile_name)` and returns an exit code; it must not call
-`sys.exit`. Raise `XtmError` via `die()` for user-facing failures. `DEFAULT_ACTION` names the
-entry used when no action flag is given.
-
-Anything that edits a profile does it inside `edit_profile`.
-
-### Adding a config key
-
-1. Accept and validate it in `validate_session_entry` or `validate_profile`, with a message
-   naming the profile, session and field.
-2. Consume it where it applies — `build_xterm_command` for launch settings, `place_window`
-   for placement.
-3. Make sure it survives a round trip through **both** YAML backends.
-4. Document it in [configuration.md](configuration.md) and add it to `config.yaml.example`.
-
-### House rules
-
-- **Single file, standard library only.**
-- **Python 3.6 syntax and API only.** The module docstring lists what that rules out.
-- **stdout is data, stderr is logs.** Anything a script might parse goes through `print`;
-  everything else through `logger`.
-- **Every external command goes through `run()`**, which supplies the timeout, the C locale,
-  debug logging and clean errors for a missing program.
-- **Comment intent, not mechanism.** Explain why a non-obvious choice was made; the code
-  already says what it does.
-- **Version bumps move the last component by one** (`0.9` → `0.10`, never `1.0`). The commit
-  log is the release history; there is no changelog beside it to fall out of step with it.
+- **`COMMANDS` is the single source of truth for dispatch.** Each entry is
+  `(argparse dest, handler, mutates_config, needs_profile)`. `mutates_config` decides
+  whether the run holds the config lock across load, modify and save; `needs_profile`
+  decides whether an unresolvable profile is fatal, which is why listing and validating
+  work when no profile can be resolved.
+- **A handler returns an exit code and never calls `sys.exit`**, which is what makes every
+  command directly testable.
+- **Anything that edits a profile does it inside `edit_profile`**, so a command cannot
+  write a config that no later command can read.
 
 ## Project structure
 
@@ -214,6 +181,8 @@ pyproject.toml         Packaging, for `pip install -e .`. install.sh stays the p
                        path: xtm targets machines where pip is not an option.
 Makefile               Delegates every target to scripts/run_tests.sh.
 scripts/run_tests.sh   The one way to run anything here.
+scripts/profile_examples.py  Profiles the examples; run with any that executes them.
+scripts/record_metrics.py    Records what a coverage run measured, for the docs test.
 .coveragerc            Branch and parallel modes, artefact paths, the coverage floor.
 .gitignore             .build/, plus the names the same tools use when run by hand.
 .github/workflows/     CI: the suite across Python versions, crossed with PyYAML present

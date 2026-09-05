@@ -262,6 +262,60 @@ class TestDocumentSetIsCoherent(unittest.TestCase):
         self.assertEqual([], dead, "dead links: %s" % (dead,))
 
 
+class TestRecordedNumbersMatchTheDocs(unittest.TestCase):
+    """The coverage table says what the last real run measured.
+
+    Those numbers are the one part of the documentation whose whole value is
+    being current, and they had drifted three times -- silently, because no
+    test reads prose. `scripts/run_tests.sh --coverage` records what it
+    measured; this compares the table against it.
+
+    Skipped when nothing has been measured on this machine yet, because a
+    coverage run takes minutes and the fast suite must not.
+    """
+
+    METRICS = REPO_ROOT / ".build" / "metrics.json"
+
+    def setUp(self):
+        if not self.METRICS.exists():
+            self.skipTest("no .build/metrics.json yet; run the coverage step "
+                          "(scripts/run_tests.sh --coverage) to record one")
+        self.measured = json.loads(self.METRICS.read_text())
+        self.doc = read(REPO_ROOT / "docs" / "testing.md")
+
+    def documented(self, label):
+        # The whole cell, then the number in it: matching digits directly
+        # against the table picked up the first digit of the row separator.
+        match = re.search(r'\|\s*%s\s*\|\s*\**([\d.]+)\**'
+                          % (re.escape(label),), self.doc)
+        self.assertIsNotNone(match,
+                             "docs/testing.md no longer states %r" % (label,))
+        return match.group(1)
+
+    def test_the_statement_count_is_current(self):
+        self.assertEqual(str(self.measured["statements"]),
+                         self.documented("Statements"),
+                         "docs/testing.md quotes a statement count the last "
+                         "coverage run does not agree with")
+
+    def test_the_test_count_is_current(self):
+        self.assertEqual(str(self.measured["tests"]), self.documented("Tests"),
+                         "docs/testing.md quotes a test count the last run "
+                         "does not agree with")
+
+    def test_the_combined_figure_is_current(self):
+        self.assertIn(self.measured["combined"].rstrip("%"), self.doc,
+                      "docs/testing.md does not quote the combined coverage "
+                      "figure the last run measured (%s)"
+                      % (self.measured["combined"],))
+
+    def test_the_commit_the_numbers_were_measured_at_is_named(self):
+        self.assertRegex(
+            self.doc, r"Measured at commit `[0-9a-f]{7,}`",
+            "the coverage table does not say which commit it describes, "
+            "which is what makes a stale number checkable")
+
+
 class TestNumbersInProseAreCurrent(unittest.TestCase):
     """A count in prose is a claim, and claims are checked.
 

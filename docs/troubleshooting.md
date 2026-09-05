@@ -72,8 +72,17 @@ including those bound to other machines.
 ## A profile is in the config but xtm says it does not exist
 
 It is bound to another machine by its `match` block, and profiles bound elsewhere are hidden
-rather than listed. `xtm --all --list-profiles` shows them, and `--all` also lets management
-commands reach them. `xtm --make-global NAME` removes the binding for good.
+rather than listed. Two commands answer two different questions:
+
+```bash
+xtm --all --list-profiles              # what exists, including elsewhere
+xtm --hostname build-3 --auto --list   # what build-3 would actually do
+```
+
+`--all` reveals a hidden profile for listing and lets management commands reach it.
+`--hostname` runs *as* that machine, so the `match` block is exercised rather than
+bypassed — which is the only way to check that a binding is right without going to the
+machine. `xtm --make-global NAME` removes the binding for good.
 
 ## "Current profile 'x' no longer exists"
 
@@ -83,7 +92,8 @@ the one last chosen is worse than stopping. Choose one with `xtm NAME`, which
 also rewrites the state file.
 
 The same message appears when a saved profile becomes *hidden* — someone added a
-`match` block binding it to another machine. `xtm --all --list-profiles` shows it.
+`match` block binding it to another machine. `xtm --all --list-profiles` shows it, and
+`xtm --hostname NAME --list` shows what the machine it now belongs to would do with it.
 
 ## A session shows as a stray after adding a prefix
 

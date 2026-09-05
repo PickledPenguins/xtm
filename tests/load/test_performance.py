@@ -17,6 +17,8 @@ mixes it with unit tests is a flaky test waiting to happen.
 """
 
 import json
+import os
+import sys
 import time
 import tracemalloc
 import unittest
@@ -39,10 +41,26 @@ def median(values):
     return ordered[len(ordered) // 2]
 
 
+def under_instrumentation():
+    """Whether something is measuring this process line by line.
+
+    A timing gate is meaningless under coverage: tracing every line makes
+    everything several times slower, so the gate fails on the measurement
+    rather than on the code. The suite runs under coverage as a whole, so
+    these tests have to notice and stand down.
+    """
+    return bool(os.environ.get("COVERAGE_PROCESS_START")
+                or "coverage" in sys.modules)
+
+
 class PerformanceCase(unittest.TestCase):
     """Times an operation and compares it with this machine's baseline."""
 
     def setUp(self):
+        if under_instrumentation():
+            self.skipTest("running under coverage; a timing gate measures the "
+                          "tracer, not the code. Run scripts/run_tests.sh "
+                          "--perf on its own.")
         self.baseline = {}
         if BASELINE.exists():
             self.baseline = json.loads(BASELINE.read_text())
@@ -122,6 +140,9 @@ class TestMemoryCeiling(unittest.TestCase):
     """
 
     def test_reading_a_large_config_stays_proportionate(self):
+        if under_instrumentation():
+            self.skipTest("running under coverage; the tracer's own "
+                          "allocations swamp the measurement")
         text = big_config()
         saved = xtm.HAVE_PYYAML
         xtm.HAVE_PYYAML = False

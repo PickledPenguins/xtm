@@ -166,6 +166,14 @@ CATALOGUE = [
         "none of them as a number in key position, so asking Python refuses "
         "names both backends agree on."),
     Mutant(
+        "yaml-fast-path-still-checks-the-words",
+        "    if raw not in _YAML_AMBIGUOUS_WORDS and _SAFE_PLAIN_SCALAR_RE.match(raw):",
+        "    if _SAFE_PLAIN_SCALAR_RE.match(raw):",
+        YAML,
+        "The fast path skips every rule below it, and `yes`, `no`, `on` and "
+        "`off` are ordinary names by shape and ambiguous by meaning -- so "
+        "the word set has to be consulted before the shortcut."),
+    Mutant(
         "yaml-control-characters-refused",
         'if char < " " and char not in "\\n\\t":',
         "if False:",

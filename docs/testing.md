@@ -194,6 +194,13 @@ cover the parts of that which matter.
 The current shape is worth knowing: reading the config is about two thirds of the work of
 a `--list`, and the parity guard is about a seventh of the reading.
 
+The gate has already earned itself. Adding the key rules, the escape rules and the
+control-character rule made the guard run for every key as well as every value, and a
+thousand-slot config went five times slower — invisible in every other test, since they all
+passed. The fix was a fast path for the plain names that make up most of a config, plus
+compiled patterns in place of two per-character loops; the guard now does strictly more
+work in the same time.
+
 ## Performance
 
 `scripts/run_tests.sh --perf` times the parity guard, the built-in reader and the built-in
@@ -211,6 +218,10 @@ The baseline keeps the smaller of the recorded and the new value, so a slow afte
 cannot ratchet it upward until it stops gating. Verified by making the reader sleep and
 watching the gate fire.
 
+**They stand down under coverage.** Tracing every line makes everything several times
+slower, so a timing gate run that way measures the tracer rather than the code; the cases
+skip themselves when instrumentation is active and say so.
+
 ## Coverage
 
 Measured on the combined figure — statements and branch exits over one denominator — which
@@ -218,13 +229,16 @@ is the strictest of the three numbers and therefore holds the other two above it
 
 | Metric | Result |
 |---|---|
-| Statements | 1987 |
-| Line coverage | **98.0%** |
-| Branch coverage | **96.0%** |
+| Statements | 2036 |
+| Line coverage | **98.1%** |
+| Branch coverage | **95.9%** |
 | Combined | **97.4%** — the figure `fail_under` enforces |
-| Tests | 610 |
+| Tests | 657 |
 
-Measured at commit `37f8c30`, 2026-09-04. The floor is enforced rather than reported:
+Measured at commit `9b1e0f2`, 2026-09-04. **These numbers are checked, not trusted:**
+`scripts/run_tests.sh --coverage` records what it measured under `.build/metrics.json`, and
+`tests/test_documentation.py` fails when this table disagrees with it. They had gone stale
+three times before that existed. The floor is enforced rather than reported:
 `.coveragerc` sets `fail_under`, so a drop fails the run. It moves in steps, each earned by
 the tests that raised the number — 95 to 96 to 97 — rather than to match a figure that
 drifted upward on its own.
@@ -234,7 +248,7 @@ child process, so a plain `coverage run -m unittest` reports about 63% — a mea
 artefact, not a regression. `scripts/run_tests.sh --coverage` writes the `.pth` file and
 sets `COVERAGE_PROCESS_START` itself. **If you see 63%, you bypassed the entry point.**
 
-The uncovered remainder is 39 statements and 37 partial branches, almost entirely defensive
+The uncovered remainder is 39 statements and 38 partial branches, almost entirely defensive
 error handling that cannot be triggered without breaking the filesystem underneath a running
 process: `OSError` branches around `fsync`, lock acquisition and temp-file cleanup, the
 `ImportError` fallbacks for `fcntl` and PyYAML, and guards that exist so a future edit fails

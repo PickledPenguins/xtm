@@ -91,6 +91,20 @@ Preview a change before making it:
 xtm --dry-run --reset-all
 ```
 
+## Working on xtm itself
+
+```bash
+scripts/run_tests.sh --install-hooks   # once: the fast suite runs before every commit
+scripts/run_tests.sh --fast            # ~25s, what the hook runs
+scripts/run_tests.sh --long            # integration, races and every example
+make check                             # everything, plus a clean-tree assertion
+```
+
+The suite splits on whether a test is cheap enough to run before every commit; the hook
+runs the fast half and the linter, and `git commit --no-verify` bypasses it.
+[testing.md](testing.md) has what each half covers, and
+[architecture.md](architecture.md) has where a change goes.
+
 ## Task recipes
 
 | Task | Command |

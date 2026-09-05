@@ -839,6 +839,12 @@ _YAML_RESERVED_KEYS = ("<<",)
 _YAML_DOCUMENT_MARKERS = ("---", "...")
 
 
+# A scalar made only of these, starting with a letter, is a plain name: not
+# numeric under any YAML spelling, carrying no indicator, no colon, no
+# quote, no control character and no escape. Nothing below can refuse it.
+_SAFE_PLAIN_SCALAR_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.\-]*\Z")
+
+
 def _reject_ambiguous_scalar(tok: str, context: str,
                              in_flow: bool = False) -> None:
     """Refuse one unquoted scalar that the two YAML backends read differently.
@@ -848,6 +854,14 @@ def _reject_ambiguous_scalar(tok: str, context: str,
     """
     raw = tok.strip()
     if not raw:
+        return
+    # The overwhelming majority of scalars in a real config are ordinary
+    # names -- slot names, prefixes, profile names -- and every rule below
+    # would pass them. Checked after the word set, because `yes`, `no`,
+    # `on` and `off` are ordinary names by shape and ambiguous by meaning.
+    # This runs for every key and every value in the file, so the early
+    # return is most of what keeps reading a thousand-slot config fast.
+    if raw not in _YAML_AMBIGUOUS_WORDS and _SAFE_PLAIN_SCALAR_RE.match(raw):
         return
     if raw[0] == '"':
         _reject_unsupported_escape(raw, context)
@@ -1138,6 +1152,12 @@ def _reject_renumbered_key(key: str, context: str) -> None:
         return
 
 
+# Compiled for the same reason as the control-character pattern: this runs
+# for every scalar inside a flow collection, and a character loop showed up
+# as a quarter of the guard's time.
+_FLOW_INDICATOR_RE = re.compile(r"[\[\]{}]")
+
+
 def _reject_flow_indicator_in_scalar(raw: str, context: str) -> None:
     """Refuse a plain scalar inside [ ] or { } that carries an indicator.
 
@@ -1153,13 +1173,13 @@ def _reject_flow_indicator_in_scalar(raw: str, context: str) -> None:
     refusing either here would make the built-in parser stricter than
     PyYAML, which is the same divergence pointing the other way.
     """
-    for ch in raw:
-        if ch in "[]{}":
-            die("%s: the value %s inside a flow collection contains %r, "
-                "which YAML reads as structure there rather than as text. "
-                "PyYAML refuses it and the built-in parser reads it as "
-                "text, so the two disagree. Quote the whole value, or move "
-                "it onto its own line." % (context, raw, ch))
+    found = _FLOW_INDICATOR_RE.search(raw)
+    if found:
+        die("%s: the value %s inside a flow collection contains %r, "
+            "which YAML reads as structure there rather than as text. "
+            "PyYAML refuses it and the built-in parser reads it as "
+            "text, so the two disagree. Quote the whole value, or move "
+            "it onto its own line." % (context, raw, found.group()))
 
 
 def _reject_control_characters(raw: str, context: str) -> None:

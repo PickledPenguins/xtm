@@ -95,6 +95,11 @@ Binding has two consequences:
 Matching is case-sensitive and compares against the short hostname, so
 `workstation.corp.example.com` is matched as `workstation`.
 
+**A binding can be checked from anywhere.** `--hostname NAME` runs as the machine `NAME`:
+visibility, `match` evaluation and the per-machine state file all follow it, so
+`xtm --hostname build-3 --auto --list` answers "what would build-3 do with this config"
+without being build-3. Pair it with `--dry-run` to look without touching anything.
+
 See [configuration.md](configuration.md) for the `match` syntax and
 [cli.md](cli.md) for `--all`, `--auto` and `--make-global`.
 

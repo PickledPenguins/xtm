@@ -95,11 +95,13 @@ Then `xtm desk --reset-all` opens `desk-work1` and `desk-logs` and places them.
 | [docs/concepts.md](docs/concepts.md) | The vocabulary: slot, session, profile, ownership, machine binding, strays |
 | [docs/guide.md](docs/guide.md) | Installing, everyday workflows, task recipes, switching profiles, upgrading |
 | [docs/cli.md](docs/cli.md) | Every action, option, view, JSON key, exit status and environment variable |
+| [docs/lifecycle.md](docs/lifecycle.md) | What happens in what order: one invocation, a reset, a switch, a capture |
 | [docs/configuration.md](docs/configuration.md) | Every config key, validation, and the YAML rules both readers enforce |
 | [docs/placement.md](docs/placement.md) | How a window is moved, identified and captured, and why positions need correcting |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | What breaks, what it looks like, and what to do |
 | [docs/architecture.md](docs/architecture.md) | How xtm is built, the design decisions, and how to extend it |
 | [docs/testing.md](docs/testing.md) | Running the suite, what each part covers, coverage |
+| [docs/contributing.md](docs/contributing.md) | Changing xtm itself: where a change goes, what enforces what, recipes |
 | [docs/future-work.md](docs/future-work.md) | Planned work, and decisions taken not to build something |
 | [examples/](examples/) | Forty worked configurations at three levels, plus eight meant to fail. They run as tests |
 

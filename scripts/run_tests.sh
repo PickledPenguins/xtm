@@ -187,11 +187,19 @@ run_coverage() {
         > "$COVERAGE_BOOTSTRAP/coverage-subprocess.pth"
     rm -rf "$BUILD/coverage"
     mkdir -p "$BUILD/coverage"
+    # Tee'd because record_metrics.py takes the test count from this output
+    # rather than running the suite a second time to count it.
     COVERAGE_PROCESS_START="$ROOT/.coveragerc" \
     PYTHONPATH="$COVERAGE_BOOTSTRAP" \
-        $PYTHON -m coverage run -m unittest discover -t . -s tests
+        $PYTHON -m coverage run -m unittest discover -t . -s tests 2>&1 \
+        | tee "$BUILD/coverage-run.log"
     $PYTHON -m coverage combine
     $PYTHON -m coverage report
+    # Record what was measured, so the numbers quoted in docs/testing.md can
+    # be checked against a real run rather than trusted. They have gone stale
+    # three times; a table whose whole value is being current needs a gate,
+    # not a habit.
+    $PYTHON scripts/record_metrics.py
 }
 
 run_perf() {

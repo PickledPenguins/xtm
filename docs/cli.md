@@ -94,23 +94,11 @@ else. `--verify` adds a read-back-and-compare step after each placement. `--debu
 
 ## Fixed execution order
 
-Every invocation runs the same pipeline:
-
-1. **Parse arguments.** A usage error exits 2 before anything is read. A positional profile
-   name is folded into `--profile` here, and supplying both spellings is rejected.
-2. **Configure logging.** `--log-level`, then `--debug`, then `--quiet`, otherwise INFO. A
-   log file is always opened at DEBUG.
-3. **Resolve paths.** `--config` beats `XTM_CONFIG_DIR` beats the default; `--state-dir`
-   beats `XTM_STATE_DIR` beats the default. The state file name gains this machine's short
-   hostname.
-4. **Set run modes.** `--dry-run`, `--verify` and `--no-frame-compensation` take effect.
-5. **Take the config lock**, for actions that write to the config file.
-6. **Load and sanity-check the config**, creating one if it does not exist and adding the
-   reserved `default` profile if the file lacks it. That addition is saved immediately.
-7. **Resolve the profile**, in the order given in [concepts.md](concepts.md).
-8. **Validate that profile** in full, injecting default `stack` and `sessions` if absent.
-9. **Run the action.**
-10. **Save the config**, for actions that changed it.
+Every invocation runs the same pipeline: parse, configure logging, resolve paths, set run
+modes, take the lock, load and validate, resolve the profile, run the action, save. The
+order matters in a few places — which option beats which, and when the config is written —
+and it is set out step by step in [lifecycle.md](lifecycle.md), along with what happens
+during a reset, a profile switch and a capture.
 
 Within `--reset` and `--reset-all`, named sessions are processed in config file order, then
 strays are stacked alphabetically.
