@@ -250,6 +250,11 @@ it is wrong.
   YAML tests are the model.
 - **A fixed count in a test is a claim**: `test_there_are_examples_to_run` guards the
   example sweep so a discovery bug cannot make every other example test vacuously pass.
+- **An example directory may carry more than a config.** `profile` names the profile to
+  report on, `flags` adds arguments the example needs — `--all` for one whose subject is a
+  profile bound to another machine — and `block-pyyaml` runs it with PyYAML hidden.
+  `python3 examples/run.py --record [prefix]` rewrites the recorded output after a
+  deliberate change; read the diff.
 - **The examples are fixtures.** A new directory under `examples/` is under test as soon as
   it exists; there is no list to update.
 

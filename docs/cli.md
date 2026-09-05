@@ -44,6 +44,7 @@ prints the status of the effective profile.
 | — | `--detach-mode` | — | With `--close-all`, detach the windows instead of killing the sessions. |
 | `-c` | `--config` | `PATH` | Path to the config file. |
 | — | `--state-dir` | `PATH` | Directory holding the current-profile state file. |
+| — | `--hostname` | `NAME` | Act as the machine `NAME`: `match` blocks, profile visibility and the state file all follow it. |
 | `-j` | `--json` | — | Emit JSON from `--list`, `--list-profiles`, `--current-profile` and `--validate`. |
 | `-N` | `--dry-run` | — | Show what would happen without launching, moving, closing or saving anything. |
 | `-y` | `--yes` | — | Answer yes to confirmation prompts. |
@@ -121,6 +122,7 @@ strays are stacked alphabetically.
 | `--profile` | A name that is not in the config is an error, and the state file is left unchanged. |
 | `--auto` | With no matching `match` block, falls through to the reserved `default` profile, which always exists. |
 | `--all` | Affects visibility only. It never changes what a command does to a profile it can already see. |
+| `--hostname` | Everything that depends on which machine this is follows it: which profiles are visible, which `match` block wins under `--auto`, and which per-machine state file is read and written. That last one is why it is not a preview flag on its own — pair it with `--dry-run` to change nothing. The name must be a valid profile-name charset, since it ends up in a filename. |
 | `--detach` | Accepts a slot name or a session name. A session with no window attached reports so and exits 0; a session that is not running exits 1. |
 | `--capture-new` | Only meaningful with `--update-profile`. Captured windows are recorded with an explicit `session:`, because those sessions already exist under the names they were captured with and must not be renamed by the profile's prefix. |
 | `--on-switch` | Applies to the profile being left, not the one being entered. Has no effect when the profile is not actually changing. |
@@ -164,6 +166,25 @@ cannot read.
 | `--dry-run` vs `--verify` | `--dry-run` runs before the fact and changes nothing. `--verify` runs after the fact and checks that what was requested happened. |
 | `--profile` vs `--auto` | `--profile` names a profile and remembers it. `--auto` forgets the remembered one for this run and re-derives the choice from the hostname. |
 | `--quiet` vs `--json` | `--quiet` silences the log stream on stderr. `--json` changes the data format on stdout. |
+
+## Checking a config for another machine
+
+A profile bound with `match:` is hidden on every machine but its own, so from anywhere else
+`xtm build` reports that it belongs to another machine. `--all` reveals such a profile for
+listing and management, but it does not let you see what that machine would *do* —
+auto-selection is the thing a `match` block is for, and it can only be exercised as the
+machine in question.
+
+`--hostname NAME` is that: the run acts as `NAME` throughout.
+
+```bash
+xtm --hostname build-3 --auto --list          # what build-3 would open
+xtm --hostname workstation-7 --list-profiles  # what that desk can see
+xtm --hostname build-3 --dry-run --reset-all  # ...without touching anything
+```
+
+Pair it with `--dry-run` when you only want to look: on its own it also reads and writes
+that machine's state file, because acting as a machine means acting as it throughout.
 
 ## The status view (`--list`)
 

@@ -103,13 +103,27 @@ python3 examples/run.py --negative
 | [negative/07-unknown-match-key](negative/07-unknown-match-key/) | `match` takes `hostname` and nothing else; `display:` was removed in 0.4. |
 | [negative/08-document-marker](negative/08-document-marker/) | `---` loads under PyYAML and fails without it. |
 
+## What a directory may contain
+
+| File | Meaning |
+|---|---|
+| `config.yaml` | Required. The example itself. |
+| `README.md` | Required. What it shows, its level, and what to expect. |
+| `expected.json` | Required. What `xtm --list --json` reports for it. |
+| `profile` | The profile to report on, when it is not the one xtm would pick. |
+| `flags` | Extra arguments the example needs — `--all` for one whose subject is a profile bound to another machine. |
+| `block-pyyaml` | An empty marker: run this one with PyYAML hidden. |
+
 ## Writing a new one
 
-Add a directory with `config.yaml` and `README.md`, then:
+Add a directory under the level it belongs to, with `config.yaml` and `README.md`, then:
 
 ```bash
-python3 examples/run.py --show NN-your-example > examples/NN-your-example/expected.json
+python3 examples/run.py --record simple/16-your-example
 ```
 
-Check the output says what you meant before committing it. The point of
+Check the recorded output says what you meant before committing it. The point of
 `expected.json` is that a human agreed with it once.
+
+`--record` takes a prefix, so `--record complex/` re-records a whole level after a
+deliberate behaviour change, and a bare `--record` does all forty. Read the diff.

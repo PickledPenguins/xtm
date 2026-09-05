@@ -179,17 +179,37 @@ class TestProfileManagement(IntegrationBase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("onlyone", result.stdout)
 
-    def test_missing_reserved_profile_is_recreated(self):
+    def test_missing_reserved_profile_is_supplied_for_the_run(self):
         # A config without "default" (written by 0.3, or edited by hand)
-        # gains it on load, so resolution always has a last resort.
+        # gains it on load, so resolution always has a last resort. A
+        # reporting command supplies it in memory only: rewriting a config
+        # the user asked to read would expand their flow style and drop
+        # their comments.
         self.write_config("""\
             profiles:
               onlyone:
                 sessions: {}
             """)
-        result = self.run_xtm("-l")
+        result = self.run_xtm("--profile", "onlyone", "-P")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("default", result.stdout)
+        self.assertNotIn("default", self.config_text())
+
+    def test_a_writing_command_persists_the_reserved_profile(self):
+        self.write_config("""\
+            profiles:
+              onlyone:
+                sessions: {}
+            """)
+        result = self.run_xtm("--profile", "onlyone", "-s", "a", "0,0,90,70")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("default", self.config_text())
+
+    def test_a_bare_run_reports_the_reserved_profile(self):
+        """With nothing saved and nothing matching, resolution ends at
+        `default`, which is what makes a bare `xtm` work anywhere."""
+        result = self.run_xtm("-l")
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Profile: default", result.stdout)
 
     def test_auto_profile_selection_by_hostname(self):
@@ -204,6 +224,58 @@ class TestProfileManagement(IntegrationBase):
             """)
         result = self.run_xtm("-a", "-l")
         self.assertIn("Profile: matched", result.stdout)
+
+
+class TestReadingDoesNotWrite(IntegrationBase):
+    """A command that only reports must not rewrite the config.
+
+    The reserved profile has to exist, so a config lacking it gains one --
+    but saving that immediately meant `--list` rewrote a hand-written file:
+    flow style expanded, comments gone, on a command the user asked only to
+    read. Writing an example against a checked-in config destroyed it twice
+    before this was noticed.
+    """
+
+    HAND_WRITTEN = (
+        "# a comment that must survive being read\n"
+        "profiles:\n"
+        "  desk: {prefix: d-, sessions: {work1: {x: 0, y: 0, width: 900, height: 700}}}\n"
+    )
+
+    def write_config(self):
+        path = self.tmp / "cfg" / "config.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.HAND_WRITTEN)
+        return path
+
+    def test_list_leaves_a_config_without_the_reserved_profile_alone(self):
+        path = self.write_config()
+        result = self.run_xtm("--profile", "desk", "-l")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(self.HAND_WRITTEN, path.read_text(),
+                         "--list rewrote the config it was asked to read")
+
+    def test_validate_leaves_it_alone_too(self):
+        path = self.write_config()
+        self.run_xtm("-V")
+        self.assertEqual(self.HAND_WRITTEN, path.read_text(),
+                         "--validate rewrote the config")
+
+    def test_the_reserved_profile_is_still_there_for_the_run(self):
+        """In memory, so resolution still ends somewhere that exists."""
+        self.write_config()
+        result = self.run_xtm("-P")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("default", result.stdout)
+
+    def test_a_writing_command_persists_it(self):
+        """The first command that writes anyway saves the reserved profile
+        with its own change, which is when the file was going to change."""
+        path = self.write_config()
+        self.run_xtm("--profile", "desk", "-s", "work2", "0,0,100,100")
+        self.assertIn("default", path.read_text(),
+                      "a command that rewrote the config did not persist the "
+                      "reserved profile")
 
 
 class TestValidation(IntegrationBase):
@@ -361,6 +433,9 @@ class TestReservedDefaultProfile(IntegrationBase):
         self.write_config("profiles:\n  desk:\n    sessions: {}\n")
         result = self.run_xtm("--list-profiles")
         self.assertEqual(result.returncode, 0, result.stderr)
+        # Present for the run; written back by the next command that writes.
+        self.assertIn("default", result.stdout)
+        self.run_xtm("--copy-profile", "desk", "desk2")
         self.assertIn("default", self.config_text())
 
     def test_cannot_be_deleted(self):

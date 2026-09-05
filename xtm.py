@@ -109,6 +109,18 @@ class RunContext(object):
         # written. Checked at every side-effecting call rather than at one
         # gate, so a new side effect has to opt in deliberately.
         self.dry_run = False
+        # Whether this invocation is one that writes the config at all.
+        # Reporting commands set it False, and the reserved profile is then
+        # injected in memory rather than saved: reading someone's config is
+        # not a reason to rewrite it, and rewriting expands their flow style
+        # and drops their comments.
+        self.may_write_config = True
+        # The machine this run acts as. None means "this one". Set by
+        # --hostname, so a config can be checked as the machine it was
+        # written for: a profile bound with `match:` is hidden everywhere
+        # else, and auto-selection -- the thing the binding is for -- could
+        # otherwise only be exercised by being on that host.
+        self.hostname = None  # type: Optional[str]
         # Read each window's position back after placing it and report the
         # difference from what was asked for.
         self.verify = False
@@ -1785,8 +1797,14 @@ def resolve_paths(config_path: Optional[str], state_dir: Optional[str]) -> None:
 
 def short_hostname() -> str:
     """Host portion of the machine name, sanitised to the same charset as
-    profile names so it is always safe inside a filename."""
-    name = platform.node().split(".")[0] or "unknown"
+    profile names so it is always safe inside a filename.
+
+    Honours --hostname, so every part of a run -- matching, visibility and
+    the per-machine state file -- agrees about which machine it is acting
+    as. Overriding only the matching would produce a run that selected one
+    machine's profile and remembered it as another's.
+    """
+    name = CONTEXT.hostname or platform.node().split(".")[0] or "unknown"
     return re.sub(r"[^A-Za-z0-9_.\-]", "_", name)
 
 
@@ -1846,15 +1864,22 @@ def load_config(create_if_missing: bool = True) -> ConfigDict:
         validate_profile_name(name)
     if DEFAULT_PROFILE_NAME not in data["profiles"]:
         # The reserved profile is the last resort of resolution, so it has
-        # to exist. Recreating it keeps a config written by an older
-        # version, or one whose default was removed by hand, working.
-        logger.info("Adding the reserved %r profile to %s.",
-                    DEFAULT_PROFILE_NAME, CONTEXT.config_file)
+        # to exist for this run. Whether it is also written back depends on
+        # whether this command writes the config anyway: a reporting command
+        # that rewrote the file would expand the user's flow style and drop
+        # their comments, on a run they asked only to read.
         data["profiles"][DEFAULT_PROFILE_NAME] = {
             "stack": dict(DEFAULT_STACK),
             "sessions": {},
         }
-        save_config(data)
+        if CONTEXT.may_write_config:
+            logger.info("Adding the reserved %r profile to %s.",
+                        DEFAULT_PROFILE_NAME, CONTEXT.config_file)
+            save_config(data)
+        else:
+            logger.debug("Supplying the reserved %r profile for this run; "
+                         "%s is not being written by this command.",
+                         DEFAULT_PROFILE_NAME, CONTEXT.config_file)
     logger.debug("Loaded config from %s with profiles: %s",
                  CONTEXT.config_file, ", ".join(sorted(data["profiles"])) or "(none)")
     return data
@@ -4298,6 +4323,12 @@ def build_parser() -> argparse.ArgumentParser:
     general.add_argument("--state-dir", metavar="PATH",
                          help="Directory holding the current-profile state "
                               "file (default: $XTM_STATE_DIR).")
+    general.add_argument("--hostname", metavar="NAME",
+                         help="Act as the machine NAME: match blocks, "
+                              "profile visibility and the state file all "
+                              "follow it. For checking a config written for "
+                              "another machine; pair with --dry-run to "
+                              "change nothing.")
     general.add_argument("-j", "--json", action="store_true",
                          help="Emit machine-readable JSON from reporting "
                               "commands (--list, --list-profiles, "
@@ -4389,6 +4420,12 @@ def apply_runtime_flags(args: argparse.Namespace) -> None:
     CONTEXT.dry_run = bool(args.dry_run)
     CONTEXT.verify = bool(args.verify)
     CONTEXT.frame_compensation = not args.no_frame_compensation
+    if args.hostname is not None:
+        # Same charset as a profile name, because it ends up in the state
+        # file's name: a hostname carrying a slash or a colon would write
+        # outside the state directory or produce a file that cannot be read
+        # back.
+        CONTEXT.hostname = validate_profile_name(args.hostname)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -4406,10 +4443,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                  CONTEXT.config_file, CONTEXT.state_file, "yes" if HAVE_PYYAML else "no")
     if CONTEXT.dry_run:
         logger.info("Dry run: no windows or files will be changed.")
+    if CONTEXT.hostname:
+        # Said once, at INFO, because every later message about visibility
+        # and matching only makes sense if the reader knows which machine
+        # this run is pretending to be.
+        logger.info("Acting as host %r rather than %s.",
+                    CONTEXT.hostname, platform.node().split(".")[0])
 
     dest, handler, mutates, needs_profile = selected_action(args)
     logger.debug("Action: %s (mutates config: %s, needs profile: %s)",
                  dest, mutates, needs_profile)
+    # --edit is marked as not mutating because it must not hold the lock
+    # across an editor session, but it does write, so it keeps permission.
+    CONTEXT.may_write_config = mutates or dest == "edit"
 
     # Mutating commands hold the lock across the whole load/modify/save
     # cycle, so two concurrent runs cannot lose each other's edits.

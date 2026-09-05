@@ -192,6 +192,22 @@ CATALOGUE = [
         "A failure inside the validator must still leave the profile as it "
         "was; the edit was never accepted."),
     Mutant(
+        "reading-does-not-rewrite-the-config",
+        "        if CONTEXT.may_write_config:",
+        "        if True:",
+        ["tests.integration.test_basics"],
+        "A reporting command supplies the reserved profile in memory. "
+        "Saving it there rewrites a config the user asked only to read, "
+        "expanding their flow style and dropping their comments."),
+    Mutant(
+        "hostname-override-reaches-the-state-file",
+        "    name = CONTEXT.hostname or platform.node().split(\".\")[0] or \"unknown\"",
+        "    name = platform.node().split(\".\")[0] or \"unknown\"",
+        ["tests.integration.test_environments"],
+        "--hostname must reach everything that depends on which machine "
+        "this is, or a run selects one machine's profile and remembers it "
+        "as another's."),
+    Mutant(
         "config-lock-prevents-lost-updates",
         "                fcntl.flock(self._handle.fileno(),\n"
         "                            fcntl.LOCK_EX | fcntl.LOCK_NB)\n"

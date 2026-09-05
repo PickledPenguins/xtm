@@ -257,3 +257,75 @@ class TestDependencyFreeYamlEndToEnd(IntegrationBase):
         self.assertIn("# not a comment", self.config_text())
         check = self.run_xtm("--validate")
         self.assertEqual(check.returncode, 0, check.stderr)
+
+
+class TestHostnameOverride(IntegrationBase):
+    """`--hostname` answers "what would this config do on that machine?".
+
+    A profile bound with `match:` is hidden everywhere but the machine it
+    names, so before this there was no way to check one from anywhere else:
+    `--all` reveals it for listing, but auto-selection -- the thing the
+    `match` block is *for* -- could only be exercised by being on that host.
+    Writing the fleet example ran straight into it.
+    """
+
+    CONFIG = """\
+        profiles:
+          default:
+            sessions: {}
+          build:
+            match:
+              hostname: build-*
+            sessions:
+              compile: {x: 0, y: 0, width: 900, height: 700}
+          desk:
+            match:
+              hostname: workstation-7
+            sessions:
+              editor: {x: 0, y: 0, width: 900, height: 700}
+        """
+
+    def setUp(self):
+        IntegrationBase.setUp(self)
+        self.write_config(self.CONFIG)
+
+    def write_config(self, text):
+        import textwrap
+        path = self.tmp / "cfg" / "config.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(textwrap.dedent(text))
+        return path
+
+    def test_a_bound_profile_is_selectable_as_its_own_machine(self):
+        result = self.run_xtm("--hostname", "build-3", "-l")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("Profile: build", result.stdout)
+
+    def test_it_is_auto_selected_the_way_it_would_be_there(self):
+        """The point: `match` is exercised, not bypassed."""
+        result = self.run_xtm("--hostname", "workstation-7", "--auto", "-l")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("Profile: desk", result.stdout)
+
+    def test_visibility_follows_the_named_machine(self):
+        result = self.run_xtm("--hostname", "build-1", "-P")
+        self.assertIn("build", result.stdout)
+        self.assertNotIn("desk", result.stdout)
+
+    def test_an_unmatched_name_falls_back_to_the_reserved_profile(self):
+        result = self.run_xtm("--hostname", "somewhere-else", "--auto", "-l")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("Profile: default", result.stdout)
+
+    def test_the_state_file_follows_it_too(self):
+        """Acting as a machine means acting as that machine throughout, so
+        the per-machine state file is that machine's as well."""
+        self.run_xtm("--hostname", "build-9", "--profile", "build", "-l")
+        names = [p.name for p in (self.tmp / "state").iterdir()]
+        self.assertIn("current_profile.build-9", names,
+                      "the state file did not follow --hostname: %s" % (names,))
+
+    def test_an_invalid_hostname_is_refused(self):
+        result = self.run_xtm("--hostname", "not a hostname", "-l")
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn("Traceback", result.stderr)

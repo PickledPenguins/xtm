@@ -20,18 +20,22 @@ session shared across two of them.
   them regardless, because a config broken for the build hosts is still
   broken.
 
-## The reported profile
+## Seeing it from the wrong machine
 
-`build` is what `expected.json` records, and reaching it needs `--all` — which
-is the point worth taking away. **A bound profile cannot be selected on a
-machine it does not match**, so on any host but a build host, `xtm build`
-fails with "belongs to another machine" and `--all` is the only way in. This
-example carries a `flags` file saying so, because the runner would otherwise
-be unable to report on it at all.
+**A bound profile cannot be selected on a machine it does not match**: on any
+host but a build host, `xtm build` reports that it belongs to another machine.
+Two ways in, and they answer different questions:
 
-There is no way to *preview* a bound profile as the machine it belongs to:
-`--all` reaches it, but auto-selection cannot be exercised from elsewhere, so
-the `match:` block itself is only really testable on the machine it names.
+```bash
+xtm --all --list-profiles                     # what exists, including elsewhere
+xtm --hostname build-3 --auto --list          # what build-3 would actually do
+```
+
+`--all` reveals a profile for listing and management. `--hostname` goes
+further and runs *as* that machine, so the `match` blocks are exercised rather
+than bypassed — which is the only way to check that the binding itself is
+right. This example carries a `flags` file with `--all`, because the runner
+reports on `build` by name from a machine that is not one.
 
 ## Try it
 

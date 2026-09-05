@@ -15,6 +15,15 @@ _xtm_profiles() {
     xtm --list-profiles --quiet 2>/dev/null | sed 's/ \*$//'
 }
 
+_xtm_match_hostnames() {
+    # The hostnames profiles are bound to, taken from the config through xtm
+    # itself. --all is needed because a profile bound elsewhere is exactly
+    # the one you would want to act as, and a glob is skipped: it is a
+    # pattern, not a machine you can be.
+    xtm --list-profiles --all --json --quiet 2>/dev/null \
+        | sed -n 's/.*"hostname": *"\([^"*?[]*\)".*/\1/p'
+}
+
 _xtm_sessions() {
     # Slot names and resolved session names from the current profile, plus
     # any running tmux session, so that --close, --detach and --focus all
@@ -36,7 +45,7 @@ _xtm() {
         --list-profiles --current-profile --validate --edit --delete-profile
         --copy-profile --rename-profile --make-global --detach"
     local options="--profile --auto --all --verbose --on-switch --capture-new
-        --detach-mode --config --state-dir --json --dry-run --yes --verify
+        --detach-mode --config --state-dir --hostname --json --dry-run --yes --verify
         --no-frame-compensation --debug --quiet --log-level --log-file
         --help --version"
 
@@ -58,6 +67,12 @@ _xtm() {
             return 0 ;;
         --state-dir)
             COMPREPLY=( $(compgen -d -- "$cur") )
+            return 0 ;;
+        --hostname)
+            # Hostnames known to the config, since the point of the flag is
+            # to act as a machine some profile is bound to. A `match` block
+            # may hold a glob, which is not a hostname and is skipped.
+            COMPREPLY=( $(compgen -W "$(_xtm_match_hostnames)" -- "$cur") )
             return 0 ;;
         --log-level)
             COMPREPLY=( $(compgen -W "debug info warning error critical" -- "$cur") )

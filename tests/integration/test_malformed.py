@@ -185,10 +185,12 @@ class TestMalformedConfig(IntegrationBase):
               desk:
                 sessions: {}
             """)
-        # Warm up first: the reserved "default" profile is added on the
-        # first load, and that legitimate change must not be mistaken for
-        # the command having touched the config.
-        self.run_xtm("--profile", "desk", "--list")
+        # Warm up with a command that WRITES: the reserved "default" profile
+        # is persisted by the first such command, and that legitimate change
+        # must not be mistaken for a failing --set having touched the file.
+        # A reporting command no longer serves here, because reading a config
+        # deliberately does not rewrite it.
+        self.run_xtm("--profile", "desk", "--set", "warmup", "0,0,100,100")
         before = self.config_text()
         for spec in ("1,2,3", "a,b,c,d", "1,2,0,400", "1,2,300", ""):
             result = self.run_xtm("--profile", "desk", "--set", "s", spec)

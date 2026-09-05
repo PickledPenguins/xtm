@@ -10,9 +10,20 @@ machines (absolute paths, the detected window-query tool, live geometry),
 because an example is a statement about the CONFIG, not about the machine
 reading it.
 
-    python3 examples/run.py                  # all examples
-    python3 examples/run.py 01-single-desktop
-    python3 examples/run.py --show 01-single-desktop   # print, do not compare
+    python3 examples/run.py                       # all examples
+    python3 examples/run.py simple/01-one-screen  # just one
+    python3 examples/run.py --show simple/01-one-screen   # print, do not compare
+    python3 examples/run.py --record              # rewrite every expected.json
+    python3 examples/run.py --record complex/     # rewrite the matching ones
+    python3 examples/run.py --negative            # the configs that must fail
+
+An example directory may also carry:
+
+    profile      the profile name to report on, when it is not the default
+    flags        extra arguments the example needs, one per line or space
+                 separated -- `--all` for an example whose subject is a
+                 profile bound to another machine
+    block-pyyaml an empty marker: run this one with PyYAML hidden
 """
 
 import json
@@ -176,7 +187,8 @@ def check_negatives(names, show):
 
 def main(argv):
     show = "--show" in argv
-    argv = [a for a in argv if a != "--show"]
+    record = "--record" in argv
+    argv = [a for a in argv if a not in ("--show", "--record")]
 
     if "--negative" in argv:
         argv = [a for a in argv if a != "--negative"]
@@ -193,7 +205,17 @@ def main(argv):
             print("\n%d negative example(s) refused as recorded." % (len(names),))
         return 0
 
-    names = argv or example_names()
+    # A bare tier name, or any prefix, selects the examples under it: the
+    # alternative is typing forty paths to re-record a tier.
+    names = example_names()
+    if argv:
+        selected = []
+        for wanted in argv:
+            matched = [n for n in names if n == wanted or n.startswith(wanted)]
+            if not matched:
+                raise SystemExit("no example matches %r" % (wanted,))
+            selected.extend(matched)
+        names = selected
     failures = []
     for name in names:
         directory = HERE / name
@@ -226,6 +248,15 @@ def main(argv):
         actual = run_example(directory, env_extra)
         if show:
             print(json.dumps(actual, indent=2, sort_keys=True))
+            continue
+        if record:
+            # Deliberately a mode of this runner rather than a shell loop:
+            # recording forty expectations by hand is how one of them ends
+            # up recorded from a different command than the one that checks
+            # it.
+            (directory / "expected.json").write_text(
+                json.dumps(actual, indent=2, sort_keys=True) + "\n")
+            print("recorded %s" % (name,))
             continue
 
         expected_file = directory / "expected.json"
