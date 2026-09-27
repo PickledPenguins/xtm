@@ -1,4 +1,4 @@
-"""scripts/run_tests.sh is the entry point, so its own behaviour is a contract.
+"""tests/run-tests.sh is the entry point, so its own behaviour is a contract.
 
 Selecting no modules is the case worth pinning: a pattern that matches
 nothing must say so, in both the isolated and the shared mode. The shared
@@ -12,7 +12,7 @@ import unittest
 
 from tests.support import REPO_ROOT
 
-RUNNER = REPO_ROOT / "scripts" / "run_tests.sh"
+RUNNER = REPO_ROOT / "tests" / "run-tests.sh"
 
 
 def run(*argv):

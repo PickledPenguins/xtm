@@ -19,7 +19,7 @@ import unittest
 
 from tests.support import IntegrationBase, REPO_ROOT
 
-XTM_SCRIPT = REPO_ROOT / "xtm.py"
+XTM_SCRIPT = REPO_ROOT / "src" / "xtm.py"
 
 
 class TestPromptCancellation(IntegrationBase):

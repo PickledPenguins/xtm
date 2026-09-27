@@ -1,7 +1,7 @@
 # bash completion for xtm
 #
 # Install with:  ./install.sh --completion
-# or by hand:    cp xtm-completion.bash ~/.local/share/bash-completion/completions/xtm
+# or by hand:    cp completions/xtm.bash ~/.local/share/bash-completion/completions/xtm
 #
 # Completes actions and options, profile names for the options that take one,
 # and session names for the options that take one. Names are read from xtm

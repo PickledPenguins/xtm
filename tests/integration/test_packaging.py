@@ -22,7 +22,7 @@ from tests.support import (
 )
 
 INSTALL_SH = REPO_ROOT / "install.sh"
-COMPLETION = REPO_ROOT / "xtm-completion.bash"
+COMPLETION = REPO_ROOT / "completions" / "xtm.bash"
 
 
 class InstallerBase(unittest.TestCase):
@@ -60,7 +60,7 @@ class TestInstaller(InstallerBase):
         """A copy, not a rewrite: no build step means nothing can mangle it."""
         self.install()
         self.assertEqual((self.prefix / "xtm").read_bytes(),
-                         (REPO_ROOT / "xtm.py").read_bytes())
+                         (REPO_ROOT / "src" / "xtm.py").read_bytes())
 
     def test_the_installed_copy_actually_runs(self):
         self.install()
@@ -231,7 +231,7 @@ class TestConsoleEntryPoint(unittest.TestCase):
         """Call the console script's function the way a wheel's wrapper does."""
         program = (
             "import sys; sys.path.insert(0, %r); import xtm; "
-            "sys.exit(xtm.%s(%r))" % (str(REPO_ROOT), self.entry_point_name(),
+            "sys.exit(xtm.%s(%r))" % (str(REPO_ROOT / "src"), self.entry_point_name(),
                                       list(argv))
         )
         return subprocess.run([sys.executable, "-c", program],
@@ -264,7 +264,7 @@ class TestConsoleEntryPoint(unittest.TestCase):
         program = (
             "import sys; sys.path.insert(0, %r); import xtm; "
             "xtm.main = lambda argv=None: (_ for _ in ()).throw(KeyboardInterrupt()); "
-            "sys.exit(xtm.%s([]))" % (str(REPO_ROOT), self.entry_point_name())
+            "sys.exit(xtm.%s([]))" % (str(REPO_ROOT / "src"), self.entry_point_name())
         )
         result = subprocess.run([sys.executable, "-c", program],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,

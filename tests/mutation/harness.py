@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BUILD = REPO_ROOT / ".build"
 
 # Copied into each mutant's tree. Everything the tests import or read.
-COPIED = ("xtm.py", "tests", "examples", "config.yaml.example", ".coveragerc")
+COPIED = ("src", "tests", "examples", "scripts", "pyproject.toml")
 
 IGNORED = shutil.ignore_patterns("__pycache__", "*.pyc", ".build")
 
@@ -59,7 +59,7 @@ def build_tree(mutant, source):
             shutil.copytree(str(origin), str(target), ignore=IGNORED)
         else:
             shutil.copy2(str(origin), str(target))
-    (tree / "xtm.py").write_text(source)
+    (tree / "src" / "xtm.py").write_text(source)
     return tree
 
 
@@ -69,7 +69,7 @@ def run_mutant(mutant, timeout=600):
     outcome is "killed", "survived", or "stale" when the code the mutant
     describes no longer exists in the form it names.
     """
-    source = (REPO_ROOT / "xtm.py").read_text()
+    source = (REPO_ROOT / "src" / "xtm.py").read_text()
     mutated = mutant.apply_to(source)
     if mutated is None:
         return "stale", ("the pattern %r matches %d times, not once"

@@ -4,8 +4,8 @@ __pycache__/
 *$py.class
 
 # Everything the suite, the coverage run and the tools generate. One
-# directory rather than a list: .coveragerc writes its data and its HTML
-# there, scripts/run_tests.sh puts the coverage bootstrap and the bytecode
+# directory rather than a list: the coverage settings in pyproject.toml write their data and HTML
+# there, tests/run-tests.sh puts the coverage bootstrap and the bytecode
 # cache there, and `make check` proves nothing escaped it.
 .build/
 
@@ -51,4 +51,3 @@ env/
 examples/*/.pyyaml-blocker/
 
 # Saved code-review reports (creview output; generated, not source).
-/reviews/

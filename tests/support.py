@@ -40,11 +40,12 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT))
 
 import xtm  # noqa: E402  (the path must be set up first)
 
-XTM_SCRIPT = REPO_ROOT / "xtm.py"
+XTM_SCRIPT = REPO_ROOT / "src" / "xtm.py"
 
 
 # --------------------------------------------------------------------------

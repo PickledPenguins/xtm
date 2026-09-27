@@ -2,7 +2,7 @@
 #
 # install.sh - install xtm
 #
-# Copies xtm.py to a directory on PATH as the executable "xtm", and
+# Copies src/xtm.py to a directory on PATH as the executable "xtm", and
 # optionally installs the bash completion file. Requires nothing beyond a
 # POSIX shell; no network access and no package manager are used.
 
@@ -83,24 +83,24 @@ if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 6) else 1)'; 
     exit 1
 fi
 
-[ -f "$SOURCE_DIR/xtm.py" ] || {
-    echo "install.sh: xtm.py not found next to this script." >&2
+[ -f "$SOURCE_DIR/src/xtm.py" ] || {
+    echo "install.sh: src/xtm.py not found beside this script." >&2
     exit 1
 }
 
 mkdir -p "$PREFIX"
-cp "$SOURCE_DIR/xtm.py" "$TARGET"
+cp "$SOURCE_DIR/src/xtm.py" "$TARGET"
 chmod 755 "$TARGET"
 echo "Installed $TARGET"
 
 if [ "$INSTALL_COMPLETION" -eq 1 ]; then
-    if [ -f "$SOURCE_DIR/xtm-completion.bash" ]; then
+    if [ -f "$SOURCE_DIR/completions/xtm.bash" ]; then
         mkdir -p "$COMPLETION_DIR"
-        cp "$SOURCE_DIR/xtm-completion.bash" "$COMPLETION_DIR/xtm"
+        cp "$SOURCE_DIR/completions/xtm.bash" "$COMPLETION_DIR/xtm"
         echo "Installed $COMPLETION_DIR/xtm"
         echo "Start a new shell, or source it now, to enable completion."
     else
-        echo "install.sh: xtm-completion.bash not found; skipping completion." >&2
+        echo "install.sh: completions/xtm.bash not found; skipping completion." >&2
     fi
 fi
 

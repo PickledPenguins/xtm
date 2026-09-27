@@ -2,7 +2,7 @@
 """Run the property tests.
 
 They are ordinary unittest modules and run as part of the suite; this
-runner exists so `scripts/run_tests.sh --property` has one obvious command
+runner exists so `tests/run-tests.sh --property` has one obvious command
 and so they can be run alone while a property is being written.
 """
 

@@ -6,7 +6,7 @@ changes people actually make.
 ## Before anything
 
 ```bash
-scripts/run_tests.sh --install-hooks   # once, per clone
+tests/run-tests.sh --install-hooks   # once, per clone
 ```
 
 That runs the linter and the fast half of the suite before every commit, in about 25
@@ -14,7 +14,7 @@ seconds. `git commit --no-verify` bypasses it when you need to; nothing else doe
 
 ## Where a change goes
 
-`xtm.py` is one file in named sections, ordered bottom-up: primitives, then the layers
+`src/xtm.py` is one file in named sections, ordered bottom-up: primitives, then the layers
 built on them, then the commands, then the CLI. [architecture.md](architecture.md) has the
 layer table and the responsibility of each section.
 
@@ -36,7 +36,7 @@ caught something:
 | `pyflakes`, `py_compile` | No unused imports, no syntax errors | `--lint`, the hook |
 | The fast suite | Unit, differential, property, smoke, safety | the hook, `--fast` |
 | The long suite | Integration, concurrency, fault injection, examples | `--long` |
-| `.coveragerc` `fail_under` | The coverage floor, on the combined figure | `--coverage` |
+| `[tool.coverage.report] fail_under` in `pyproject.toml` | The coverage floor, on the combined figure | `--coverage` |
 | `tests/mutation/run.py` | That the suite would notice each pinned decision breaking | `--mutation` |
 | `tests/test_documentation.py` | Every option, exit code, env var, config key and JSON key documented; the README cap; no dead links; the coverage table current | the fast suite |
 | `tests/examples/` | Every example matches its recorded output; each level has enough cases; every README names its level | the long suite |
@@ -64,7 +64,7 @@ caught something:
    naming the profile, the slot and the field.
 2. Consume it where it applies.
 3. Check it survives a round trip through **both** YAML backends.
-4. Document it in [configuration.md](configuration.md) and add it to `config.yaml.example`.
+4. Document it in [configuration.md](configuration.md) and add it to `examples/config.yaml.example`.
 5. Add it to an example that already uses neighbouring keys.
 
 ### Add a rule to the YAML parity guard

@@ -5,17 +5,17 @@ How to run the suite, what each part covers, and the standard tests are held to.
 ## Running it
 
 ```sh
-scripts/run_tests.sh --fast          # the commit gate: ~25s, and what the hook runs
-scripts/run_tests.sh --long          # the release gate: integration, races, examples
-scripts/run_tests.sh                 # both halves, each module in its own interpreter
-scripts/run_tests.sh test_yaml       # only the modules whose path matches
-scripts/run_tests.sh --perf          # timing and memory gates, against this machine
-scripts/run_tests.sh --coverage      # the suite under coverage, gated by the floor
-scripts/run_tests.sh --lint          # pyflakes and a compile check
-scripts/run_tests.sh --examples      # every example, and the ones meant to fail
-scripts/run_tests.sh --list          # which modules a selection covers, run nothing
-scripts/run_tests.sh --install-hooks # install the pre-commit hook
-scripts/run_tests.sh --full          # all of the above
+tests/run-tests.sh --fast          # the commit gate: ~25s, and what the hook runs
+tests/run-tests.sh --long          # the release gate: integration, races, examples
+tests/run-tests.sh                 # both halves, each module in its own interpreter
+tests/run-tests.sh test_yaml       # only the modules whose path matches
+tests/run-tests.sh --perf          # timing and memory gates, against this machine
+tests/run-tests.sh --coverage      # the suite under coverage, gated by the floor
+tests/run-tests.sh --lint          # pyflakes and a compile check
+tests/run-tests.sh --examples      # every example, and the ones meant to fail
+tests/run-tests.sh --list          # which modules a selection covers, run nothing
+tests/run-tests.sh --install-hooks # install the pre-commit hook
+tests/run-tests.sh --full          # all of the above
 make check                           # --full, plus the clean-tree assertion
 ```
 
@@ -26,7 +26,7 @@ The suite splits on one question: is this cheap enough to run before every commi
 **Fast** — about 25 seconds — is in-process work plus four smoke checks that really do
 start the program, because a smoke test that does not start it tests nothing. It is what
 `.git/hooks/pre-commit` runs, alongside the linter; install it with
-`scripts/run_tests.sh --install-hooks` and bypass it with `git commit --no-verify`.
+`tests/run-tests.sh --install-hooks` and bypass it with `git commit --no-verify`.
 
 **Long** — about two and a half minutes — runs xtm as a child process hundreds of times,
 races several of them, and executes every example. It gates a release.
@@ -37,7 +37,7 @@ what kind of test they hold. **Every module is in exactly one half**, which
 anything: a new test directory that joins neither half would otherwise be a test nobody
 runs. The timing gates are the one deliberate exception, and are named as such.
 
-`scripts/run_tests.sh` is the only thing that knows how to run anything in this repository;
+`tests/run-tests.sh` is the only thing that knows how to run anything in this repository;
 the Makefile delegates to it. Every artefact lands under `.build/`.
 
 The suite needs no display, no window manager, no tmux and no X server. It takes about 100
@@ -177,7 +177,7 @@ three divergences reached a release.
 ## Profiling
 
 Any run that executes the examples prints a profile with them:
-`scripts/run_tests.sh --examples`, `--full`, and `make check`. `--profile` runs it alone.
+`tests/run-tests.sh --examples`, `--full`, and `make check`. `--profile` runs it alone.
 
 The examples are the closest thing here to real use — a whole config in, a full report out
 — so they are the right place to ask where the time goes. The table names xtm's own
@@ -203,7 +203,7 @@ work in the same time.
 
 ## Performance
 
-`scripts/run_tests.sh --perf` times the parity guard, the built-in reader and the built-in
+`tests/run-tests.sh --perf` times the parity guard, the built-in reader and the built-in
 writer over a thousand-slot config, and asserts a memory ceiling for reading one. Two
 things make the numbers mean something:
 
@@ -236,16 +236,16 @@ is the strictest of the three numbers and therefore holds the other two above it
 | Tests | 657 |
 
 Measured at commit `9b1e0f2`, 2026-09-04. **These numbers are checked, not trusted:**
-`scripts/run_tests.sh --coverage` records what it measured under `.build/metrics.json`, and
+`tests/run-tests.sh --coverage` records what it measured under `.build/metrics.json`, and
 `tests/test_documentation.py` fails when this table disagrees with it. They had gone stale
 three times before that existed. The floor is enforced rather than reported:
-`.coveragerc` sets `fail_under`, so a drop fails the run. It moves in steps, each earned by
+`pyproject.toml` sets `fail_under` under `[tool.coverage.report]`, so a drop fails the run. It moves in steps, each earned by
 the tests that raised the number — 95 to 96 to 97 — rather than to match a figure that
 drifted upward on its own.
 
 Coverage requires subprocess tracking, and this is not optional: most command code runs in a
 child process, so a plain `coverage run -m unittest` reports about 63% — a measurement
-artefact, not a regression. `scripts/run_tests.sh --coverage` writes the `.pth` file and
+artefact, not a regression. `tests/run-tests.sh --coverage` writes the `.pth` file and
 sets `COVERAGE_PROCESS_START` itself. **If you see 63%, you bypassed the entry point.**
 
 The uncovered remainder is 39 statements and 38 partial branches, almost entirely defensive
@@ -290,6 +290,6 @@ window manager:
 
 ## Static analysis
 
-`pyflakes` reports no findings on `xtm.py`, `tests/` or `scripts/`, and all of it compiles
-cleanly under `python3 -m py_compile`. `scripts/run_tests.sh --lint` runs both. Every
+`pyflakes` reports no findings on `src/xtm.py`, `tests/`, `scripts/` or `examples/run.py`, and all of it compiles
+cleanly under `python3 -m py_compile`. `tests/run-tests.sh --lint` runs both. Every
 function and class carries a docstring.

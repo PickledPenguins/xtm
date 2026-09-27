@@ -18,7 +18,7 @@ from pathlib import Path
 
 from tests.support import REPO_ROOT
 
-XTM = REPO_ROOT / "xtm.py"
+XTM = REPO_ROOT / "src" / "xtm.py"
 
 
 def run(*argv, **kwargs):

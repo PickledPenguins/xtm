@@ -1,21 +1,21 @@
 #!/bin/sh
 # The one way to run xtm's tests.
 #
-#   scripts/run_tests.sh                 every module, each in its own interpreter
-#   scripts/run_tests.sh --fast          the commit gate: in-process work plus smoke
-#   scripts/run_tests.sh --long          the release gate: integration, races, examples
-#   scripts/run_tests.sh test_yaml       only the modules whose path matches
-#   scripts/run_tests.sh --shared        one interpreter for the whole suite (quick)
-#   scripts/run_tests.sh --coverage      the suite under coverage, gated by the floor
-#   scripts/run_tests.sh --perf          timing and memory gates, own baseline
-#   scripts/run_tests.sh --property      generated inputs against stated invariants
-#   scripts/run_tests.sh --mutation      the mutation catalogue
-#   scripts/run_tests.sh --lint          pyflakes and a compile check
-#   scripts/run_tests.sh --examples      every example, the failures, and a profile
-#   scripts/run_tests.sh --profile       where the time goes in real usage
-#   scripts/run_tests.sh --full          all of the above
-#   scripts/run_tests.sh --list          print the selected modules, run nothing
-#   scripts/run_tests.sh --install-hooks install the pre-commit hook
+#   tests/run-tests.sh                 every module, each in its own interpreter
+#   tests/run-tests.sh --fast          the commit gate: in-process work plus smoke
+#   tests/run-tests.sh --long          the release gate: integration, races, examples
+#   tests/run-tests.sh test_yaml       only the modules whose path matches
+#   tests/run-tests.sh --shared        one interpreter for the whole suite (quick)
+#   tests/run-tests.sh --coverage      the suite under coverage, gated by the floor
+#   tests/run-tests.sh --perf          timing and memory gates, own baseline
+#   tests/run-tests.sh --property      generated inputs against stated invariants
+#   tests/run-tests.sh --mutation      the mutation catalogue
+#   tests/run-tests.sh --lint          pyflakes and a compile check
+#   tests/run-tests.sh --examples      every example, the failures, and a profile
+#   tests/run-tests.sh --profile       where the time goes in real usage
+#   tests/run-tests.sh --full          all of the above
+#   tests/run-tests.sh --list          print the selected modules, run nothing
+#   tests/run-tests.sh --install-hooks install the pre-commit hook
 #
 # Each module gets a fresh interpreter by default because xtm keeps state at
 # module level -- the run context, the logger's level, the resolved config
@@ -75,9 +75,9 @@ install_hooks() {
     hook="$ROOT/.git/hooks/pre-commit"
     cat > "$hook" <<'HOOK'
 #!/bin/sh
-# Installed by scripts/run_tests.sh --install-hooks.
+# Installed by tests/run-tests.sh --install-hooks.
 # The fast half of the suite plus the linter, before every commit.
-exec "$(git rev-parse --show-toplevel)/scripts/run_tests.sh" --lint --fast
+exec "$(git rev-parse --show-toplevel)/tests/run-tests.sh" --lint --fast
 HOOK
     chmod +x "$hook"
     echo "installed $hook (runs --lint --fast; bypass with git commit --no-verify)"
@@ -136,7 +136,7 @@ no_match() {
 
 run_lint() {
     echo "--- lint ($(date +%H:%M:%S))"
-    files="xtm.py $(find tests scripts -name '*.py' 2>/dev/null || true)"
+    files="src/xtm.py examples/run.py $(find tests scripts -name '*.py' 2>/dev/null || true)"
     # shellcheck disable=SC2086
     $PYTHON -m pyflakes $files
     # shellcheck disable=SC2086
@@ -189,7 +189,7 @@ run_coverage() {
     mkdir -p "$BUILD/coverage"
     # Tee'd because record_metrics.py takes the test count from this output
     # rather than running the suite a second time to count it.
-    COVERAGE_PROCESS_START="$ROOT/.coveragerc" \
+    COVERAGE_PROCESS_START="$ROOT/pyproject.toml" \
     PYTHONPATH="$COVERAGE_BOOTSTRAP" \
         $PYTHON -m coverage run -m unittest discover -t . -s tests 2>&1 \
         | tee "$BUILD/coverage-run.log"

@@ -56,3 +56,53 @@ xtm = "xtm:cli"
 
 [tool.setuptools]
 py-modules = ["xtm"]
+package-dir = {"" = "src"}
+
+# Coverage. Two settings are what make the number mean anything:
+#
+#   branch    xtm is mostly branching logic over the output of external
+#             tools, so line coverage alone overstates what is exercised.
+#   parallel  the integration tests run src/xtm.py as a SUBPROCESS, and each
+#             one writes its own data file for `coverage combine` to merge.
+#
+# Parallel mode is still not enough on its own: every subprocess must call
+# coverage.process_startup(), which happens only when COVERAGE_PROCESS_START
+# names this file and a .pth bootstrap is on the path. tests/run-tests.sh
+# --coverage does both. Without it the figure collapses from ~97% to ~63%,
+# because nearly the whole command layer runs in a child process -- a
+# measurement artefact, not a regression.
+#
+# Read from this file by coverage.py 7.2 or newer (for exclude_also), which
+# needs Python 3.11's tomllib or the tomli package: `coverage[toml]`.
+
+[tool.coverage.run]
+branch = true
+parallel = true
+source = ["xtm"]
+# Hundreds of parallel data files, one per subprocess; under .build/ with
+# everything else generated.
+data_file = ".build/coverage/.coverage"
+
+[tool.coverage.paths]
+# The parent imports xtm as a module while the children execute the file by
+# path. Both must fold onto one file, or every percentage is wrong.
+source = ["src/xtm.py", "*/xtm.py"]
+
+[tool.coverage.html]
+directory = ".build/htmlcov"
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+skip_covered = false
+# The floor compares against coverage.py's COMBINED figure -- statements and
+# branch exits over one denominator -- which is the strictest of the three.
+# It moves in steps earned by the tests that raised the number; never lower
+# it to make a run pass. What stays uncovered is error handling that needs
+# the filesystem to break underneath a running process, and the fcntl import
+# fallback.
+fail_under = 97
+exclude_also = [
+    # Non-POSIX platforms only; unreachable on the systems xtm targets.
+    "except ImportError:  # pragma: no cover",
+]

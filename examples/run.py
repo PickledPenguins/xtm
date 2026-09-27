@@ -35,7 +35,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
-XTM = REPO_ROOT / "xtm.py"
+XTM = REPO_ROOT / "src" / "xtm.py"
 
 # Fields whose value depends on the machine rather than on the config.
 VOLATILE_KEYS = ("config", "state_file", "geometry_tool", "live",
@@ -236,7 +236,7 @@ def main(argv):
             probe = subprocess.run(
                 [sys.executable, "-c",
                  "import sys; sys.path.insert(0, %r); import xtm;"
-                 " sys.exit(0 if not xtm.HAVE_PYYAML else 1)" % (str(REPO_ROOT),)],
+                 " sys.exit(0 if not xtm.HAVE_PYYAML else 1)" % (str(REPO_ROOT / "src"),)],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True,
                 env=dict(os.environ, PYTHONPATH=str(blocker)), timeout=60)

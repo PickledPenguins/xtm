@@ -1,17 +1,17 @@
 # xtm developer tasks.
 #
-# Every target here delegates to scripts/run_tests.sh, which is the one place
+# Every target here delegates to tests/run-tests.sh, which is the one place
 # that knows how to run anything in this repository. Run it directly when a
 # target does not pass the option you want:
 #
-#     scripts/run_tests.sh test_yaml        one module
-#     scripts/run_tests.sh --shared         one interpreter, for a quick answer
-#     scripts/run_tests.sh --help           every option
+#     tests/run-tests.sh test_yaml        one module
+#     tests/run-tests.sh --shared         one interpreter, for a quick answer
+#     tests/run-tests.sh --help           every option
 #
 # Generated files all land under .build/, which `make check` asserts.
 
 PYTHON ?= python3
-RUN    := PYTHON=$(PYTHON) scripts/run_tests.sh
+RUN    := PYTHON=$(PYTHON) tests/run-tests.sh
 
 .PHONY: help test test-fast test-long test-shared coverage coverage-html lint \
         examples profile property mutation hooks check clean
@@ -93,7 +93,7 @@ check:
 	@echo "Working tree unchanged by a full run."
 
 clean:
-	rm -rf .build .coverage-bootstrap htmlcov .pytest_cache __pycache__
+	rm -rf .build htmlcov .pytest_cache
 	rm -f .coverage .coverage.* coverage.xml coverage.json
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 	find . -name '*.pyc' -delete

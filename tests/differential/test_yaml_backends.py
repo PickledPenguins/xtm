@@ -617,7 +617,7 @@ class TestYamlBackendEquivalence(unittest.TestCase):
 
     def test_example_config_reads_identically(self):
         """The shipped example must mean the same thing on every machine."""
-        text = (REPO_ROOT / "config.yaml.example").read_text()
+        text = (REPO_ROOT / "examples" / "config.yaml.example").read_text()
         builtin, pyyaml_ = self._both(text)
         self.assertEqual(builtin[0], "ok", builtin)
         self.assertEqual(builtin, pyyaml_)

@@ -11,7 +11,7 @@ taste. Repeated runs of an unchanged tree here move a median by up to about
 35%, so the gate sits at +100%: a real regression in this code is a factor,
 not a fraction, and a tighter gate would fail on nothing but weather.
 
-`scripts/run_tests.sh --perf` runs these. They are deliberately outside both
+`tests/run-tests.sh --perf` runs these. They are deliberately outside both
 the fast and the long halves: a timing test inside a pass/fail suite that
 mixes it with unit tests is a flaky test waiting to happen.
 """
@@ -59,7 +59,7 @@ class PerformanceCase(unittest.TestCase):
     def setUp(self):
         if under_instrumentation():
             self.skipTest("running under coverage; a timing gate measures the "
-                          "tracer, not the code. Run scripts/run_tests.sh "
+                          "tracer, not the code. Run tests/run-tests.sh "
                           "--perf on its own.")
         self.baseline = {}
         if BASELINE.exists():

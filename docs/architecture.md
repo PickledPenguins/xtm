@@ -4,7 +4,7 @@ How xtm is built, where each behaviour lives, and what to know before changing i
 
 ## Shape
 
-One file, `xtm.py`, four and a half thousand lines including its documentation. The layout is bottom-up:
+One file, `src/xtm.py`, four and a half thousand lines including its documentation. The layout is bottom-up:
 primitives first, then the layers that use them, then the commands, then the CLI. There are
 four classes — a log formatter, the lock context manager, the error type and `RunContext`;
 everything else is a function over plain dictionaries loaded from YAML.
@@ -70,7 +70,7 @@ rather than by type declarations that cannot see the file.
 
 **Commands return exit codes** rather than calling `sys.exit`, so they are directly
 testable. `cli()` is the layer that turns `XtmError` into a one-line message and
-`KeyboardInterrupt` into exit 130; both `python3 xtm.py` and the console script installed by
+`KeyboardInterrupt` into exit 130; both `python3 src/xtm.py` and the console script installed by
 `pyproject.toml` call it, which is what keeps a pip-installed xtm behaving like the copied
 script.
 
@@ -173,25 +173,24 @@ design decisions rather than procedure stay here:
 ## Project structure
 
 ```
-xtm.py                 The tool. Single file, no imports outside the stdlib.
-install.sh             Installer: copies to a PATH directory, optional completion.
-xtm-completion.bash    Bash completion for actions, profiles and session names.
-config.yaml.example    Annotated example configuration.
-pyproject.toml         Packaging, for `pip install -e .`. install.sh stays the primary
-                       path: xtm targets machines where pip is not an option.
-Makefile               Delegates every target to scripts/run_tests.sh.
-scripts/run_tests.sh   The one way to run anything here.
+src/xtm.py             The tool. Single file, no imports outside the stdlib.
+completions/xtm.bash   Bash completion for actions, profiles and session names.
+install.sh             Installer: copies src/xtm.py to a PATH directory, optional completion.
+pyproject.toml         Packaging, for `pip install -e .`, and the coverage settings.
+                       install.sh stays the primary path.
+Makefile               Delegates every target to tests/run-tests.sh.
 scripts/profile_examples.py  Profiles the examples; run with any that executes them.
 scripts/record_metrics.py    Records what a coverage run measured, for the docs test.
-.coveragerc            Branch and parallel modes, artefact paths, the coverage floor.
 .gitignore             .build/, plus the names the same tools use when run by hand.
 .github/workflows/     CI: the suite across Python versions, crossed with PyYAML present
                        and absent, plus lint and the examples.
+.build/                Every generated file: coverage, bytecode, profiles, mutants.
 
 README.md              Index: what xtm is, how to install it, where everything is.
 docs/                  This document set; see the README index.
 
 tests/
+  run-tests.sh         The one way to run anything here.
   support.py           Fake external tools and the shared base classes.
   test_documentation.py  The docs must describe the tool that ships with them.
   unit/                Pure logic: YAML, validation, geometry, config, CLI.
@@ -208,6 +207,7 @@ tests/
 examples/
   run.py               Runs each example, and --negative the ones meant to fail.
   README.md            Index of the examples, by level.
+  config.yaml.example  Annotated example configuration, every key in context.
   simple/NN-name/      one idea: config.yaml, README.md, expected.json.
   moderate/NN-name/    several features interacting.
   complex/NN-name/     every mechanism at once.

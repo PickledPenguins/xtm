@@ -58,7 +58,7 @@ system-wide — the whole tool is one file.
 Or by hand, which is equivalent and is the point of the single-file design:
 
 ```bash
-cp xtm.py ~/bin/xtm && chmod +x ~/bin/xtm
+cp src/xtm.py ~/bin/xtm && chmod +x ~/bin/xtm
 ```
 
 Options and prerequisites are in [docs/guide.md](docs/guide.md).

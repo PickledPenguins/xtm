@@ -21,14 +21,14 @@ Workflows, in the order a user meets them. The vocabulary is in
 | `-h`, `--help` | — | Show usage. |
 
 The installer verifies that `python3` is present and at least 3.6 before copying anything,
-copies `xtm.py` to `<prefix>/xtm`, makes it executable, and warns without failing if the
+copies `src/xtm.py` to `<prefix>/xtm`, makes it executable, and warns without failing if the
 target directory is not on `PATH`. It needs only a POSIX shell and no network access.
 
 Manual installation is equivalent, and is the point of the single-file design:
 
 ```bash
 mkdir -p ~/bin
-cp xtm.py ~/bin/xtm
+cp src/xtm.py ~/bin/xtm
 chmod +x ~/bin/xtm
 xtm --help
 ```
@@ -94,9 +94,9 @@ xtm --dry-run --reset-all
 ## Working on xtm itself
 
 ```bash
-scripts/run_tests.sh --install-hooks   # once: the fast suite runs before every commit
-scripts/run_tests.sh --fast            # ~25s, what the hook runs
-scripts/run_tests.sh --long            # integration, races and every example
+tests/run-tests.sh --install-hooks   # once: the fast suite runs before every commit
+tests/run-tests.sh --fast            # ~25s, what the hook runs
+tests/run-tests.sh --long            # integration, races and every example
 make check                             # everything, plus a clean-tree assertion
 ```
 

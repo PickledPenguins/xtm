@@ -120,7 +120,7 @@ class TestEnvironmentIsDocumented(unittest.TestCase):
     """Every environment variable xtm reads is documented, or excepted."""
 
     def test_every_variable_read_is_documented(self):
-        source = read(REPO_ROOT / "xtm.py")
+        source = read(REPO_ROOT / "src" / "xtm.py")
         names = set(re.findall(r'environ(?:\.get)?\(\s*["\']([A-Z_][A-Z0-9_]*)["\']',
                                source))
         names |= set(re.findall(r'getenv\(\s*["\']([A-Z_][A-Z0-9_]*)["\']', source))
@@ -142,7 +142,7 @@ class TestConfigKeysAreDocumented(unittest.TestCase):
 
     def config_keys(self):
         """Keys the validator functions read, taken from the source tree."""
-        tree = ast.parse(read(REPO_ROOT / "xtm.py"))
+        tree = ast.parse(read(REPO_ROOT / "src" / "xtm.py"))
         keys = set()
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef):
@@ -267,7 +267,7 @@ class TestRecordedNumbersMatchTheDocs(unittest.TestCase):
 
     Those numbers are the one part of the documentation whose whole value is
     being current, and they had drifted three times -- silently, because no
-    test reads prose. `scripts/run_tests.sh --coverage` records what it
+    test reads prose. `tests/run-tests.sh --coverage` records what it
     measured; this compares the table against it.
 
     Skipped when nothing has been measured on this machine yet, because a
@@ -279,7 +279,7 @@ class TestRecordedNumbersMatchTheDocs(unittest.TestCase):
     def setUp(self):
         if not self.METRICS.exists():
             self.skipTest("no .build/metrics.json yet; run the coverage step "
-                          "(scripts/run_tests.sh --coverage) to record one")
+                          "(tests/run-tests.sh --coverage) to record one")
         self.measured = json.loads(self.METRICS.read_text())
         self.doc = read(REPO_ROOT / "docs" / "testing.md")
 
@@ -326,7 +326,7 @@ class TestNumbersInProseAreCurrent(unittest.TestCase):
     """
 
     def test_the_documented_tmux_command_count_matches_the_code(self):
-        source = read(REPO_ROOT / "xtm.py")
+        source = read(REPO_ROOT / "src" / "xtm.py")
         commands = set(re.findall(r'"tmux",\s*"([a-z-]+)"', source))
         self.assertTrue(commands, "no tmux invocations found; the pattern broke")
         doc = read(REPO_ROOT / "docs" / "guide.md")

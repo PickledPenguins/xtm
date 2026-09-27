@@ -161,11 +161,24 @@ class TestInterruptHandling(IntegrationBase):
         proc = subprocess.Popen(
             [sys.executable, str(XTM_SCRIPT), "-o", "work1"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            universal_newlines=True, env=env)
-        time.sleep(1.0)
+            universal_newlines=True, env=env,
+            # A suite started in the background inherits SIGINT as ignored,
+            # and Python then installs no KeyboardInterrupt handler at all:
+            # the signal below would be dropped and the test would time out
+            # for a reason that has nothing to do with xtm.
+            preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+        # Signal once xtm is really waiting for the attach: the fake xterm
+        # logs its launch just before that wait begins. A fixed one-second
+        # sleep raced the interpreter's own start-up on a loaded machine and
+        # signalled a process that had not installed its handlers yet.
+        launched = self.state / "launched.log"
+        deadline = time.time() + 20
+        while not launched.exists() and time.time() < deadline:
+            time.sleep(0.05)
+        time.sleep(0.2)
         proc.send_signal(signal.SIGINT)
         _out, err = proc.communicate(timeout=30)
-        self.assertEqual(proc.returncode, xtm.EXIT_INTERRUPTED)
+        self.assertEqual(proc.returncode, xtm.EXIT_INTERRUPTED, err)
         self.assertIn("Interrupted", err)
 
 

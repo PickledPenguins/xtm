@@ -17,7 +17,7 @@ import unittest
 
 from tests.support import IntegrationBase, REPO_ROOT
 
-XTM_SCRIPT = REPO_ROOT / "xtm.py"
+XTM_SCRIPT = REPO_ROOT / "src" / "xtm.py"
 
 # Enough repeats that an interleaving has to be genuinely rare to escape,
 # few enough that the suite stays quick.
