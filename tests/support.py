@@ -98,6 +98,24 @@ def fail(code=1):
     sys.exit(code)
 
 
+def render_format(argv, values):
+    """Expand a tmux -F format the way tmux does, including its damage.
+
+    The fake used to print its own tab-separated line whatever format xtm
+    asked for, so xtm's parsing was only ever tested against the fake's
+    output -- and real tmux 3.6, run in the C locale xtm forces, rewrites
+    every control character in format output to "_". A tab separator
+    therefore passed every test and failed on every real machine. Rendering
+    the format xtm actually sent, and sanitizing it under LC_ALL=C exactly
+    as tmux does, keeps the fake honest.
+    """
+    fmt = argv[argv.index("-F") + 1] if "-F" in argv else ""
+    line = re.sub(r"#\{(\w+)\}", lambda m: str(values.get(m.group(1), "")), fmt)
+    if os.environ.get("LC_ALL") == "C":
+        line = "".join("_" if ch < " " else ch for ch in line)
+    return line
+
+
 def tool_tmux(argv):
     if not argv:
         fail()
@@ -114,18 +132,15 @@ def tool_tmux(argv):
             sys.stderr.write("no server running\n")
             fail()
         for name, attached, _tty, _pid in rows:
-            print("%s\t%s" % (name, attached))
+            print(render_format(argv, {"session_name": name,
+                                       "session_attached": attached}))
         return
     if verb == "list-clients":
         target = argv[argv.index("-t") + 1] if "-t" in argv else None
-        fmt = argv[argv.index("-F") + 1] if "-F" in argv else ""
         for name, attached, tty, pid in rows:
             if name != target or attached == "0":
                 continue
-            if "client_pid" in fmt:
-                print("%s\t%s" % (tty, pid))
-            else:
-                print(tty)
+            print(render_format(argv, {"client_tty": tty, "client_pid": pid}))
         return
     if verb == "kill-session":
         target = argv[argv.index("-t") + 1] if "-t" in argv else None

@@ -318,20 +318,20 @@ class TestClientSelection(RunPatchMixin):
 
     def test_prefers_own_descendant_client(self):
         self.patch_run(lambda cmd: FakeResult(
-            0, "/dev/pts/1\t999999999\n/dev/pts/2\t%d\n" % (os.getpid(),)))
+            0, "/dev/pts/1:999999999\n/dev/pts/2:%d\n" % (os.getpid(),)))
         self.assertEqual(xtm.tmux_client_tty_for_pid("s", os.getppid()),
                          "/dev/pts/2")
 
     def test_falls_back_to_first_client(self):
-        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/1\t123\n/dev/pts/2\t456\n"))
+        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/1:123\n/dev/pts/2:456\n"))
         self.assertEqual(xtm.tmux_client_tty_for_pid("s", 999999999), "/dev/pts/1")
 
     def test_no_pid_uses_first_client(self):
-        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/7\t123\n"))
+        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/7:123\n"))
         self.assertEqual(xtm.tmux_client_tty_for_pid("s", None), "/dev/pts/7")
 
     def test_unparsable_pid_is_tolerated(self):
-        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/7\tnotanumber\n"))
+        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/7:notanumber\n"))
         self.assertEqual(xtm.tmux_client_tty_for_pid("s", 1), "/dev/pts/7")
 
     def test_no_clients_returns_none(self):
@@ -352,7 +352,7 @@ class TestClientSelection(RunPatchMixin):
         self.assertIsNone(xtm.wait_for_client_tty("s", None, timeout=0.3))
 
     def test_session_list_parsing(self):
-        self.patch_run(lambda cmd: FakeResult(0, "a\t1\nb\t0\nc\t2\n\n"))
+        self.patch_run(lambda cmd: FakeResult(0, "a:1\nb:0\nc:2\n\n"))
         self.assertEqual(xtm.tmux_list_sessions(),
                          {"a": True, "b": False, "c": True})
 

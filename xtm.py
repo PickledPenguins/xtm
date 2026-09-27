@@ -2559,6 +2559,17 @@ def _unknown_profile_message(config: ConfigDict, name: str,
 # tmux helpers
 # --------------------------------------------------------------------------
 
+# The separator between fields in the formats xtm asks tmux for. A colon,
+# because tmux never allows one in a session name (it is the target
+# separator, and tmux rewrites it to "_") and a tty path has none. A tab
+# looked safer and was not: xtm runs tmux in the C locale, and tmux 3.6
+# rewrites every control character in format output to "_" there, so
+# "desk\t1" came back as "desk_1" and no session ever parsed as running.
+_FIELD_SEPARATOR = ":"
+_SESSION_FORMAT = "#{session_name}:#{session_attached}"
+_CLIENT_FORMAT = "#{client_tty}:#{client_pid}"
+
+
 def tmux_list_sessions() -> Dict[str, bool]:
     """Return {session_name: is_attached} for every tmux session.
 
@@ -2566,8 +2577,7 @@ def tmux_list_sessions() -> Dict[str, bool]:
     non-zero in that case, which is expected rather than an error worth
     surfacing.
     """
-    res = run(["tmux", "list-sessions", "-F", "#{session_name}\t#{session_attached}"],
-              required=False)
+    res = run(["tmux", "list-sessions", "-F", _SESSION_FORMAT], required=False)
     if res is None:
         # tmux itself is missing. Reporting commands should still work and
         # show the configured layout, so this degrades to "nothing running"
@@ -2582,7 +2592,7 @@ def tmux_list_sessions() -> Dict[str, bool]:
     for line in res.stdout.splitlines():
         if not line.strip():
             continue
-        name, _, attached = line.partition("\t")
+        name, _, attached = line.partition(_FIELD_SEPARATOR)
         # #{session_attached} is a client COUNT, not strictly 0/1, so any
         # non-zero, non-empty value means at least one client is attached.
         sessions[name] = attached.strip() not in ("0", "")
@@ -2694,8 +2704,7 @@ def tmux_client_tty_for_pid(session: str, xterm_pid: Optional[int]) -> Optional[
     this therefore disambiguates the narrow race at open time, not a
     stray extra client attached to a long-running session.
     """
-    res = run(["tmux", "list-clients", "-t", session,
-               "-F", "#{client_tty}\t#{client_pid}"])
+    res = run(["tmux", "list-clients", "-t", session, "-F", _CLIENT_FORMAT])
     if res is None or res.returncode != 0:
         return None
     clients = []  # type: List[Tuple[str, Optional[int]]]
@@ -2703,7 +2712,7 @@ def tmux_client_tty_for_pid(session: str, xterm_pid: Optional[int]) -> Optional[
         line = line.strip()
         if not line:
             continue
-        tty, _, pid_str = line.partition("\t")
+        tty, _, pid_str = line.partition(_FIELD_SEPARATOR)
         try:
             clients.append((tty, int(pid_str)))
         except ValueError:

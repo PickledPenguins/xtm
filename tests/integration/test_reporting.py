@@ -22,6 +22,19 @@ class TestReporting(IntegrationBase):
         self.assertIn("not running", result.stdout)
         self.assertIn("stray", result.stdout)
 
+    def test_tmux_rewriting_control_characters_does_not_hide_sessions(self):
+        """xtm asked tmux for tab-separated fields, and runs tmux in the C
+        locale, where tmux 3.6 rewrites every control character in format
+        output to "_". Every session then parsed as "work1_1", no session
+        was ever running, and no window could be placed -- on every real
+        machine, while the fake tmux kept printing a real tab. The fake now
+        renders the format and damages it the way tmux does."""
+        self.run_xtm("-s", "work1", "0,0,900,700")
+        self.add_session("work1")
+        payload = json.loads(self.run_xtm("-l", "-j").stdout)
+        self.assertEqual(payload["sessions"][0]["status"], "attached")
+        self.assertEqual(payload["strays"], [])
+
     def test_list_json_structure(self):
         self.run_xtm("-s", "work1", "0,0,900,700")
         payload = json.loads(self.run_xtm("-l", "-j").stdout)
