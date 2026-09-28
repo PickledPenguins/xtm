@@ -1,4 +1,4 @@
-# Two contexts on one machine, told apart by colour as well as by name.
+# Two contexts on one machine, told apart by color as well as by name.
 profiles:
   dev:
     prefix: dev-

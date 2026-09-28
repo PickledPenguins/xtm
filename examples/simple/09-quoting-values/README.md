@@ -1,26 +1,24 @@
 # simple/09 — Quoting values
 
-Level: **simple**. The four shapes that need quotes, in one config.
+Level: **simple**. The shapes that need quotes, in one config.
 
 ## What it shows
 
-- **`"0755"`** — unquoted, PyYAML reads octal 493 and the built-in reader
-  decimal 755.
-- **`"yes"`** — unquoted, it is the boolean `true` in YAML 1.1.
-- **`"1:30"`** — unquoted, PyYAML reads sexagesimal 90.
+- **`"0755"`** — unquoted, YAML reads the octal number 493.
+- **`"yes"`** — unquoted, it is the boolean `true`.
+- **`"1:30"`** — unquoted, YAML reads the number 90.
 - **`'grep -e ^\d'`** — single quotes are literal text in YAML. Double quotes
-  process escapes, which the built-in reader does not implement, so xtm
-  refuses `"…\d…"` rather than letting the two disagree about what the
-  command is.
+  process escapes, and `\d` is not one YAML knows, so the double-quoted form
+  is refused as invalid YAML.
 
-Every one of these is refused unquoted, with a message naming the line, the
-value and the fix. Quoted, both readers agree — and xtm's own writer quotes
-anything that would need it, so a config it saved always reloads unchanged.
+Unquoted, the titles are refused with a message naming the slot, what YAML
+read, and saying to quote it. xtm's own writer quotes anything that would need
+it, so a config it saved always reloads unchanged.
 
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/09-quoting-values ./xtm.py --validate
+XTM_CONFIG_DIR=examples/simple/09-quoting-values src/xtm.py --validate
 ```
 
 To see a refusal, drop the quotes around `"yes"` and run it again.

@@ -23,7 +23,7 @@ EXAMPLES = REPO_ROOT / "examples"
 
 TIERS = ("simple", "moderate", "complex")
 
-# What a catalogue is for is that a reader finds their own case in it, so the
+# What a catalog is for is that a reader finds their own case in it, so the
 # floor is on variety: enough simple cases that every feature has one, enough
 # moderate ones for the combinations people really make, and enough complex
 # ones that the interactions are shown more than once.
@@ -49,13 +49,13 @@ class TestExamples(unittest.TestCase):
         self.assertGreaterEqual(len(example_dirs()), 6)
 
     def test_each_tier_carries_enough_cases(self):
-        """A catalogue too thin to find your own case in sends the reader to
+        """A catalog too thin to find your own case in sends the reader to
         the manual, which is what it exists to save them from."""
         for tier, minimum in sorted(TIER_MINIMUM.items()):
             found = len(example_dirs(tier))
             self.assertGreaterEqual(
                 found, minimum,
-                "examples/%s/ has %d cases, below the %d this catalogue holds "
+                "examples/%s/ has %d cases, below the %d this catalog holds "
                 "itself to" % (tier, found, minimum))
 
     def test_every_example_says_which_level_it_is(self):
@@ -103,23 +103,6 @@ class TestExamples(unittest.TestCase):
             self.assertIn("profiles", data, directory.name)
             for name in data["profiles"]:
                 xtm.validate_profile(data, name)
-
-    def test_every_example_config_reads_the_same_under_both_backends(self):
-        """The whole point of example 06, applied to all of them."""
-        if not xtm.HAVE_PYYAML:
-            self.skipTest("PyYAML is not installed, so there is nothing to "
-                          "compare the built-in parser against")
-        saved = xtm.HAVE_PYYAML
-        self.addCleanup(setattr, xtm, "HAVE_PYYAML", saved)
-        for directory in example_dirs():
-            text = (directory / "config.yaml").read_text()
-            xtm.HAVE_PYYAML = False
-            builtin = xtm.load_yaml(text)
-            xtm.HAVE_PYYAML = True
-            pyyaml_ = xtm.load_yaml(text)
-            self.assertEqual(builtin, pyyaml_,
-                             "%s reads differently depending on whether "
-                             "PyYAML is installed" % (directory.name,))
 
     def test_expected_output_is_recorded_for_every_example(self):
         for directory in example_dirs():
@@ -173,7 +156,7 @@ class TestNegativeExamples(unittest.TestCase):
                          "negative examples did not fail as recorded:\n%s\n%s"
                          % (result.stdout, result.stderr))
 
-    def test_the_catalogue_does_not_depend_on_the_machine_tmpdir(self):
+    def test_the_catalog_does_not_depend_on_the_machine_tmpdir(self):
         """The recorded messages name the config as CONFIG, whatever $TMPDIR is.
 
         The path was once stripped with a literal `/tmp` pattern, so under
@@ -187,7 +170,7 @@ class TestNegativeExamples(unittest.TestCase):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 universal_newlines=True, timeout=300, env=environment)
         self.assertEqual(result.returncode, 0,
-                         "the negative catalogue failed with TMPDIR=%s:\n%s\n%s"
+                         "the negative catalog failed with TMPDIR=%s:\n%s\n%s"
                          % (elsewhere, result.stdout, result.stderr))
 
     def test_every_negative_example_is_listed_in_the_index(self):

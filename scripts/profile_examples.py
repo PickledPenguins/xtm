@@ -97,7 +97,7 @@ def run_one(directory):
             os.environ["PATH"] = saved_path
 
 
-def summarise(stats, top, examples, seconds):
+def summarize(stats, top, examples, seconds):
     """The table that goes into the report, own code first."""
     lines = ["profile: %d example(s) in %.2fs, %d calls"
              % (examples, seconds, stats.total_calls)]
@@ -146,7 +146,7 @@ def main(argv):
     stats = pstats.Stats(profiler)
     stats.dump_stats(str(OUTPUT_DIR / "examples.pstats"))
 
-    report = summarise(stats, top, len(directories), elapsed)
+    report = summarize(stats, top, len(directories), elapsed)
     (OUTPUT_DIR / "examples.txt").write_text(report + "\n")
     print(report)
     print("  full profile: .build/profile/examples.pstats "

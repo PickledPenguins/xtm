@@ -23,7 +23,6 @@ An example directory may also carry:
     flags        extra arguments the example needs, one per line or space
                  separated -- `--all` for an example whose subject is a
                  profile bound to another machine
-    block-pyyaml an empty marker: run this one with PyYAML hidden
 """
 
 import json
@@ -82,7 +81,7 @@ def run_example(directory, env_extra=None):
             "XTM_STATE_DIR": str(tmp / "state"),
             # Keep the report about the config: with no PATH, xtm finds no
             # tmux and no window-query tool, so nothing on this machine can
-            # colour the result.
+            # color the result.
             "PATH": "",
         })
         env.update(env_extra or {})
@@ -147,7 +146,7 @@ def run_negative(directory):
                                 stderr=subprocess.STDOUT,
                                 universal_newlines=True, env=env, timeout=60)
         # The path the config really had, so the caller can strip exactly
-        # that. Matching a literal /tmp instead made the whole catalogue
+        # that. Matching a literal /tmp instead made the whole catalog
         # depend on $TMPDIR: under TMPDIR=/var/tmp every case failed with a
         # mangled "/varCONFIG", which is the one property a test suite must
         # never have.
@@ -223,28 +222,6 @@ def main(argv):
             raise SystemExit("no such example: %s" % (name,))
 
         env_extra = {}
-        # 06 proves the dependency-free path, so it runs with PyYAML hidden.
-        if (directory / "block-pyyaml").exists():
-            blocker = directory / ".pyyaml-blocker"
-            blocker.mkdir(exist_ok=True)
-            (blocker / "yaml.py").write_text(
-                "raise ImportError('PyYAML hidden by the example runner')\n")
-            env_extra["PYTHONPATH"] = str(blocker)
-            # Guard the guard. If the blocker ever stopped working, this
-            # example would silently test PyYAML twice and still pass, while
-            # claiming to prove something about the built-in parser.
-            probe = subprocess.run(
-                [sys.executable, "-c",
-                 "import sys; sys.path.insert(0, %r); import xtm;"
-                 " sys.exit(0 if not xtm.HAVE_PYYAML else 1)" % (str(REPO_ROOT / "src"),)],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                universal_newlines=True,
-                env=dict(os.environ, PYTHONPATH=str(blocker)), timeout=60)
-            if probe.returncode != 0:
-                raise SystemExit(
-                    "%s: PyYAML is still importable, so this example is not "
-                    "exercising the dependency-free parser." % (name,))
-
         actual = run_example(directory, env_extra)
         if show:
             print(json.dumps(actual, indent=2, sort_keys=True))

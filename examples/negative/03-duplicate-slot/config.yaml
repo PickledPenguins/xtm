@@ -1,0 +1,8 @@
+# A slot pasted in twice. YAML itself would keep the second and drop the
+# first without a word; xtm refuses the file and names the line.
+profiles:
+  default:
+    sessions:
+      logs: {x: 0, y: 0, width: 900, height: 700}
+      shell: {x: 900, y: 0, width: 900, height: 700}
+      logs: {x: 0, y: 700, width: 900, height: 700}

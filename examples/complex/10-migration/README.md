@@ -27,6 +27,6 @@ one at a time.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/10-migration ./xtm.py --list-profiles --verbose
-XTM_CONFIG_DIR=examples/complex/10-migration ./xtm.py halfway --list
+XTM_CONFIG_DIR=examples/complex/10-migration src/xtm.py --list-profiles --verbose
+XTM_CONFIG_DIR=examples/complex/10-migration src/xtm.py halfway --list
 ```

@@ -38,7 +38,7 @@ anything: a new test directory that joins neither half would otherwise be a test
 runs. The timing gates are the one deliberate exception, and are named as such.
 
 `tests/run-tests.sh` is the only thing that knows how to run anything in this repository;
-the Makefile delegates to it. Every artefact lands under `.build/`.
+the Makefile delegates to it. Every artifact lands under `.build/`.
 
 The suite needs no display, no window manager, no tmux and no X server. It takes about 100
 seconds, or five minutes under coverage.
@@ -66,10 +66,12 @@ Placement is verified for real rather than by mocking: a test allocates a pty pa
 reset, and reads the exact bytes that arrive on the master, asserting on the literal escape
 sequences and their order.
 
-The dependency-free YAML path gets its own end-to-end class, which hides PyYAML from the
-child process by putting a module that raises `ImportError` ahead of it on the import path —
-with a guard test that fails if the hiding ever stops working. That path is what runs on
-hosts where nothing can be installed, and it would otherwise be tested only in isolation.
+The fakes are required to fail the way the real tools fail. The fake tmux renders the
+`-F` format xtm sends and, under the C locale xtm runs it in, rewrites control characters
+to `_` exactly as tmux 3.6 does — the tab-separated parsing that broke every real machine
+passed the whole suite until the fake learned this. A missing PyYAML is tested end to end
+by hiding it from the child process behind a module that raises `ImportError`, with a
+guard test that fails if the hiding ever stops working.
 
 ## What each directory covers
 
@@ -77,7 +79,6 @@ hosts where nothing can be installed, and it would otherwise be tested only in i
 |---|---|
 | `tests/unit/` | Pure logic: YAML, validation, geometry, config, commands, CLI parsing |
 | `tests/integration/` | xtm as a subprocess against the fakes: basics, environments, malformed input, reporting, packaging, windows, command failures |
-| `tests/differential/` | The two YAML backends must read every config identically |
 | `tests/property/` | Stated invariants over generated configs, names and geometries |
 | `tests/mutation/` | Decisions deliberately broken, which the suite must notice |
 | `tests/concurrency/` | Real processes contending for the config, the lock and the state file |
@@ -121,10 +122,10 @@ Classes of risk that carry their own groups, and what each protects:
 ## Properties
 
 `tests/property/` states what must be true of *every* input rather than of a chosen one:
-what xtm writes it can read back on both backends, what it writes survives its own parity
-guard, parsing inverts the geometry format, stack offsets are monotonic in the index, a
-valid name survives a round trip as a key, an explicit `session:` is never prefixed, and
-key normalisation is idempotent.
+what xtm writes it reads back unchanged and in order, text YAML would type is quoted on
+the way out, parsing inverts the geometry format, stack offsets are monotonic in the index,
+a valid name survives a round trip as a key, and an explicit `session:` is never
+prefixed.
 
 The engine is `tests/property/engine.py` — forty lines of generate, check, shrink.
 Hypothesis is deliberately not used: xtm's premise is running where nothing can be
@@ -139,7 +140,7 @@ the guard whether it would refuse a scalar unquoted rather than keeping its own 
 
 ## Mutation
 
-`tests/mutation/run.py` is a catalogue of decisions deliberately broken — the colon rule,
+`tests/mutation/run.py` is a catalog of decisions deliberately broken — the colon rule,
 the quote rules, the indicator set, resize before move, the sign of frame compensation, the
 stack offset, the switch keep set, edit-time validation, the config lock — each naming the
 test modules that ought to fail because of it.
@@ -148,7 +149,7 @@ test modules that ought to fail because of it.
 mutant means the code moved: re-point it after checking the decision is still being made
 somewhere.
 
-A checked-in catalogue rather than a mutation tool, for the same reason as the property
+A checked-in catalog rather than a mutation tool, for the same reason as the property
 engine: it adds no dependency, it is reviewable, and naming the modules per mutant keeps a
 full run to a couple of minutes.
 
@@ -157,22 +158,6 @@ full run to a couple of minutes.
 `tests/concurrency/` starts real processes, because the lock is an `flock` held by a
 process and a lost update is a property of separate memory. Each race repeats eight times —
 a race that passes once has not been tested.
-
-## The YAML parity tests
-
-`tests/differential/test_yaml_backends.py` is where the backend contract lives, and it is
-the most defect-prone area of the project. It asserts **agreement** rather than a particular
-reading: whatever the two backends do with an input, they must do the same thing, and
-refusing together counts as agreeing.
-
-It carries a fuzzer that generates tokens from an alphabet of YAML's structural characters
-and renders each one into five positions — a bare value, a flow-mapping value, a
-flow-sequence item, a block key and a flow-mapping key. That last part matters: for a long
-time every token was rendered as a bare value only, and three divergences survived in flow
-collections precisely because nothing looked there.
-
-**A new rule in the parity guard needs a case here.** Adding one without is how the last
-three divergences reached a release.
 
 ## Profiling
 
@@ -186,25 +171,14 @@ functions by cumulative time, and the full profile is saved to
 
 What it measures, and what it cannot: the examples are re-run **in-process** for this,
 because a profiler cannot see into a subprocess. That covers the config-reading and
-reporting path — the guard, the reader, validation, resolution, the report — which is where
+reporting path — reading, validation, resolution, the report — which is where
 a config-driven tool spends its time and where every performance finding so far has been.
 Placement and the tmux calls are subprocess work this cannot reach; the timing gates below
 cover the parts of that which matter.
 
-The current shape is worth knowing: reading the config is about two thirds of the work of
-a `--list`, and the parity guard is about a seventh of the reading.
-
-The gate has already earned itself. Adding the key rules, the escape rules and the
-control-character rule made the guard run for every key as well as every value, and a
-thousand-slot config went five times slower — invisible in every other test, since they all
-passed. The fix was a fast path for the plain names that make up most of a config, plus
-compiled patterns in place of two per-character loops; the guard now does strictly more
-work in the same time.
-
 ## Performance
 
-`tests/run-tests.sh --perf` times the parity guard, the built-in reader and the built-in
-writer over a thousand-slot config, and asserts a memory ceiling for reading one. Two
+`tests/run-tests.sh --perf` times reading and writing a thousand-slot config, and asserts a memory ceiling for reading one. Two
 things make the numbers mean something:
 
 - **The baseline is per machine**, recorded under `.build/perf-baseline.json` and
@@ -245,13 +219,13 @@ drifted upward on its own.
 
 Coverage requires subprocess tracking, and this is not optional: most command code runs in a
 child process, so a plain `coverage run -m unittest` reports about 63% — a measurement
-artefact, not a regression. `tests/run-tests.sh --coverage` writes the `.pth` file and
+artifact, not a regression. `tests/run-tests.sh --coverage` writes the `.pth` file and
 sets `COVERAGE_PROCESS_START` itself. **If you see 63%, you bypassed the entry point.**
 
 The uncovered remainder is 39 statements and 38 partial branches, almost entirely defensive
 error handling that cannot be triggered without breaking the filesystem underneath a running
 process: `OSError` branches around `fsync`, lock acquisition and temp-file cleanup, the
-`ImportError` fallbacks for `fcntl` and PyYAML, and guards that exist so a future edit fails
+`ImportError` fallback for `fcntl`, and guards that exist so a future edit fails
 loudly. Reaching a round 98 from there would mean asserting on internals, which buys a
 number and pays for it with a suite that breaks when the code is refactored rather than when
 it is wrong.
@@ -260,13 +234,12 @@ it is wrong.
 
 - **Every test asserts a value, a message, an exit code or a state change.** Never that
   something ran.
-- **A regression test is named for the defect** and says in a docstring what went wrong. The
-  YAML tests are the model.
+- **A regression test is named for the defect** and says in a docstring what went wrong.
 - **A fixed count in a test is a claim**: `test_there_are_examples_to_run` guards the
   example sweep so a discovery bug cannot make every other example test vacuously pass.
 - **An example directory may carry more than a config.** `profile` names the profile to
   report on, `flags` adds arguments the example needs — `--all` for one whose subject is a
-  profile bound to another machine — and `block-pyyaml` runs it with PyYAML hidden.
+  profile bound to another machine.
   `python3 examples/run.py --record [prefix]` rewrites the recorded output after a
   deliberate change; read the diff.
 - **The examples are fixtures.** A new directory under `examples/` is under test as soon as
@@ -274,7 +247,7 @@ it is wrong.
 
 ## What cannot be tested here
 
-Three behaviours are code-reviewed but not executed, because they need a real X server and
+Three behaviors are code-reviewed but not executed, because they need a real X server and
 window manager:
 
 1. **Frame compensation against a real window manager.** The arithmetic and the `xprop`
@@ -282,7 +255,7 @@ window manager:
    given window manager applies requested coordinates to the frame or the client window is a
    property of that window manager. Confirm on a new setup with `xtm --update-profile && xtm
    --reset --verify`: a stable round trip reports no delta.
-2. **Whether a given window manager honours the escape sequences at all.** The bytes written
+2. **Whether a given window manager honors the escape sequences at all.** The bytes written
    are asserted exactly; what a window manager does with them is not.
 3. **Real xterm startup**, including `xterm_args` a real xterm would reject. The fake xterm
    accepts any arguments; a genuinely invalid one surfaces at runtime through the

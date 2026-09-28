@@ -1,5 +1,5 @@
 # One config file for a fleet: four machine classes, a shared notebook, and
-# a global fallback for anything not recognised.
+# a global fallback for anything not recognized.
 profiles:
   # Bound to a list that mixes exact names with a glob.
   build:

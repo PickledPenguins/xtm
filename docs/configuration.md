@@ -1,7 +1,6 @@
 # Configuration
 
-Every key the config file accepts, what validation enforces, and the YAML rules that keep a
-config meaning the same thing on every machine.
+Every key the config file accepts, what validation enforces, and how the YAML is read.
 
 The file lives at `~/.config/xtm/config.yaml` and is created on first run. `--config` and
 `XTM_CONFIG_DIR` change where it is read from; see [cli.md](cli.md).
@@ -58,8 +57,8 @@ profiles:
       work1: {x: 0, y: 0, width: 1000, height: 1400}
 ```
 
-Both the indented and the compact `{…}` form are accepted, with or without PyYAML
-installed. Comments may appear on their own line or at the end of a line.
+Both the indented and the compact `{…}` form are accepted. Comments may appear on their own
+line or at the end of a line.
 
 ## Session keys
 
@@ -69,7 +68,7 @@ installed. Comments may appear on their own line or at the end of a line.
 | `width`, `height` | number | Yes | Window size in pixels. Must be positive. |
 | `command` | string | No | Shell command run in the session when it is **created**. Ignored when attaching to a session that already exists. |
 | `cwd` | string | No | Working directory for a newly created session. `~` is expanded. |
-| `xterm_args` | list of strings | No | Extra arguments appended to the `xterm` command line, for fonts, colours, scrollback and so on. |
+| `xterm_args` | list of strings | No | Extra arguments appended to the `xterm` command line, for fonts, colors, scrollback and so on. |
 | `session` | string | No | Tmux session name, used verbatim and **never prefixed**. This is how two profiles deliberately share one session. |
 | `title` | string | No | Window title for this slot. Overrides the profile's template. |
 
@@ -122,118 +121,64 @@ write a config that the next command cannot load.
 
 ## YAML handling
 
-PyYAML is used when it is importable and a built-in reader runs when it is not. **The
-contract is that a config means the same thing either way**, and it is enforced before
-either backend parses: input the two would read differently is refused, with a message
-naming the line and the fix.
+The config is YAML, read and written with PyYAML's safe loader and dumper. PyYAML is
+required; see [guide.md](guide.md#installing). Everything YAML allows is available:
+block and flow style, comments, a leading `---`, and anchors with merge keys for sharing
+settings between slots (see [moderate/03](../examples/moderate/03-shared-sizes/)):
 
-Two details about the backends themselves:
+```yaml
+sizes:
+  quarter: &quarter {width: 960, height: 540}
+profiles:
+  grid:
+    sessions:
+      editor: {<<: *quarter, x: 0, y: 0}
+      wide:   {<<: *quarter, x: 960, y: 0, width: 1200}   # a key beside the merge wins
+```
 
-- `safe_dump(sort_keys=...)` arrived in PyYAML 5.1. On older releases, still shipped by
-  long-lived enterprise distributions, xtm falls back to its own dumper rather than
-  rewriting the config in alphabetical order on every save.
-- The built-in reader and writer handle the full shape xtm uses: nested mappings,
-  flow-style mappings and lists, quoted strings, inline comments, and quoting of values
-  that would otherwise be read back as booleans, nulls or numbers.
+A top-level key other than `profiles` is ignored, which makes it a place to keep anchors.
 
-### Values that must be quoted
+### Keys are names
 
-PyYAML implements YAML 1.1, which reads several unquoted forms in ways the built-in parser
-does not — silently, since both readings are valid values that pass validation.
+Every key is read as the text written. YAML would read the key `on:` as the boolean
+`true`, `0755:` as the number 493 and `~:` as null; xtm keeps `on`, `0755` and `~`, so a
+profile or slot is always called what it says. The name rules then apply: profile and slot
+names may contain only letters, digits, `.`, `_` and `-`.
 
-| Written as | PyYAML reads | Built-in reads |
+A key written twice in one mapping is refused, with its line and column. YAML would keep
+the last value and drop the first without a word, so a slot pasted in twice would
+silently lose a position. A key written beside a merge key is not a duplicate: it
+overrides the merged value, as YAML intends.
+
+### Values mean what YAML says
+
+Values are typed the way every YAML reader types them, which matters in two places:
+
+| Written as | YAML reads | When text was meant |
 |---|---|---|
-| `0755`, `007`, `08` | octal `493` | decimal `755` |
-| `0x1f`, `0b101`, `0o755` | `31`, `5`, `493` | text |
-| `1_000` | `1000` | text |
-| `1:30`, `1:30:00` | `90`, `5400` | text |
-| `1e3`, `1.0e3` | text | `1000.0` |
-| `.inf`, `.nan` | infinity, not-a-number | text |
-| `yes`, `no`, `on`, `off` | `true` / `false` | text |
-| `2026-01-01` | a date object | text |
+| `yes`, `no`, `on`, `off`, `true`, `false` | a boolean | quote it: `title: "yes"` |
+| `0755` | the octal number 493 | quote it, or write a decimal number |
+| `1:30` | the number 90 | quote it |
+| `2026-01-01` | a date | quote it |
+| `~`, `null`, nothing at all | null | quote it |
+| `"900"` | the text 900 | for a position or size, remove the quotes |
 
-Each is reported with the value, the reason and the fix: write a plain decimal number if
-you meant a number, or quote it (`"0755"`, `"yes"`) if you meant the literal text. xtm's own
-writer quotes anything that would need it, so a config xtm saved always reloads unchanged.
+A field that must be text (`command`, `cwd`, `title`, `session`, `prefix`) and was read as
+something else is refused with the field, what YAML read, and the advice to quote it. A
+geometry field that is not a number is refused the same way. Entries in `xterm_args` may be
+numbers (`-fs, 11`); they are passed to xterm as text.
 
-`true`, `false`, `null` and `~` are read identically by both parsers as *values* and need no
-quoting. As **keys** they do not: see below.
+xtm's own writer quotes anything YAML would read as something other than the text it is,
+so a config xtm saved always reads back unchanged.
 
-### Escapes and quoting
+### Errors
 
-A **single-quoted** scalar is literal text in YAML: `'a\tb'` is four characters, backslash
-included. A **double-quoted** scalar is the one quoted form YAML processes escapes in, and
-four of them are implemented on both sides — `\"`, `\\`, `\n` and `\t`. Every other escape
-PyYAML knows (`\u00e9`, `\x41`, `\0`) is refused, because the built-in reader would hand
-back the text and the two would disagree in silence.
+A file YAML cannot parse — a tab in the indentation, an unclosed `{`, a list item where a
+key belongs — is reported on one line with the line and column of the problem:
 
-`\n` and `\t` are implemented because xtm's own writer needs them: a value carrying a
-newline or a tab is written escaped, since writing it raw would split the line that the
-reader then has to parse.
-
-Every **other** control character — a carriage return, a NUL, a bell — is refused outright,
-quoted or not. Neither side can write one back safely: the built-in reader takes a raw one
-in its stride and PyYAML refuses the file, so a config carrying one would load on half the
-machines it was copied to.
-
-A key is quoted text too, and carries the same escapes with the same rules.
-
-### Keys
-
-A key is a name, and xtm looks every name up as text. PyYAML types a key the way it types a
-value, so some spellings would name different things on two machines:
-
-| Written as | Why it is refused |
-|---|---|
-| `yes:`, `no:`, `on:`, `off:` | The YAML 1.1 booleans, which normalise to `True`/`False` under PyYAML and to the word itself without it |
-| `~:`, `null:`, `true:`, `false:` | Null and boolean spellings, for the same reason |
-| `0755:`, `1:30:`, `1_000:` | The ambiguous numeric spellings above |
-| `7.:`, `07:` | A number whose *text* changes when YAML reads it — `7.` becomes `7.0` |
-| A key opening with an indicator | `&`, `*`, `!`, `%`, `@`, `` ` ``, `,`, `|`, `>`, `[`, `]`, `{`, `}` |
-
-A plain numeric key such as `123:` is **accepted**: both backends end up naming it `"123"`
-after normalisation, so nothing diverges. Quoting is the fix for everything else: `"yes":`
-is the name `yes` on every machine.
-
-### YAML features the config does not use
-
-The structural machinery, which the built-in reader does not implement, is refused outright
-rather than letting a config depend on PyYAML being present:
-
-| Written as | Why it is refused |
-|---|---|
-| `&anchor`, `*alias` | PyYAML resolves them; the built-in parser reads the text |
-| `!tag`, `!!str 7` | PyYAML applies the tag; the built-in parser reads the text |
-| `<<: {…}` | The merge key. PyYAML folds the mapping in and the built-in parser treats `<<` as an ordinary key — **with no error either way**, so the same profile has a setting on one machine and not on the other |
-| `|`, `>` | Block scalar headers, which the built-in parser cannot continue onto the following lines |
-| `---`, `...` | Document markers. xtm's config is always a single document |
-| `%`, `@`, `` ` ``, `,`, `]`, `}` opening a value | Reserved indicators PyYAML refuses outright |
-| `?` or `:` opening a value | Complex-key and value indicators, which PyYAML refuses |
-| `<<` or `=` as a whole value | Reserved in YAML 1.1; PyYAML refuses them |
-| `- item:` under a list item | A mapping inside a block sequence, which the built-in parser has nowhere to put |
-| A tab anywhere in a line | PyYAML refuses one inside a plain scalar; the built-in parser cannot indent with them |
-| Indentation that is not a multiple of two spaces | The built-in parser's rule, applied to both backends so a config cannot load on only one |
-
-Only the **first** character of a value is an indicator, so ordinary settings are untouched:
-`command: tail -f x | grep y`, `cwd: ~/work`, `xterm_args: [-fn, Monospace]` and a
-`user@host` or `50%` anywhere in a value all read the same under both backends.
-
-### Flow collections
-
-Inside `[ ]` and `{ }` the rules are stricter, because brackets, braces and commas are
-structure there:
-
-| Written as | Why it is refused |
-|---|---|
-| `{x:0, y:0}` | A colon only separates a key from its value when a space follows it, so PyYAML reads this as two keys named `x:0` and `y:0` with no values. Write `{x: 0, y: 0}` |
-| `{a}` | An entry with no value at all: a set entry to PyYAML, unrepresentable here |
-| `{a: 1,}`, `[a, b,]` | The trailing comma is an empty entry to one reader and nothing to the other |
-| `[a: 1]`, `[a:]` | A list item containing a colon, which PyYAML may read as a nested mapping. Quote it — `["Monospace:size=11"]` is a font name and works |
-| `[a{b]`, `{k: a]b}` | A plain scalar carrying a bracket or a brace, which ends the scalar in flow context |
-| `{k: - x}`, `[- x]` | A block sequence indicator inside a flow collection. A bare `-` is ordinary text and is accepted |
-
-Quoting is the escape hatch throughout: a quoted scalar means the literal text to both
-backends and is always accepted.
+```
+xtm: error: ~/.config/xtm/config.yaml line 4, column 1: found character that cannot start any token (while scanning for the next token)
+```
 
 ## What a config rewrite changes
 
@@ -244,10 +189,11 @@ do not survive that:
 - **Flow style becomes block style.** `work1: {x: 0, y: 0}` is read correctly but written
   back expanded over four lines. The values and their meaning are identical; only the
   layout changes.
-- **Comments are dropped.** Neither backend preserves them.
+- **Comments are dropped.** PyYAML does not preserve them.
+- **Anchors and merge keys are expanded.** A slot built from `<<: *size` is written out
+  with the size in full, and the anchor is gone.
 
-Both are worth knowing before hand-formatting a config, and neither affects reading: flow
-style and comments are fully supported as input.
+All three are worth knowing before hand-formatting a config, and none affects reading.
 
 ## Concurrency and durability
 

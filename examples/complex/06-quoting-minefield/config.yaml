@@ -1,6 +1,7 @@
-# Every value that needs quoting, in one working profile. Each of these is
-# read one way by PyYAML and another by the built-in parser unless quoted, so
-# a config that uses all of them is the test that quoting is enough.
+# Every value that needs quoting, in one working profile. Unquoted, YAML
+# would read each of these as a number, a boolean or a date rather than the
+# text written, so a config that uses all of them is the test that quoting
+# is enough.
 profiles:
   desk:
     prefix: desk-
@@ -11,37 +12,37 @@ profiles:
         y: 0
         width: 600
         height: 400
-        title: "0755"                    # octal 493 to PyYAML, decimal 755 without
+        title: "0755"                    # octal 493 unquoted
       sexagesimal:
         x: 600
         y: 0
         width: 600
         height: 400
-        title: "1:30"                    # 90 to PyYAML
+        title: "1:30"                    # the number 90 unquoted
       boolean:
         x: 1200
         y: 0
         width: 600
         height: 400
-        title: "yes"                     # true to PyYAML
+        title: "yes"                     # the boolean true unquoted
       date:
         x: 0
         y: 400
         width: 600
         height: 400
-        title: "2026-01-01"              # a date object to PyYAML
+        title: "2026-01-01"              # a date unquoted
       separators:
         x: 600
         y: 400
         width: 600
         height: 400
-        title: "1_000"                   # 1000 to PyYAML
+        title: "1_000"                   # the number 1000 unquoted
       scientific:
         x: 1200
         y: 400
         width: 600
         height: 400
-        title: "1e3"                     # 1000.0 to the built-in parser
+        title: "1e3"                     # text to YAML 1.1, but a number to newer readers
       escapes:
         x: 0
         y: 800
@@ -59,4 +60,4 @@ profiles:
         y: 800
         width: 600
         height: 400
-        title: ".inf"                    # infinity to PyYAML, text without
+        title: ".inf"                    # infinity unquoted

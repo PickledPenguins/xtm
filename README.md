@@ -37,15 +37,15 @@ Everything runs on the machine displaying the windows, using tools already prese
 | Component | Needed for | Required? |
 |---|---|---|
 | `python3` 3.6 or newer | everything | Yes |
+| `PyYAML` | reading and writing the config | Yes; `python3-yaml` from the system, or `pip install --user PyYAML` |
 | `xterm` | opening windows | Yes |
 | `tmux` | sessions, and locating each window's tty | Yes |
 | `xdotool`, `wmctrl` or `xwininfo` | reading window positions back | Only for `--update-profile`, `--new-profile`, `--focus`, `--verify`, and the live column of `--list` |
 | `xdotool` or `wmctrl` | `--focus` specifically | `xwininfo` can query windows but cannot raise them |
 | `xprop` | correcting captured positions for window decorations | Optional; skipped with a debug message when absent |
-| `PyYAML` | nothing | Optional; used if importable, otherwise a built-in reader/writer is used |
 
-No third-party Python packages are required, and nothing needs to be installed
-system-wide — the whole tool is one file.
+PyYAML is the only Python package needed, and nothing needs to be installed
+system-wide — the tool itself is one file.
 
 ## Install
 

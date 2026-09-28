@@ -26,6 +26,6 @@ tool owning the file.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/07-deep-flow ./xtm.py --list
-XTM_CONFIG_DIR=examples/complex/07-deep-flow ./xtm.py --validate
+XTM_CONFIG_DIR=examples/complex/07-deep-flow src/xtm.py --list
+XTM_CONFIG_DIR=examples/complex/07-deep-flow src/xtm.py --validate
 ```

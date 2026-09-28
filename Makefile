@@ -25,12 +25,12 @@ help:
 	@echo "make coverage       The suite under coverage, gated by the floor"
 	@echo "make coverage-html  As above, then write .build/htmlcov/"
 	@echo "make property       Property tests, when Hypothesis is available"
-	@echo "make mutation       The mutation catalogue"
+	@echo "make mutation       The mutation catalog"
 	@echo "make lint           pyflakes + compile check"
 	@echo "make examples       Every example, the failures, and a profile"
 	@echo "make profile        Where the time goes in real usage"
 	@echo "make check          Everything, plus a clean-tree assertion"
-	@echo "make clean          Remove .build/ and stray artefacts"
+	@echo "make clean          Remove .build/ and stray artifacts"
 
 test:
 	$(RUN)
@@ -70,11 +70,11 @@ profile:
 	$(RUN) --profile
 
 # Asserts a full run leaves no new files behind, which is what proves .build/
-# actually absorbs every artefact the suite produces.
+# actually absorbs every artifact the suite produces.
 #
 # Compares the tree before and after rather than requiring it to be clean
 # outright: a developer running this with work in progress should not be told
-# their own edits are build artefacts. Only a DIFFERENCE across the run is a
+# their own edits are build artifacts. Only a DIFFERENCE across the run is a
 # missing .gitignore entry.
 check:
 	@mkdir -p .build

@@ -14,7 +14,7 @@ Level: **simple**. One key, and the ownership model it creates.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/10-prefix ./xtm.py --list
+XTM_CONFIG_DIR=examples/simple/10-prefix src/xtm.py --list
 ```
 
 The `session:` line under each slot is the resolved name.

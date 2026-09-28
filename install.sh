@@ -82,6 +82,13 @@ if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 6) else 1)'; 
     echo "install.sh: python3 is older than 3.6." >&2
     exit 1
 fi
+# xtm reads its config with PyYAML. Warn rather than fail: the copy is still
+# right, and installing PyYAML afterwards is all that is missing.
+if ! python3 -c 'import yaml' 2>/dev/null; then
+    echo "install.sh: warning: PyYAML is not installed for python3, and xtm needs it" >&2
+    echo "  to read its config. Install python3-yaml (or python3-pyyaml) from the" >&2
+    echo "  system, or run: python3 -m pip install --user PyYAML" >&2
+fi
 
 [ -f "$SOURCE_DIR/src/xtm.py" ] || {
     echo "install.sh: src/xtm.py not found beside this script." >&2

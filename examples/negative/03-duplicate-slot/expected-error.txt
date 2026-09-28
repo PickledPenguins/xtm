@@ -1,0 +1,1 @@
+xtm: error: CONFIG line 8, column 7: the key 'logs' appears twice; YAML would silently keep only the last one (while reading a mapping)

@@ -15,5 +15,5 @@ Level: **simple**. One key that decides what leaving a profile costs.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/12-on-switch ./xtm.py --list --json | grep on_switch
+XTM_CONFIG_DIR=examples/simple/12-on-switch src/xtm.py --list --json | grep on_switch
 ```

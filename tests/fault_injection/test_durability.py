@@ -17,7 +17,7 @@ class TestFaultInjection(PathIsolationMixin):
     Durability code is mostly error handling, and error handling that has
     never executed is a guess. These tests break os.replace, os.fsync,
     tempfile.mkstemp, flock and the optional imports on purpose, so the
-    recovery behaviour is observed rather than assumed.
+    recovery behavior is observed rather than assumed.
     """
 
     def _patch(self, module, name, replacement):

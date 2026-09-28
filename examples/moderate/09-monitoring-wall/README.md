@@ -17,5 +17,5 @@ Level: **moderate**. Eight commands tiled, and somewhere for the ninth window.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/09-monitoring-wall ./xtm.py --list
+XTM_CONFIG_DIR=examples/moderate/09-monitoring-wall src/xtm.py --list
 ```

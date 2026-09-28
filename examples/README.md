@@ -22,7 +22,7 @@ python3 examples/run.py --negative             # the configs that must be refuse
 ```
 
 `--show` prints what `xtm` currently reports instead of comparing it, which is how you
-update an `expected.json` after deliberately changing behaviour.
+update an `expected.json` after deliberately changing behavior.
 
 Nothing is installed, no X server is used and no window is opened: the runner points `xtm`
 at the example's config and asks it to report, so running these is safe on any machine.
@@ -53,7 +53,7 @@ at the example's config and asks it to report, so running these is safe on any m
 |---|---|
 | [moderate/01-machine-specific-profiles](moderate/01-machine-specific-profiles/) | A single config file synced across a laptop and a workstation, where each |
 | [moderate/02-shared-sessions](moderate/02-shared-sessions/) | Two profiles that reuse the same slot names without fighting, plus one |
-| [moderate/03-no-pyyaml](moderate/03-no-pyyaml/) | The same config read twice: once with PyYAML, once with it hidden. The two |
+| [moderate/03-shared-sizes](moderate/03-shared-sizes/) | One window size written once and shared by four slots through YAML anchors and merge keys. |
 | [moderate/04-switching-profiles](moderate/04-switching-profiles/) | Three profiles, one per disposal mode, and a session shared by two of them. |
 | [moderate/05-two-machines-one-layout](moderate/05-two-machines-one-layout/) | Binding profiles to hosts without duplicating them. |
 | [moderate/06-every-key](moderate/06-every-key/) | A reference config using every profile and slot key xtm accepts. |
@@ -94,14 +94,14 @@ python3 examples/run.py --negative
 
 | | Refused because |
 |---|---|
-| [negative/01-unquoted-boolean](negative/01-unquoted-boolean/) | `yes` unquoted is a boolean to PyYAML and a word to the built-in reader. |
-| [negative/02-flow-mapping-without-spaces](negative/02-flow-mapping-without-spaces/) | `{x:0}` is one key named `x:0` to PyYAML, not `x` with the value 0. |
-| [negative/03-merge-key](negative/03-merge-key/) | `<<:` merges under PyYAML and is an ordinary key without it, with no error either way. |
-| [negative/04-tab-indentation](negative/04-tab-indentation/) | A tab means one thing to PyYAML and nothing the built-in reader can indent with. |
+| [negative/01-unquoted-boolean](negative/01-unquoted-boolean/) | `title: yes` is a boolean in YAML, not the word; quote it. |
+| [negative/02-flow-mapping-without-spaces](negative/02-flow-mapping-without-spaces/) | `{x:0}` is one key named `x:0` in YAML, not `x` with the value 0. |
+| [negative/03-duplicate-slot](negative/03-duplicate-slot/) | A slot written twice; YAML would silently keep only the last. |
+| [negative/04-tab-indentation](negative/04-tab-indentation/) | YAML does not indent with tabs; the error names the line and column. |
 | [negative/05-two-slots-one-session](negative/05-two-slots-one-session/) | Two slots resolving to one session would fight over one window. |
 | [negative/06-negative-size](negative/06-negative-size/) | A position may be negative; a size may not. |
 | [negative/07-unknown-match-key](negative/07-unknown-match-key/) | `match` takes `hostname` and nothing else; `display:` was removed in 0.4. |
-| [negative/08-document-marker](negative/08-document-marker/) | `---` loads under PyYAML and fails without it. |
+| [negative/08-quoted-number](negative/08-quoted-number/) | `"900"` is text; a size has to be a number. |
 
 ## What a directory may contain
 
@@ -112,7 +112,6 @@ python3 examples/run.py --negative
 | `expected.json` | Required. What `xtm --list --json` reports for it. |
 | `profile` | The profile to report on, when it is not the one xtm would pick. |
 | `flags` | Extra arguments the example needs — `--all` for one whose subject is a profile bound to another machine. |
-| `block-pyyaml` | An empty marker: run this one with PyYAML hidden. |
 
 ## Writing a new one
 
@@ -126,4 +125,4 @@ Check the recorded output says what you meant before committing it. The point of
 `expected.json` is that a human agreed with it once.
 
 `--record` takes a prefix, so `--record complex/` re-records a whole level after a
-deliberate behaviour change, and a bare `--record` does all forty. Read the diff.
+deliberate behavior change, and a bare `--record` does all forty. Read the diff.

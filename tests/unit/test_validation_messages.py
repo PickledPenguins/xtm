@@ -3,7 +3,7 @@
 The messages are the interface: a config is hand-edited, and what the user
 gets back is the only thing that tells them which line to fix. These cases
 are cheap to write and they are the difference between "invalid config" and
-"profile 'desk' slot 'logs': 'title' must be a string".
+"profile 'desk' slot 'logs': 'title' must be text".
 
 Structural refusals from the YAML reader live here too, for the same reason.
 """
@@ -31,16 +31,16 @@ class TestSlotFieldTypes(unittest.TestCase):
                       "the message does not say which slot: %s" % (message,))
 
     def test_session_must_be_a_string(self):
-        self.refuse(geometry(session=7), "'session' must be a string")
+        self.refuse(geometry(session=7), "'session' must be text")
 
     def test_title_must_be_a_string(self):
-        self.refuse(geometry(title=["a"]), "'title' must be a string")
+        self.refuse(geometry(title=["a"]), "'title' must be text")
 
     def test_command_must_be_a_string(self):
-        self.refuse(geometry(command={"run": "x"}), "'command' must be a string")
+        self.refuse(geometry(command={"run": "x"}), "'command' must be text")
 
     def test_cwd_must_be_a_string(self):
-        self.refuse(geometry(cwd=3.5), "'cwd' must be a string")
+        self.refuse(geometry(cwd=3.5), "'cwd' must be text")
 
     def test_xterm_args_must_be_a_list(self):
         self.refuse(geometry(xterm_args="-fn Monospace"),
@@ -75,7 +75,7 @@ class TestProfileFieldTypes(unittest.TestCase):
                     "'stack' must be a mapping")
 
     def test_title_must_be_a_string(self):
-        self.refuse({"title": 5, "sessions": {}}, "'title' must be a string")
+        self.refuse({"title": 5, "sessions": {}}, "'title' must be text")
 
     def test_sessions_must_be_a_mapping(self):
         self.refuse({"sessions": ["work1"]}, "sessions")
@@ -85,51 +85,33 @@ class TestProfileFieldTypes(unittest.TestCase):
 
 
 class TestStructuralRefusals(unittest.TestCase):
-    """Shapes the built-in reader has nowhere to put."""
+    """Shapes YAML itself refuses, reported as one line with a position."""
 
     def refuse(self, text, expected):
-        saved = xtm.HAVE_PYYAML
-        xtm.HAVE_PYYAML = False
-        try:
-            with self.assertRaises(xtm.XtmError) as caught:
-                xtm.load_yaml(text)
-        finally:
-            xtm.HAVE_PYYAML = saved
+        with self.assertRaises(xtm.XtmError) as caught:
+            xtm.load_yaml(text)
         self.assertIn(expected, str(caught.exception))
+        self.assertRegex(str(caught.exception), r"line \d+, column \d+")
 
     def test_a_list_item_belonging_to_no_list(self):
-        self.refuse("profiles:\n  a: 1\n- stray\n", "belongs to no list")
+        self.refuse("profiles:\n  a: 1\n- stray\n", "did not find expected key")
 
     def test_a_mapping_mixed_into_a_list(self):
-        self.refuse("profiles:\n  a:\n    - one\n    b: 2\n", "list")
+        self.refuse("profiles:\n  a:\n    - one\n    b: 2\n", "line 4")
 
     def test_an_unbalanced_flow_collection(self):
-        self.refuse("profiles:\n  a: {x: 1\n", "Unbalanced")
+        self.refuse("profiles:\n  a: {x: 1\n", "flow mapping")
 
     def test_text_after_a_closed_flow_collection(self):
-        self.refuse("profiles:\n  a: [1, 2]tail\n", "after the closing")
-
-    def test_a_flow_entry_without_a_space_after_its_colon(self):
-        # `{x:1}` is one key named "x:1" with no value to PyYAML, which is
-        # why the message is about the missing value rather than the
-        # missing space: that is what YAML actually sees.
-        self.refuse("profiles:\n  a: {x:1}\n", "has no value")
-
-    def test_a_flow_entry_whose_value_touches_the_colon(self):
-        self.refuse("profiles:\n  a: {x: 1, y:2}\n", "has no value")
+        self.refuse("profiles:\n  a: [1, 2]tail\n", "line 2")
 
 
 class TestEmptyAndMissingSections(unittest.TestCase):
     """A config may be sparse; it may not be a surprise."""
 
     def test_a_config_with_a_null_profiles_section_is_treated_as_empty(self):
-        saved = xtm.HAVE_PYYAML
-        xtm.HAVE_PYYAML = False
-        try:
-            data = xtm.load_yaml("profiles:\n")
-        finally:
-            xtm.HAVE_PYYAML = saved
-        self.assertIn("profiles", data)
+        data = xtm.load_yaml("profiles:\n")
+        self.assertEqual(data, {"profiles": None})
 
     def test_a_profile_without_sessions_validates_as_empty(self):
         config = {"profiles": {"desk": {}}}

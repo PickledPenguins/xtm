@@ -40,7 +40,7 @@ reports on `build` by name from a machine that is not one.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/02-fleet ./xtm.py --list-profiles
-XTM_CONFIG_DIR=examples/complex/02-fleet ./xtm.py --all --list-profiles
-XTM_CONFIG_DIR=examples/complex/02-fleet ./xtm.py --validate
+XTM_CONFIG_DIR=examples/complex/02-fleet src/xtm.py --list-profiles
+XTM_CONFIG_DIR=examples/complex/02-fleet src/xtm.py --all --list-profiles
+XTM_CONFIG_DIR=examples/complex/02-fleet src/xtm.py --validate
 ```

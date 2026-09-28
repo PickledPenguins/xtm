@@ -59,15 +59,26 @@ Install `xprop`, or if the window manager draws no decorations at all, pass
 `--no-frame-compensation` so nothing is subtracted. `xtm --update-profile && xtm --reset
 --verify` reporting no delta is the check that the cycle is stable.
 
-## The config loads on one machine and fails on another
+## "xtm reads its config with PyYAML, which is not installed"
 
-This is the PyYAML divergence xtm exists to prevent, and the message names the line and the
-fix. It means the config contains something the two YAML readers would read differently —
-an unquoted `0755`, `yes`, `1:30`, an anchor, a merge key, a tab, or three-space indentation.
+PyYAML is xtm's one dependency. Install it for the `python3` that runs xtm — the system
+package is usually `python3-yaml` or `python3-pyyaml`, or `python3 -m pip install --user
+PyYAML` — and run xtm again. `--help` and `--version` work without it.
 
-Quote the value, or write it the way the message suggests. The full list is in
-[configuration.md](configuration.md). `xtm --validate` checks every profile in the file,
-including those bound to other machines.
+## "line N, column M: ..." when the config is read
+
+The file is not valid YAML, and the message is PyYAML's own, placed at the problem. The
+common ones: a tab in the indentation ("found character that cannot start any token"), an
+unclosed `{` or `[`, a list item or a stray line where a key belongs ("did not find
+expected key"), and a key written twice in one mapping, which xtm refuses because YAML
+would silently keep only the last one.
+
+## "must be text, but YAML read ... as a boolean"
+
+YAML types unquoted values: `yes`, `no`, `on` and `off` are booleans, `0755` is a number
+and `2026-01-01` is a date. Quote the value (`title: "yes"`). The reverse also happens: a
+position written as `"900"` is text, and xtm asks for a number. See
+[configuration.md](configuration.md#values-mean-what-yaml-says).
 
 ## A profile is in the config but xtm says it does not exist
 

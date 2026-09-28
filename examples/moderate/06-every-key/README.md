@@ -24,6 +24,6 @@ Two relationships worth reading twice:
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/06-every-key ./xtm.py --list
-XTM_CONFIG_DIR=examples/moderate/06-every-key ./xtm.py --list --json
+XTM_CONFIG_DIR=examples/moderate/06-every-key src/xtm.py --list
+XTM_CONFIG_DIR=examples/moderate/06-every-key src/xtm.py --list --json
 ```

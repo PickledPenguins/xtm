@@ -32,15 +32,15 @@ command when attaching. So changing any of these takes effect after the
 session is closed and reopened, not on the next `--reset`:
 
 ```bash
-./xtm.py --close logs && ./xtm.py --open logs   # picks up the new command
-./xtm.py --reset                                # does not
+src/xtm.py --close logs && src/xtm.py --open logs   # picks up the new command
+src/xtm.py --reset                                # does not
 ```
 
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/03-startup-commands ./xtm.py work --list
-XTM_CONFIG_DIR=examples/simple/03-startup-commands ./xtm.py work --validate
+XTM_CONFIG_DIR=examples/simple/03-startup-commands src/xtm.py work --list
+XTM_CONFIG_DIR=examples/simple/03-startup-commands src/xtm.py work --validate
 ```
 
 `--list` shows `command:` and `cwd:` on their own lines, but only for the

@@ -39,7 +39,7 @@ profiles:
         width: 720
         height: 700
         cwd: /srv/app
-        # Extra xterm arguments, inserted before -e. Colour-coding a
+        # Extra xterm arguments, inserted before -e. Color-coding a
         # production window differently from a development one is the
         # reason this exists: it is hard to type into the wrong terminal
         # when that terminal is bright red.

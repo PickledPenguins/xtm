@@ -6,8 +6,8 @@ Manages a set of xterm windows, each attached to a named tmux session,
 positioned on screen according to a per-machine "profile" stored in a
 small YAML config file.
 
-No non-standard tools are required for day-to-day use (opening, resetting
-and closing sessions): only xterm, tmux and python3. Window placement is
+Day-to-day use (opening, resetting and closing sessions) needs xterm, tmux,
+python3 and PyYAML, which reads the config. Window placement is
 performed by writing xterm's own window-control escape sequences directly
 to the pty that tmux reports as the session's client tty.
 
@@ -21,9 +21,9 @@ Config file:  ~/.config/xtm/config.yaml       (override: XTM_CONFIG_DIR, --confi
 State file:   ~/.local/state/xtm/current_profile.<host>
                                              (override: XTM_STATE_DIR, --state-dir)
 
-Compatibility: this targets plain Python 3.6+ with no third-party packages
-required, since it is meant to run unmodified on servers where the user
-cannot install anything. That rules out PEP 604 "X | Y" unions (3.10+),
+Compatibility: this targets Python 3.6+ with PyYAML as its one third-party
+package, so it runs on long-lived enterprise systems as well as current
+ones. That rules out PEP 604 "X | Y" unions (3.10+),
 PEP 585 built-in generics such as list[str] (3.9+), and
 `from __future__ import annotations` (3.7+, and no help on 3.6 anyway
 since newer syntax fails at compile time, before any runtime version
@@ -183,8 +183,8 @@ DEFAULT_SWITCH_MODE = "detach"
 INSTANCE_PREFIX = "xtm-"
 
 # Session/profile names are restricted to this charset so they can never
-# contain ':' (which would break TITLE_PREFIX parsing) or YAML-structural
-# characters (which would break the dependency-free config parser/dumper).
+# contain ':' (which would break TITLE_PREFIX parsing and tmux's own target
+# syntax) or characters that need quoting as a YAML key.
 # Uses \Z rather than $ deliberately: in Python regex $ also matches just
 # before a trailing newline, so a name like "work1\n" would otherwise
 # incorrectly pass validation.
@@ -357,10 +357,9 @@ def validate_session_name(name: str) -> str:
 
 
 def validate_profile_name(name: str) -> str:
-    """Same charset rules as session names. This keeps profile names safe
-    as YAML mapping keys (notably free of ':') for both the PyYAML and the
-    dependency-free parser, and safe to store as plain text in the
-    current-profile state file."""
+    """Same charset rules as session names. This keeps profile names plain
+    YAML keys and safe to store as text in the current-profile state
+    file."""
     if not is_valid_session_name(name):
         die("Invalid profile name %r. Only letters, digits, '.', '_' and "
             "'-' are allowed." % (name,))
@@ -525,7 +524,7 @@ def _fsync_directory(directory: Path) -> None:
 # --------------------------------------------------------------------------
 
 class config_lock(object):
-    """Serialise read-modify-write cycles on the config file.
+    """Serialize read-modify-write cycles on the config file.
 
     Atomic writes prevent a corrupted file, but they do not prevent a lost
     update: two concurrent --update-profile runs would each load the same
@@ -551,7 +550,7 @@ class config_lock(object):
             # A dry run promises to touch nothing, and this was the one write
             # path that ignored it: creating the lock file (and its parent
             # directory) left `xtm -N` with a filesystem side effect. There is
-            # nothing to serialise anyway, since no write will follow.
+            # nothing to serialize anyway, since no write will follow.
             logger.debug("[dry-run] not creating the config lock %s", self.path)
             return self
         try:
@@ -595,1193 +594,139 @@ class config_lock(object):
 
 
 # --------------------------------------------------------------------------
-# YAML: which backend is available
+# YAML: reading and writing the config
 # --------------------------------------------------------------------------
+#
+# The config is YAML, read and written by PyYAML's safe loader and dumper. Two
+# things are adjusted, both about names:
+#
+#   * A KEY is a name, taken as the text written. YAML 1.1 would read the slot
+#     `on:` as the boolean True, `0755:` as the number 493 and `~:` as None,
+#     and xtm looks every profile and slot up by its name -- so each of those
+#     would silently become a different name, or none. Keys are therefore
+#     never typed: whatever is written is the name, and the name rules then
+#     accept or refuse it.
+#   * A key written twice is refused. YAML keeps the last and drops the rest
+#     without a word, so a slot pasted in twice would lose its first position.
+#
+# Values keep YAML's own meaning: `yes` is a boolean and `0755` is octal, as
+# every other YAML reader of the same file would say. The validators name the
+# field and suggest quoting when text was expected and YAML read something else.
 
 try:
-    import yaml as _pyyaml  # type: ignore
-
-    HAVE_PYYAML = True
-except ImportError:
-    HAVE_PYYAML = False
-
-# --------------------------------------------------------------------------
-# YAML: the parity guard, the reader, the writer
-# --------------------------------------------------------------------------
-#
-# A map of this region, because every defect found in it so far has lived in
-# the seam between two of these functions rather than inside any one of them.
-# Each line names the question the function answers; nothing else in the file
-# answers that question.
-#
-#   THE GUARD -- refuses input the two backends would read differently. It
-#   produces no value; it either returns or raises.
-#     _scan_for_ambiguous_scalars   which line is being checked, and in what
-#                                   context (block, flow, key, value)
-#     _reject_ambiguous_indent      may this line's whitespace be read by both
-#     _reject_ambiguous_scalar      is this plain value read the same by both
-#     _reject_reserved_key          is this key a NAME to both
-#     _reject_renumbered_key        does this key's text survive being a number
-#     _reject_flow_entry            is this `k: v` inside { } split the same
-#     _reject_flow_item             is this item inside [ ] read the same
-#     _reject_flow_indicator_in_scalar  does this scalar end where both agree
-#     _reject_unsupported_escape    is this escape implemented on both sides
-#     _reject_unbalanced            does this quoted or bracketed token close
-#
-#   THE READER -- turns text into data, and runs only when PyYAML is absent.
-#     _simple_yaml_load             block structure: indentation and nesting
-#     _simple_yaml_scalar_load      one value's type
-#     _simple_yaml_key_load         one key's text (a name, never a value)
-#     _simple_yaml_flow_mapping_load  one { } mapping
-#     _unescape_double_quoted       one double-quoted body's escapes
-#
-#   SHARED TEXT PRIMITIVES -- used by both, which is why they are here and
-#   not inside either.
-#     _partition_key                where a key ends and its value begins
-#     _split_top_level              where one flow item ends and the next starts
-#     _strip_inline_comment         where a value ends and a comment begins
-#
-#   The writer (_simple_yaml_dump and below) is further down, next to
-#   dump_yaml, because it is the part that changes on its own.
-#
-# THE PAIRS THAT MUST AGREE. These are the seams, and each one has been wrong
-# at least once:
-#
-#   _partition_key and _split_top_level must answer "is this colon a
-#   separator" and "is this quote an opener" the same way, in every context.
-#   Both once said yes anywhere, and both produced silent divergence.
-#
-#   _simple_yaml_scalar_dump and _reject_ambiguous_scalar must agree on what
-#   needs quoting. They no longer can disagree: the dumper asks the guard
-#   (_would_be_refused_unquoted) rather than keeping a second list.
-#
-#   _reject_unsupported_escape and _unescape_double_quoted must implement the
-#   same escape set. They share _YAML_ESCAPES for that reason.
-#
-#   _reject_reserved_key and _normalize_config_keys together decide which key
-#   spellings are safe: a numeric key needs no rule because normalisation
-#   makes 2 and "2" the same name, while a boolean one does.
-#
-# Adding a rule means naming which question it answers and which of these
-# pairs it touches. A rule that does not fit an existing question is a sign
-# the question list is wrong, not that the rule needs a new home.
-#
-# PyYAML implements YAML 1.1, which reads a number of unquoted scalars in
-# ways the built-in parser deliberately does not: 0755 is octal (493), 1:30
-# is sexagesimal (90), 0x1f is hex, 1_000 has digit separators, `yes` is
-# boolean True, and 2026-01-01 is a date object. The built-in parser reads
-# every one of those as either a plain decimal number or a string.
-#
-# That means the SAME config file could place a window at two different
-# coordinates depending only on whether PyYAML happens to be installed --
-# silently, because both readings are valid numbers that pass validation.
-# For a tool whose whole point is running unmodified on machines where
-# nothing can be installed, that is the worst possible failure mode.
-#
-# Rather than teach the built-in parser all of YAML 1.1 (a large amount of
-# code, and it would import YAML 1.1's footguns on purpose), these forms are
-# rejected before either backend sees them. Both backends then behave
-# identically: a clear error naming the value and how to fix it. Nothing is
-# lost, because xtm's schema is pixel geometry and a handful of strings --
-# no config has a legitimate use for octal, hex, sexagesimal or dates, and
-# any of them can still be written as a quoted string.
-#
-# Each pattern is anchored and matches a WHOLE token, so ordinary values that
-# merely start with a digit, dot or dash -- `.config/xtm`, `-e`, `2>&1` --
-# are untouched.
-
-# Every numeric pattern accepts a leading '+' as well as '-'. YAML 1.1 does,
-# so "+0755" is octal to PyYAML exactly as "0755" is; a sign-blind pattern
-# would let the signed spelling through the guard it was written to close.
-_YAML_AMBIGUOUS_PATTERNS = (
-    (re.compile(r"^[-+]?0[0-9_]+\Z"),
-     "a leading zero, which PyYAML reads as octal and the built-in parser "
-     "reads as decimal"),
-    (re.compile(r"^[-+]?0[xXbBoO][0-9a-fA-F_]+\Z"),
-     "a base prefix, which only PyYAML understands"),
-
-    (re.compile(r"^[-+]?[0-9][0-9_]*(:[0-9]{1,2})+(\.[0-9_]*)?\Z"),
-     "colons, which PyYAML reads as a sexagesimal number (1:30 becomes 90)"),
-    (re.compile(r"^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)[eE][-+]?[0-9]+\Z"),
-     "scientific notation, which the two parsers disagree about"),
-    (re.compile(r"^[-+]?\.(inf|Inf|INF|nan|NaN|NAN)\Z"),
-     "an infinity or not-a-number literal, which only PyYAML understands"),
-    (re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ][0-9:.+\-Zz]*)?\Z"),
-     "a date, which PyYAML turns into a date object"),
-)
-
-# A number once its digit separators are stripped. Used to spot "1_000" and
-# "1_0.5" without the regex accidentally matching plain "1.5" -- an earlier
-# attempt to fold this into the pattern table above did exactly that and
-# rejected every ordinary decimal.
-_YAML_NUMBER_RE = re.compile(
-    r"^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?\Z")
-
-
-def _split_top_level(text: str, separator: str = ",") -> List[str]:
-    """Split on `separator` while ignoring separators nested inside
-    quotes, brackets or braces. Needed to parse flow-style collections
-    such as {x: 0, y: 0} and [a, b] without a full YAML engine.
-
-    A quote counts as one only where a scalar may begin -- after "[",
-    "{", a separator, or a key's ": ". Everywhere else YAML reads it as
-    an ordinary character in a plain scalar, and treating it as a
-    delimiter suppressed the split PyYAML performs: `{command: echo
-    "hi, there"}` was one command here and a truncated command plus a
-    stray key to PyYAML, so the same config ran two different commands
-    depending on which backend read it.
-    """
-    parts = []  # type: List[str]
-    depth = 0
-    quote = ""
-    at_item_start = True
-    current = []  # type: List[str]
-    for index, ch in enumerate(text):
-        if quote:
-            current.append(ch)
-            if ch == quote:
-                quote = ""
-            continue
-        if ch in "\"'" and at_item_start:
-            quote = ch
-            current.append(ch)
-            at_item_start = False
-            continue
-        if ch not in " \t":
-            at_item_start = (ch in "[{" or ch == separator
-                             or (ch == ":"
-                                 and text[index + 1:index + 2] in ("", " ")))
-        if ch in "[{":
-            depth += 1
-        elif ch in "]}":
-            depth -= 1
-        if ch == separator and depth == 0:
-            parts.append("".join(current))
-            current = []
-            continue
-        current.append(ch)
-    parts.append("".join(current))
-    return parts
-
-
-def _strip_inline_comment(line: str) -> str:
-    """Remove a trailing YAML comment from a line.
-
-    A '#' only starts a comment when it is at the start of the line or
-    preceded by whitespace, and is never a comment inside a quoted
-    scalar. Without this, a perfectly ordinary annotated config line such
-    as `offset_x: 40  # per-window offset` would load as the string
-    "40  # per-window offset" instead of the number 40.
-    """
-    quote = ""
-    for i, ch in enumerate(line):
-        if quote:
-            if ch == quote:
-                quote = ""
-            continue
-        if ch in "\"'":
-            quote = ch
-            continue
-        if ch == "#" and (i == 0 or line[i - 1] in " \t"):
-            return line[:i]
-    return line
-
-
-def _has_digit_separators(raw: str) -> bool:
-    """Whether `raw` is a number written with underscores, which only PyYAML
-    understands (it reads 1_000 as 1000; the built-in parser sees text)."""
-    return "_" in raw and bool(_YAML_NUMBER_RE.match(raw.replace("_", "")))
-
-
-# YAML 1.1 booleans. `true`/`false` are read the same way by both parsers and
-# so are deliberately absent here; these four are not.
-_YAML_AMBIGUOUS_WORDS = ("yes", "no", "on", "off")
-
-# YAML's structural indicators, which mean something to PyYAML and nothing to
-# the built-in parser when they OPEN an unquoted value:
-#
-#   &anchor  *alias   PyYAML resolves them; `x: &a 5` is 5 to PyYAML and the
-#                     text "&a 5" here, and `x: *a` is an error to PyYAML
-#   !tag              `!!str 7` is the string "7" to PyYAML, "!!str 7" here
-#   | >               block scalar headers; `title: |` opens a folded value
-#                     PyYAML reads from the following lines
-#   % @ ` ,           reserved indicators PyYAML refuses outright
-#
-# Only as the first character. `tail -f x | grep y`, `user@host`, `50%` and
-# `sleep 5 &` are ordinary values that both backends read identically, and
-# rejecting those would break real configs to close a hole they are not in.
-# `]` and `}` are here rather than in _reject_unbalanced_flow because a
-# value may not OPEN with a closing bracket: PyYAML refuses `a: ]x` as a
-# stray flow indicator, and nothing legitimate starts that way.
-# `?` and `:` join them as the FIRST character of a plain scalar: PyYAML
-# reads them as the complex-key and value indicators and refuses `a: ?x`
-# and `a: :x`, while the built-in parser read both as ordinary text, so
-# the config loaded only where PyYAML was absent.
-_YAML_INDICATOR_CHARS = "&*!%@`|>,]}?:"
-
-# Whole tokens PyYAML refuses as a VALUE and the built-in parser reads as
-# ordinary text. Both are YAML 1.1 spellings rather than indicators, so they
-# are matched exactly: `<<x`, `<x` and `=x` are ordinary values that both
-# backends agree on, and only the bare token diverges.
-_YAML_RESERVED_VALUE_TOKENS = ("<<", "=")
-
-# A key PyYAML gives meaning to and the built-in parser treats as an ordinary
-# name. `<<` is the merge key: PyYAML folds the mapping it names into the
-# enclosing one, so a profile written with `<<: {prefix: x-}` HAS that prefix
-# on a machine with PyYAML and does not have it on a machine without, with no
-# error on either side. That silence is what makes it worth naming here.
-_YAML_RESERVED_KEYS = ("<<",)
-
-# Document markers. PyYAML accepts them; the built-in parser has no concept of
-# a document and reports "Malformed config line", so a config carrying the
-# `---` header that many editors and people write by habit loads on a machine
-# with PyYAML and fails on one without -- exactly the machines xtm exists for.
-_YAML_DOCUMENT_MARKERS = ("---", "...")
-
-
-# A scalar made only of these, starting with a letter, is a plain name: not
-# numeric under any YAML spelling, carrying no indicator, no colon, no
-# quote, no control character and no escape. Nothing below can refuse it.
-_SAFE_PLAIN_SCALAR_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.\-]*\Z")
-
-
-def _reject_ambiguous_scalar(tok: str, context: str,
-                             in_flow: bool = False) -> None:
-    """Refuse one unquoted scalar that the two YAML backends read differently.
-
-    Quoted scalars are exempt: quoting is exactly how a user says "this is
-    the literal string", and both backends agree on quoted text.
-    """
-    raw = tok.strip()
-    if not raw:
-        return
-    # The overwhelming majority of scalars in a real config are ordinary
-    # names -- slot names, prefixes, profile names -- and every rule below
-    # would pass them. Checked after the word set, because `yes`, `no`,
-    # `on` and `off` are ordinary names by shape and ambiguous by meaning.
-    # This runs for every key and every value in the file, so the early
-    # return is most of what keeps reading a thousand-slot config fast.
-    if raw not in _YAML_AMBIGUOUS_WORDS and _SAFE_PLAIN_SCALAR_RE.match(raw):
-        return
-    if raw[0] == '"':
-        _reject_unsupported_escape(raw, context)
-        _reject_control_characters(raw, context)
-        return
-    if raw[0] == "'":
-        _reject_control_characters(raw, context)
-        return
-    if in_flow:
-        _reject_flow_indicator_in_scalar(raw, context)
-        if raw.startswith("- "):
-            # A bare "-" is the string "-" to both backends and stays
-            # legal; "- x" is a block sequence item, which PyYAML refuses
-            # inside a flow collection while the built-in parser read it
-            # as text.
-            die("%s: the value %s inside a flow collection begins with a "
-                "block sequence indicator, which PyYAML refuses there while "
-                "the built-in parser reads it as text. Quote it if the dash "
-                "is meant literally." % (context, raw))
-    if raw in _YAML_RESERVED_VALUE_TOKENS:
-        die("%s: the unquoted value %s is reserved in YAML, so PyYAML "
-            "refuses it while the built-in parser reads it as text and this "
-            "config would load only where PyYAML is absent. Quote it as "
-            "\"%s\" if you mean the literal text." % (context, raw, raw))
-    if raw[0] in _YAML_INDICATOR_CHARS:
-        die("%s: the unquoted value %s begins with %r, which YAML reads as a "
-            "structural indicator rather than as text, so this config would "
-            "be read differently depending on whether PyYAML is installed. "
-            "Quote it as \"%s\" if you mean the literal text."
-            % (context, raw, raw[0], raw))
-    _reject_control_characters(raw, context)
-    if raw.lower() in _YAML_AMBIGUOUS_WORDS:
-        die("%s: the unquoted value %s is read as a boolean by PyYAML and as "
-            "text by the built-in parser, so this config would behave "
-            "differently depending on whether PyYAML is installed. Quote it "
-            "as \"%s\" if you mean the word." % (context, raw, raw))
-    if _has_digit_separators(raw):
-        die("%s: the value %s has digit separators, which only PyYAML "
-            "understands, so this config would be read differently depending "
-            "on whether PyYAML is installed. Write it as a plain decimal "
-            "number, or quote it as \"%s\" if you mean the literal text."
-            % (context, raw, raw))
-    for pattern, reason in _YAML_AMBIGUOUS_PATTERNS:
-        if pattern.match(raw):
-            die("%s: the value %s has %s, so this config would be read "
-                "differently depending on whether PyYAML is installed. Write "
-                "it as a plain decimal number, or quote it as \"%s\" if you "
-                "mean the literal text." % (context, raw, reason, raw))
-
-
-def _scan_for_ambiguous_scalars(text: str) -> None:
-    """Check every unquoted value in a config for cross-backend ambiguity.
-
-    Runs on the raw text before either backend parses it, which is the only
-    point where the original spelling is still available: once PyYAML has
-    turned 0755 into 493 the evidence is gone.
-    """
-    for lineno, raw_line in enumerate(text.split("\n"), 1):
-        stripped = _strip_inline_comment(raw_line)
-        line = stripped.strip()
-        if not line or line.startswith("#"):
-            continue
-        context = "%s line %d" % (CONTEXT.config_file, lineno)
-        # The built-in parser's own indentation rules, enforced here so they
-        # apply under PyYAML too. They were only in _simple_yaml_load, so a
-        # tab-indented or three-space-indented config loaded on a machine
-        # with PyYAML and failed on one without -- the same divergence as any
-        # other in this scan, just spelled with whitespace.
-        _reject_ambiguous_indent(stripped, raw_line, context)
-        if line in _YAML_DOCUMENT_MARKERS or line.startswith("--- "):
-            die("%s: %s is a YAML document marker. PyYAML accepts it and the "
-                "built-in parser does not, so this config would load only on "
-                "a machine with PyYAML installed. Remove the line; xtm's "
-                "config is always a single document."
-                % (context, line.split()[0]))
-        if line == "-" or line.startswith("- "):
-            # Block sequence item: the whole remainder is the value.
-            item = line[1:].strip()
-            _, item_sep, _ = _partition_key(item)
-            if item_sep and not item.startswith(("[", "{", '"', "'")):
-                die("%s: %r opens a mapping inside a list item. PyYAML reads "
-                    "it as one and the built-in parser has no nested mapping "
-                    "to read it into, so the two disagree. xtm's config has "
-                    "no use for it: write the mapping under its own key."
-                    % (context, line))
-            _scan_value(item, context)
-            continue
-        key, _, value = _partition_key(line)
-        _reject_reserved_key(key.strip(), context)
-        _scan_value(value.strip(), context)
-
-
-def _reject_ambiguous_indent(line: str, raw_line: str, context: str) -> None:
-    """Refuse indentation the built-in parser cannot read.
-
-    Deliberately the same two rules _simple_yaml_load applies, stated once
-    more here so that they gate PyYAML as well. Both messages name the
-    offending line, and both have the same fix: use two spaces per level.
-    """
-    # Anywhere in the line, not only in the indentation. PyYAML refuses a
-    # tab inside a plain scalar too ("a: 1\t2"), while the built-in parser
-    # reads it as ordinary text, so restricting the rule to leading
-    # whitespace left the same divergence in the middle of a value.
-    if "\t" in line:
-        die("%s: config lines must not contain tabs, because the built-in "
-            "YAML parser cannot handle them reliably. Use spaces: %r"
-            % (context, raw_line))
-    leading = line[:len(line) - len(line.lstrip(" "))]
-    if len(leading) % 2 != 0:
-        die("%s: config indentation must be in multiples of 2 spaces, or the "
-            "built-in YAML parser cannot read it: %r" % (context, raw_line))
-
-
-def _reject_flow_item(item: str, whole: str, context: str) -> None:
-    """Refuse a flow-sequence item the two backends read differently.
-
-    Two shapes, both refused for both backends so that neither gets to act
-    on its own reading:
-
-    * An empty item, which a trailing comma produces. `[a, b,]` is a
-      two-item list to PyYAML and a three-item list ending in null to the
-      built-in parser.
-    * An unquoted item containing a colon. PyYAML may read it as a nested
-      one-key mapping (`[b40: 2]` is `[{"b40": 2}]`) or as text depending
-      on what follows the colon, and the built-in parser has no nested
-      mapping to read it into.
-
-    Quoted items are exempt, which is what keeps real values working:
-    `xterm_args: [-fa, "Monospace:size=11"]` is a fontconfig name, not a
-    mapping, and quoting is how the user already says so.
-    """
-    if item.startswith("- "):
-        # A bare "-" stays legal: PyYAML reads `[-]` as the one-item list
-        # ["-"], and so does the built-in parser.
-        die("%s: the list item %s begins with a block sequence indicator, "
-            "which PyYAML refuses inside a flow sequence while the built-in "
-            "parser reads it as text. Write the item as plain text, or quote "
-            "it." % (context, item))
-    if not item:
-        die("%s: the list %s has an empty item, usually a trailing comma. "
-            "PyYAML drops it and the built-in parser reads it as a null "
-            "entry, so the two disagree about the list's length."
-            % (context, whole))
-    if item[0] in "\"'[{":
-        return
-    _, sep, _ = _partition_key(item)
-    # endswith(":") as well as a colon-plus-space: a trailing colon is
-    # still a key to PyYAML, which reads `[a:]` as a one-item list holding
-    # the mapping {"a": None}, while the built-in parser refuses it. Only
-    # _partition_key's "colon then space" spelling was checked, so the
-    # trailing one reached the loader and the two disagreed.
-    if sep or item.endswith(":"):
-        die("%s: the list item %s contains a colon, which PyYAML may read "
-            "as a nested mapping rather than as text. Quote it as \"%s\" if "
-            "it is meant to be text." % (context, item, item))
-
-
-def _reject_flow_entry(part: str, sep: str, value: str, context: str) -> None:
-    """Refuse a flow-mapping entry the two backends split differently.
-
-    In YAML a colon separates a key from its value only when a space or the
-    end of the entry follows it, so PyYAML reads `{x:0, y:0}` as two keys
-    named "x:0" and "y:0" with no values at all. The built-in parser split
-    on the first colon regardless, read the same text as x=0 and y=0, and
-    placed the window where PyYAML would have failed validation.
-
-    An entry with no colon (`{a}`) is the other half: a valid YAML set
-    entry to PyYAML, and nothing the built-in parser can represent. Neither
-    spelling has a use in an xtm config, and both have an obvious fix.
-    """
-    if not part:
-        die("%s: the flow mapping has an empty entry, usually a stray or "
-            "trailing comma. PyYAML refuses it and the built-in parser drops "
-            "it, so the two disagree about the mapping's contents."
-            % (context,))
-    if not sep:
-        die("%s: the flow mapping entry %s has no value. Write it as "
-            "'key: value'." % (context, part))
-    if value and not value.startswith((" ", "\t")):
-        die("%s: the flow mapping entry %s has no space after its colon, so "
-            "PyYAML reads the whole entry as a key with no value while the "
-            "built-in parser splits it in two. Write it as 'key: value'."
-            % (context, part))
-
-
-# Which indicators may open a KEY depends on where the key sits. PyYAML
-# reads `:x: 1` and `?x: 1` as ordinary block keys and refuses neither, so
-# refusing them here would make xtm stricter than PyYAML in block context.
-# Inside a flow mapping the same two are structure: `{:x: 1}` is refused
-# outright and `{?x: 1}` becomes the key "x" with the indicator eaten,
-# which is a silent disagreement with the built-in parser's "?x".
-# `[` and `{` are here as well as `]` and `}`: a key that OPENS a flow
-# collection is structure to PyYAML, which refuses `{<+/A: 1}` as a key,
-# while the built-in parser read it as an ordinary name.
-_YAML_BLOCK_KEY_INDICATORS = "&*!%@`|>,[]{}"
-
-# Spellings YAML gives a type rather than a name. A numeric key is absent
-# on purpose: PyYAML's 2 and the built-in parser's "2" both normalise to
-# the name "2", while PyYAML's None and True normalise to "None" and
-# "True" against the built-in parser's "~" and "true".
-_YAML_TYPED_KEY_SPELLINGS = ("~", "null", "Null", "NULL",
-                             "true", "True", "TRUE",
-                             "false", "False", "FALSE")
-
-
-def _reject_reserved_key(key: str, context: str,
-                         in_flow: bool = False) -> None:
-    """Refuse a key that only PyYAML gives meaning to.
-
-    Quoted keys are exempt for the same reason quoted values are: quoting
-    is how a user says "this is a name", and both backends agree on it.
-    """
-    if key[:1] in "\"'":
-        # A quoted key must close on its last character and carry nothing
-        # after it, exactly as a quoted value must: PyYAML refuses
-        # `""!||90:` and the built-in parser read it as an ordinary name.
-        _reject_unbalanced(key)
-        if key[:1] == '"':
-            # And it carries escapes, exactly as a quoted value does. This
-            # rule used to apply to values only, so `"a\nb":` was a name
-            # with a real newline under PyYAML and the literal four
-            # characters without it -- two profile names, no error either
-            # way.
-            _reject_unsupported_escape(key, context)
-        return
-    if in_flow:
-        # Inside a flow mapping a bracket or brace ends the key, so
-        # PyYAML refuses `{1a{]: 1}` while the built-in parser read the
-        # whole thing as a name.
-        _reject_flow_indicator_in_scalar(key, context)
-    indicators = (_YAML_INDICATOR_CHARS if in_flow
-                  else _YAML_BLOCK_KEY_INDICATORS)
-    if key[:1] in indicators:
-        die("%s: the key %s begins with %r, which YAML reads as a structural "
-            "indicator rather than as a name. PyYAML refuses it and the "
-            "built-in parser reads it as an ordinary key. Quote it as \"%s\" "
-            "if that really is the name." % (context, key, key[0], key))
-    if key in _YAML_RESERVED_KEYS:
-        die("%s: %s is a YAML merge key. PyYAML merges the mapping it names "
-            "into this one and the built-in parser treats it as an ordinary "
-            "key, so this config would mean different things on two machines "
-            "with no error on either. Write the keys out in full."
-            % (context, key))
-    # The ambiguity rules apply to a key as much as to a value: `yes:` is
-    # the key True to PyYAML and the key "yes" to the built-in parser, and
-    # _normalize_config_keys turns those into "True" and "yes" -- two
-    # different profile names. A purely NUMERIC key needs no rule here,
-    # because that same normalisation makes 2 and "2" the same name.
-    _reject_ambiguous_scalar(key, context, in_flow)
-    _reject_renumbered_key(key, context)
-    if key in _YAML_TYPED_KEY_SPELLINGS:
-        die("%s: the key %s is a YAML null or boolean rather than a name. "
-            "PyYAML reads it as that value and the built-in parser reads "
-            "the word, so the two end up naming different things. Quote it "
-            "as \"%s\"." % (context, key, key))
-
-
-def _reject_renumbered_key(key: str, context: str) -> None:
-    """Refuse a numeric key whose text changes when YAML reads it.
-
-    `123:` is safe: PyYAML types it as the integer 123, the built-in
-    parser keeps the text, and _normalize_config_keys turns both into the
-    name "123". `7.:` is not: PyYAML reads the float 7.0 and normalises
-    to "7.0" where the built-in parser normalises to "7.", so the same
-    line names two different profiles.
-
-    The test is exactly that -- whether the name survives the round trip
-    -- rather than "is it numeric", so the ordinary numeric names people
-    actually use keep working.
-    """
-    # Ask YAML's number syntax, not Python's. float() accepts "infinity",
-    # "inf", "nan" and "1e3"; YAML reads none of those as a number in key
-    # position, so asking Python refused names both backends agree on --
-    # which is the same defect as accepting what they disagree on, pointing
-    # the other way.
-    if not _YAML_NUMBER_RE.match(key):
-        return
-    for parse in (int, float):
-        try:
-            parsed = parse(key)
-        except ValueError:
-            continue
-        if str(parsed) != key:
-            die("%s: the key %s is a number whose text changes when YAML "
-                "reads it -- PyYAML makes it %s and the built-in parser "
-                "keeps %s, so the two name different things. Quote it as "
-                "\"%s\"." % (context, key, parsed, key, key))
-        return
-
-
-# Compiled for the same reason as the control-character pattern: this runs
-# for every scalar inside a flow collection, and a character loop showed up
-# as a quarter of the guard's time.
-_FLOW_INDICATOR_RE = re.compile(r"[\[\]{}]")
-
-
-def _reject_flow_indicator_in_scalar(raw: str, context: str) -> None:
-    """Refuse a plain scalar inside [ ] or { } that carries an indicator.
-
-    Inside a flow collection a bracket or a brace ends the scalar, so
-    PyYAML refuses `[a{b]` and `{k: a]b}` outright while the built-in
-    parser splits only on the top-level commas and hands the text back.
-    In BLOCK context the same characters are ordinary -- `title: 3{x}`
-    is a perfectly good value -- which is why this rule applies only
-    where the scan is already inside a flow collection.
-
-    Commas and quotes are deliberately absent: PyYAML reads `[a"b]` as
-    the one-item list `['a"b']` and treats a comma as a separator, so
-    refusing either here would make the built-in parser stricter than
-    PyYAML, which is the same divergence pointing the other way.
-    """
-    found = _FLOW_INDICATOR_RE.search(raw)
-    if found:
-        die("%s: the value %s inside a flow collection contains %r, "
-            "which YAML reads as structure there rather than as text. "
-            "PyYAML refuses it and the built-in parser reads it as "
-            "text, so the two disagree. Quote the whole value, or move "
-            "it onto its own line." % (context, raw, found.group()))
-
-
-def _reject_control_characters(raw: str, context: str) -> None:
-    """Refuse a raw control character the two backends do not agree on.
-
-    A newline and a tab have escapes on both sides; nothing else below
-    space does. Written raw into a quoted value the built-in reader takes
-    it back happily and PyYAML refuses the file, so a config saved with
-    one loads on half the machines it is copied to.
-    """
-    for char in raw:
-        if char < " " and char not in "\n\t":
-            die("%s: the value %r contains the control character %r, which "
-                "the two YAML readers do not agree on and neither can write "
-                "back safely. Remove it, or write it as text."
-                % (context, raw, char))
-
-
-def _reject_unsupported_escape(raw: str, context: str) -> None:
-    """Refuse an escape in a double-quoted scalar that the two backends
-    read differently.
-
-    A double-quoted scalar is the one quoted form YAML processes escapes
-    in, so it is the one place where quoting does NOT mean the two
-    backends agree: PyYAML turns `"a\\tb"` into a real tab and the
-    built-in loader, which understands only `\\"` and `\\\\`, keeps the
-    backslash and the letter. Neither reports anything, so the same
-    config placed a differently-titled window on two machines. PyYAML
-    also refuses an escape YAML does not define (`"\\z"`) while the
-    built-in loader accepts it.
-
-    Single quotes have no escapes at all in YAML, which is why they are
-    the fix this message names.
-    """
-    index = 1
-    while index < len(raw) - 1:
-        if raw[index] != "\\":
-            index += 1
-            continue
-        following = raw[index + 1:index + 2]
-        if following not in _YAML_ESCAPES:
-            die("%s: the double-quoted value %s contains the escape %s, "
-                "which PyYAML interprets and the built-in parser does not, "
-                "so this config would mean different things depending on "
-                "whether PyYAML is installed. Use single quotes if the "
-                "backslash is meant literally."
-                % (context, raw, "\\" + following if following else "\\"))
-        index += 2
-
-
-def _scan_value(value: str, context: str, in_flow: bool = False) -> None:
-    """Check one value, descending into flow collections."""
-    if not value:
-        return
-    if value.startswith("{") and value.endswith("}"):
-        inner_text = value[1:-1].strip()
-        for part in ([] if not inner_text else _split_top_level(inner_text)):
-            key, sep, inner = _partition_key(part.strip())
-            _reject_flow_entry(part.strip(), sep, inner, context)
-            if part.strip():
-                _reject_reserved_key(key.strip(), context, in_flow=True)
-                _scan_value(inner.strip(), context, in_flow=True)
-        return
-    if value.startswith("[") and value.endswith("]"):
-        inner = value[1:-1].strip()
-        for part in ([] if not inner else _split_top_level(inner)):
-            _reject_flow_item(part.strip(), value, context)
-            _scan_value(part.strip(), context, in_flow=True)
-        return
-    _reject_ambiguous_scalar(value, context, in_flow)
-
-
-def _partition_key(line: str) -> Tuple[str, str, str]:
-    """Split "key: value" at the first colon that is OUTSIDE quotes.
-
-    str.partition(":") is not good enough: a quoted key such as
-    "bad:name": {...} would be cut in half, yielding the key '"bad'. That
-    is a third way for the two backends to disagree, since PyYAML honours
-    the quotes. Returns (key, separator, value), with an empty separator
-    when the line holds no top-level colon at all.
-    """
-    quote = ""
-    for i, ch in enumerate(line):
-        if quote:
-            if ch == quote:
-                quote = ""
-            continue
-        # Only a quote that OPENS the key is a quote. Mid-key it is an
-        # ordinary character in a plain scalar -- PyYAML reads `4~x'5: {}`
-        # as the name "4~x'5" -- and treating it as a delimiter swallowed
-        # the colon that follows, so the built-in parser reported a
-        # malformed line for a config PyYAML reads.
-        if ch in "\"'" and i == 0:
-            quote = ch
-            continue
-        # A colon separates a key from a value only when a space or the
-        # end of the line follows it. `119%:~5: {}` is one name to
-        # PyYAML, not the key `119%`, and splitting at every colon made
-        # the built-in parser read a different key -- or refuse the line
-        # outright -- for a config PyYAML reads without complaint.
-        if ch == ":" and line[i + 1:i + 2] in ("", " "):
-            return line[:i], ":", line[i + 1:]
-    return line, "", ""
-
-
-def _reject_unbalanced(tok: str) -> None:
-    """Refuse a quoted scalar or flow collection that does not close cleanly.
-
-    Only a token that OPENS with a quote or a bracket is one, which is the
-    whole subtlety here. In YAML those characters are indicators at the
-    start of a scalar and ordinary text anywhere else, so `command: sed
-    's/a/b/'` and `title: 3{x}` are perfectly good plain scalars that
-    PyYAML reads without complaint. Scanning every token for balance
-    instead made the built-in parser STRICTER than PyYAML and produced the
-    same divergence from the other direction: a config that loaded with
-    PyYAML installed and failed without it.
-
-    What is refused is a token that announces a quoted scalar or a flow
-    collection and then does not deliver one: `a: "unterminated`,
-    `a: {x: 1, y: 2`, `a: []1A`. PyYAML refuses all three.
-    """
-    if not tok:
-        return
-    first = tok[0]
-    if first in "\"'":
-        _reject_unterminated_quote(tok)
-        return
-    if first in "[{":
-        _reject_unbalanced_flow(tok)
-
-
-def _reject_unterminated_quote(tok: str) -> None:
-    """Check a token that opens with a quote: it must close on the last
-    character, with nothing after it."""
-    quote = tok[0]
-    index = 1
-    while index < len(tok):
-        ch = tok[index]
-        if quote == '"' and ch == "\\":
-            index += 2      # an escape consumes the character after it
-            continue
-        if ch == quote:
-            if quote == "'" and tok[index + 1:index + 2] == "'":
-                index += 2  # '' is how a single-quoted scalar escapes a quote
-                continue
-            break
-        index += 1
-    else:
-        return die("Unterminated %s quote in config value: %s" % (quote, tok))
-    if index != len(tok) - 1:
-        die("Unexpected text after the closing %s quote in config value: %s"
-            % (quote, tok))
-
-
-def _reject_unbalanced_flow(tok: str) -> None:
-    """Check a token that opens with `[` or `{`: it must be one collection,
-    closed by the last character."""
-    closing = {"[": "]", "{": "}"}[tok[0]]
-    quote = ""
-    depth = 0
-    # A quote only opens a quoted scalar where an item may begin -- after
-    # "[", "{", "," or a key's ": ", and any spaces. Elsewhere it is an
-    # ordinary character in a plain scalar, which is why `[a"b]` is a
-    # one-item list to PyYAML rather than an unterminated quote.
-    #
-    # The colon belongs in that set because a mapping's VALUE begins after
-    # it: leaving it out made `{title: "v}w"}` read as plain text, counted
-    # the brace inside the quotes as structure, and refused a config
-    # PyYAML accepts -- one that would then load only where PyYAML is
-    # installed. It counts only when a space or the end of the token
-    # follows, which is exactly when YAML treats it as a separator rather
-    # than as a character in a plain scalar.
-    at_item_start = True
-    for index, ch in enumerate(tok):
-        if quote:
-            if ch == quote:
-                quote = ""
-            continue
-        if ch in "\"'" and at_item_start:
-            quote = ch
-        elif ch in "[{":
-            depth += 1
-        elif ch in "]}":
-            depth -= 1
-            if depth == 0 and index != len(tok) - 1:
-                die("Unexpected text after the closing %s in config value: %s"
-                    % (ch, tok))
-            if depth < 0:
-                die("Unbalanced brackets or braces in config value: %s" % (tok,))
-        if ch not in " \t":
-            at_item_start = (ch in "[{,"
-                             or (ch == ":"
-                                 and tok[index + 1:index + 2] in ("", " ")))
-    if quote:
-        die("Unterminated %s quote in config value: %s" % (quote, tok))
-    if depth or tok[-1] != closing:
-        die("Unbalanced brackets or braces in config value: %s" % (tok,))
-
-
-def _reject_plain_scalar_colon(tok: str, in_flow: bool = False) -> None:
-    """Refuse an unquoted value that YAML would read as a nested mapping.
-
-    In YAML a colon only ends a key when it is followed by whitespace or by
-    the end of the line, so `ssh host:port` and `http://example/x` are
-    perfectly ordinary values -- but `a: some value:` is a syntax error,
-    because that trailing colon looks like the start of a nested mapping.
-    PyYAML raises on it; the built-in parser used to hand back the string
-    "some value:" instead.
-
-    Only reached for plain scalars: quoted values and flow collections are
-    handled by the branches above, and a flow mapping legitimately contains
-    ": " everywhere.
-    """
-    if tok.endswith(":") or ": " in tok:
-        die("Unquoted value %r contains a colon followed by a space or the "
-            "end of the value, which YAML reads as the start of a nested "
-            "mapping. Quote it if it is meant to be text." % (tok,))
-    # "- " opens a block sequence, which cannot begin on the value line.
-    # A bare "-fn" is an ordinary value and is deliberately unaffected: only
-    # a dash followed by a space, or a dash alone, is the list indicator.
-    #
-    # in_flow suppresses this rule, because inside [ ] a dash is not an
-    # indicator at all: PyYAML reads `a: [-]` as the one-item list ["-"],
-    # and refusing it here made the built-in parser reject a config PyYAML
-    # accepts -- the same divergence, pointing the other way.
-    if in_flow:
-        return
-    if tok == "-" or tok.startswith("- "):
-        die("Unquoted value %r starts with a list indicator, which YAML "
-            "cannot read on the same line as its key. Put the list items on "
-            "their own lines, or quote the value if it is meant to be text."
-            % (tok,))
-
-
-def _simple_yaml_scalar_load(tok: str, in_flow: bool = False) -> Any:
-    """Parse one scalar, flow list or flow mapping produced by hand or by
-    _simple_yaml_dump.
-
-    `in_flow` says the token came from inside a flow collection, where a
-    leading dash is ordinary text rather than a list indicator.
-    """
-    tok = tok.strip()
-    _reject_unbalanced(tok)
-    if tok in ("", "~", "null", "Null", "NULL"):
-        return None
-    if tok in ("true", "True", "TRUE"):
-        return True
-    if tok in ("false", "False", "FALSE"):
-        return False
-    if len(tok) >= 2 and tok[0] == tok[-1] == '"':
-        return _unescape_double_quoted(tok[1:-1])
-    if len(tok) >= 2 and tok[0] == tok[-1] == "'":
-        return tok[1:-1].replace("''", "'")
-    if tok.startswith("{") and tok.endswith("}"):
-        return _simple_yaml_flow_mapping_load(tok)
-    if tok.startswith("[") and tok.endswith("]"):
-        inner = tok[1:-1].strip()
-        if not inner:
-            return []
-        return [_simple_yaml_scalar_load(p, in_flow=True)
-                for p in _split_top_level(inner)]
-    _reject_plain_scalar_colon(tok, in_flow)
-    # [0-9] rather than \d, and \Z rather than $, both deliberately. In
-    # Python 3 \d also matches non-ASCII decimal digits and int() accepts
-    # them, so "\uff11\uff12\uff13" would become 123 here while PyYAML --
-    # which takes only ASCII digits -- keeps it a string. And $ also matches
-    # just before a trailing newline, so "12\n" would parse as 12.
-    if re.match(r"^[-+]?[0-9]+\Z", tok):
-        return int(tok)
-    # The sign placement mirrors PyYAML's float grammar exactly: it allows a
-    # sign on "1.5" but not on ".5", so "+.5" and "-.5" are strings to it.
-    # Accepting them as floats here would put the divergence back.
-    if re.match(r"^([-+]?[0-9]+\.[0-9]*|\.[0-9]+)([eE][-+][0-9]+)?\Z", tok):
-        return float(tok)
-    return tok
-
-
-# The escapes a double-quoted scalar may carry. PyYAML implements far more
-# (\u, \x, \0 and the rest); those stay refused, because the built-in reader
-# would hand back the text and the two backends would disagree in silence.
-# These four are implemented on both sides, and the dumper needs the last two:
-# a newline or a tab written literally would split the line.
-_YAML_ESCAPES = {'"': '"', "\\": "\\", "n": "\n", "t": "\t"}
-
-
-def _unescape_double_quoted(body: str) -> str:
-    """Read one double-quoted scalar's body, resolving the escapes YAML
-    defines and this reader implements.
-
-    A single left-to-right pass rather than chained replaces: `"a\\\\nb"` is a
-    backslash followed by an n, and replacing `\\n` first would turn it into a
-    newline.
-    """
-    out = []
-    index = 0
-    while index < len(body):
-        char = body[index]
-        if char != "\\" or index + 1 >= len(body):
-            out.append(char)
-            index += 1
-            continue
-        following = body[index + 1]
-        # An escape the guard refuses cannot reach here; anything that does
-        # is one of the four, and is consumed with the backslash.
-        out.append(_YAML_ESCAPES.get(following, "\\" + following))
-        index += 2
-    return "".join(out)
-
-
-def _simple_yaml_key_load(tok: str) -> str:
-    """Read one mapping key, which is a name rather than a value.
-
-    A key has already been separated from its value by _partition_key, so
-    what remains is text: `oo@>:` is a perfectly good name to PyYAML, and
-    running the value rules over it refused names PyYAML accepts. Only
-    the quoting is interpreted here, because quoting is how a user says
-    where a name begins and ends.
-
-    Everything a key is looked up by is a string in xtm, and
-    _normalize_config_keys forces PyYAML's typed keys back to str, so
-    returning the text is also what makes the two backends agree.
-    """
-    tok = tok.strip()
-    if len(tok) >= 2 and tok[0] == tok[-1] == '"':
-        # The same unescaper the value path uses. A second implementation
-        # here is what let a quoted key resolve a different escape set from
-        # the value beside it.
-        return _unescape_double_quoted(tok[1:-1])
-    if len(tok) >= 2 and tok[0] == tok[-1] == "'":
-        return tok[1:-1].replace("''", "'")
-    return tok
-
-
-def _simple_yaml_flow_mapping_load(tok: str) -> Dict[str, Any]:
-    """Parse a flow-style mapping such as {x: 0, y: 0, width: 900}.
-
-    Supported because the documented config examples use this compact
-    form, and because PyYAML accepts it; without it, a config that works
-    on a machine with PyYAML installed would fail on one without it.
-    """
-    inner = tok[1:-1].strip()
-    result = {}  # type: Dict[str, Any]
-    if not inner:
-        return result
-    for part in _split_top_level(inner):
-        part = part.strip()
-        if not part:
-            continue
-        key, sep, value = _partition_key(part)
-        if not sep:
-            die("Malformed flow mapping entry %r in config." % (part,))
-        key = _simple_yaml_key_load(key)
-        # in_flow for the same reason the sequence branch passes it: inside
-        # a flow collection a leading dash is ordinary text, not the block
-        # sequence indicator, and PyYAML reads `{title: -}` as "-".
-        result[str(key)] = _simple_yaml_scalar_load(value, in_flow=True)
-    return result
-
-
-def _simple_yaml_load(text: str) -> Dict[str, Any]:
-    """Minimal indentation-based YAML reader matching _simple_yaml_dump's
-    output, plus inline comments and flow-style collections.
-
-    Only mappings of mappings of scalars/flow-collections are supported,
-    which is all xtm's config ever needs. A bare "key:" with nothing after
-    it is a null value, which is what YAML says it is and what PyYAML
-    returns. Reading it as an empty mapping instead made `empty:` a valid
-    empty profile on a machine without PyYAML and a fatal "must be a
-    mapping" on one with it, so the same config file was usable on one
-    host and not the other.
-    """
-    lines = []  # type: List[Tuple[int, str]]
-    for raw in text.split("\n"):
-        line = _strip_inline_comment(raw).rstrip()
-        if not line.strip():
-            continue
-        leading = line[:len(line) - len(line.lstrip(" \t"))]
-        if "\t" in leading:
-            die("Config indentation must use spaces, not tabs, because the "
-                "built-in YAML parser cannot handle tabs reliably: %r" % (raw,))
-        indent = len(leading)
-        if indent % 2 != 0:
-            die("Config indentation must be in multiples of 2 spaces: %r" % (raw,))
-        lines.append((indent // 2, line.strip()))
-
-    root = {}  # type: Dict[str, Any]
-    stack = [(-1, root)]  # type: List[Tuple[int, Any]]
-    # A "key:" with nothing after it cannot be classified from its own line:
-    # it may open a nested mapping, open a block sequence, or have no children
-    # at all. It is therefore held here until the following line settles it.
-    pending = None  # type: Optional[Tuple[int, Dict[str, Any], str]]
-
-    def settle_pending_as_null() -> None:
-        """A bare "key:" with no children is null, as PyYAML reads it."""
-        if pending is not None:
-            pending[1][pending[2]] = None
-
-    for indent, content in lines:
-        is_item = content == "-" or content.startswith("- ")
-
-        if is_item:
-            if pending is not None and indent >= pending[0]:
-                # First item of a block sequence. Note the container is
-                # pushed at the KEY's level, not the item's, so that items
-                # sitting at either the key's indent (what PyYAML writes) or
-                # one level deeper (what people write by hand) both land in
-                # it.
-                new_list = []  # type: List[Any]
-                pending[1][pending[2]] = new_list
-                stack.append((pending[0], new_list))
-                pending = None
-            while len(stack) > 1 and (stack[-1][0] > indent
-                                      or not isinstance(stack[-1][1], list)):
-                stack.pop()
-            container = stack[-1][1]
-            if not isinstance(container, list):
-                die("Config has a list item that belongs to no list: %r"
-                    % (content,))
-            container.append(_simple_yaml_scalar_load(content[1:].strip()))
-            continue
-
-        if pending is not None:
-            if indent > pending[0]:
-                nested = {}  # type: Dict[str, Any]
-                pending[1][pending[2]] = nested
-                stack.append((pending[0], nested))
-            else:
-                settle_pending_as_null()
-            pending = None
-
-        while len(stack) > 1 and stack[-1][0] >= indent:
-            stack.pop()
-        parent = stack[-1][1]
-        if not isinstance(parent, dict):
-            die("Config mixes a mapping into a list: %r" % (content,))
-        key, sep, rest = _partition_key(content)
-        if not sep:
-            die("Malformed config line: %r" % (content,))
-        key = _simple_yaml_key_load(key)
-        rest = rest.strip()
-        if rest == "":
-            pending = (indent, parent, key)
-        else:
-            parent[key] = _simple_yaml_scalar_load(rest)
-
-    settle_pending_as_null()
-    return root
-
-
-# Bare words that would be read back as non-string YAML types, so the
-# dependency-free dumper must quote them when they occur as strings (a
-# font literally named "Null" has to round-trip as the string "Null",
-# not as Python None).
-_YAML_RESERVED_WORDS = {
-    "true", "True", "TRUE", "false", "False", "FALSE",
-    "null", "Null", "NULL", "None", "~",
-    "yes", "Yes", "YES", "no", "No", "NO",
-    "on", "On", "ON", "off", "Off", "OFF",
-}
-_YAML_LOOKS_NUMERIC_RE = re.compile(r"^-?\d+(\.\d+)?$")
-
-
-def _would_be_refused_unquoted(s: str) -> bool:
-    """Whether the parity guard would refuse `s` as an unquoted scalar.
-
-    Defined here and used by the dumper so that the rule lives in exactly
-    one place. _reject_ambiguous_scalar is defined further down the file;
-    Python resolves the name at call time, and the dumper never runs at
-    import time, so the forward reference is fine.
-    """
-    try:
-        _reject_ambiguous_scalar(s, "dump")
-    except XtmError:
-        return True
-    return False
-
-
-def _reads_back_as_a_different_number(s: str) -> bool:
-    """Whether YAML would read `s` as a number that prints differently."""
-    for parse in (int, float):
-        try:
-            return str(parse(s)) != s
-        except ValueError:
-            continue
-    return False
-
-
-def _simple_yaml_scalar_dump(v: Any) -> str:
-    """Render one scalar for the dependency-free dumper, quoting anything
-    that would not survive the round trip unquoted."""
-    if v is None:
-        return "null"
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, (int, float)):
-        return str(v)
-    s = str(v)
-    needs_quoting = (
-        s == ""
-        or s in _YAML_RESERVED_WORDS
-        or bool(_YAML_LOOKS_NUMERIC_RE.match(s))
-        # A spelling YAML reads as a number whose TEXT differs -- "9." is
-        # the float 9.0, "07" the integer 7. As a value the difference is
-        # invisible; as a key it renames the profile or slot, which is why
-        # the guard refuses it. Quoting here is what stops xtm writing a
-        # config its own guard would then refuse to read.
-        or _reads_back_as_a_different_number(s)
-        or bool(re.search(r'[:#\[\]{},"\']', s))
-        # Any control character, not the two that have escapes: a raw one
-        # inside the quotes is what the guard above refuses on the way back
-        # in, so writing it would produce a file xtm could not read.
-        or any(c < " " for c in s)
-        or s.strip() != s
-        or s.startswith(("-", "?", "&", "*", "!", "%", "@", "`", ">", "|"))
-        # The decisive test, and the reason the list above is only a fast
-        # path: ask the parity guard itself whether it would refuse this
-        # text unquoted. Keeping a second list of what needs quoting is how
-        # the dumper came to write `display: :0` and `title: 7_`, both of
-        # which the guard then refused -- a saved config that would not load
-        # again. One rule, consulted from both sides, cannot drift.
-        or _would_be_refused_unquoted(s)
-    )
-    if needs_quoting:
-        # A newline or a tab has to leave as an escape. Written literally
-        # inside the quotes it splits the line, and the reader -- which is
-        # line-based -- then refuses the file the dumper just wrote. The
-        # guard refuses every input that could carry one today, so this is
-        # the second rule keeping that true rather than the first.
-        escaped = (s.replace("\\", "\\\\").replace('"', '\\"')
-                    .replace("\n", "\\n").replace("\t", "\\t"))
-        return '"' + escaped + '"'
-    return s
-
-
-def _simple_yaml_dump(data: Dict[str, Any], indent: int = 0) -> str:
-    """Minimal YAML writer for the shape xtm's config actually uses:
-    nested mappings of scalars, with flow-style lists as values."""
-    lines = []
-    pad = "  " * indent
-    for key, value in data.items():
-        key_text = _simple_yaml_scalar_dump(str(key))
-        if isinstance(value, dict):
-            if not value:
-                lines.append("%s%s: {}" % (pad, key_text))
-            else:
-                lines.append("%s%s:" % (pad, key_text))
-                lines.append(_simple_yaml_dump(value, indent + 1))
-        elif isinstance(value, (list, tuple)):
-            items = ", ".join(_simple_yaml_scalar_dump(v) for v in value)
-            lines.append("%s%s: [%s]" % (pad, key_text, items))
-        else:
-            lines.append("%s%s: %s" % (pad, key_text, _simple_yaml_scalar_dump(value)))
-    return "\n".join(lines)
+    import yaml  # type: ignore
+except ImportError:  # pragma: no cover - reported when the config is read
+    yaml = None
+
+YAML_INSTALL_HINT = (
+    "xtm reads its config with PyYAML, which is not installed for %s. "
+    "Install it with the system package manager (the package is usually "
+    "python3-yaml or python3-pyyaml) or with `python3 -m pip install --user "
+    "PyYAML`." % (sys.executable,))
+
+
+def _require_yaml() -> Any:
+    """The yaml module, or a clean error saying how to install it."""
+    if yaml is None:
+        die(YAML_INSTALL_HINT)
+    return yaml
+
+
+if yaml is not None:
+
+    # The libyaml-backed classes when PyYAML was built with them: about ten
+    # times faster on a large config, and the parsing rules are the same.
+    _SafeLoaderBase = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    _SafeDumperBase = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
+    class _ConfigLoader(_SafeLoaderBase):  # type: ignore
+        """PyYAML's safe loader, with keys read as names."""
+
+        def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+            """Build a mapping whose keys are the text written, never typed.
+
+            Duplicates are looked for among the keys written in this mapping
+            only, before flatten_mapping() folds a merge key (`<<: *base`) in
+            as the safe loader would. A key written beside a merge overrides
+            the merged one on purpose, and must not count as written twice.
+            """
+            if not isinstance(node, yaml.MappingNode):
+                raise yaml.constructor.ConstructorError(
+                    None, None, "expected a mapping, found %s" % (node.id,),
+                    node.start_mark)
+            written = set()
+            for key_node, _value_node in node.value:
+                if not isinstance(key_node, yaml.ScalarNode):
+                    raise yaml.constructor.ConstructorError(
+                        "while reading a mapping", node.start_mark,
+                        "a key must be a name, not a list or a mapping",
+                        key_node.start_mark)
+                if key_node.tag == "tag:yaml.org,2002:merge":
+                    continue
+                if key_node.value in written:
+                    raise yaml.constructor.ConstructorError(
+                        "while reading a mapping", node.start_mark,
+                        "the key %r appears twice; YAML would silently keep "
+                        "only the last one" % (key_node.value,),
+                        key_node.start_mark)
+                written.add(key_node.value)
+            self.flatten_mapping(node)
+            mapping = {}  # type: Dict[str, Any]
+            for key_node, value_node in node.value:
+                # Merged keys come first, so a key written here wins.
+                mapping[key_node.value] = self.construct_object(value_node,
+                                                                deep=deep)
+            return mapping
+
+    class _ConfigDumper(_SafeDumperBase):  # type: ignore
+        """PyYAML's safe dumper, keeping key order and writing no aliases."""
+
+        def ignore_aliases(self, data: Any) -> bool:
+            """Write every value out in full.
+
+            An anchor and alias pair in a hand-edited config is fine, but xtm
+            never writes one: a shared object in memory is an accident of how
+            a profile was copied, not something the user asked for.
+            """
+            return True
+
+    def _represent_in_order(dumper: Any, data: Dict[str, Any]) -> Any:
+        """Represent a mapping in insertion order.
+
+        A list of pairs rather than the dict itself, because every PyYAML
+        release sorts a dict's keys when it has the chance; sort_keys=False
+        only exists from 5.1. Order matters here: slots are placed in the
+        order they are written.
+        """
+        return dumper.represent_mapping("tag:yaml.org,2002:map",
+                                        list(data.items()))
+
+    _ConfigDumper.add_representer(dict, _represent_in_order)
 
 
 def dump_yaml(data: Dict[str, Any]) -> str:
-    """Serialise the config, preferring PyYAML when it is both present
-    and new enough.
-
-    PyYAML gained safe_dump(sort_keys=...) in 5.1; older releases (still
-    shipped by long-lived enterprise distributions) raise TypeError on
-    it. Without sort_keys=False the config would be rewritten in
-    alphabetical order on every save, so rather than accept that churn,
-    fall back to the built-in dumper, which is always available and
-    always preserves order.
-    """
-    if HAVE_PYYAML:
-        try:
-            text = _pyyaml.safe_dump(data, sort_keys=False,
-                                     default_flow_style=False)
-        except TypeError:
-            logger.debug("PyYAML is too old for sort_keys=; using the "
-                         "built-in dumper to preserve config key order.")
-        else:
-            # PyYAML quotes what PyYAML would misread, which is not the same
-            # set as what the two backends would read differently: it writes
-            # `display: :0` unquoted, and the parity guard then refuses the
-            # file on the way back in. Saving a config must never produce one
-            # xtm will not load, so the output is checked and the built-in
-            # dumper -- which quotes for the guard's rules -- is used instead
-            # when it would not survive.
-            try:
-                _scan_for_ambiguous_scalars(text)
-                return text
-            except XtmError as e:
-                logger.debug("PyYAML's output would not survive the config "
-                             "guard (%s); using the built-in dumper.", e)
-    return _simple_yaml_dump(data) + "\n"
+    """Serialize the config as block-style YAML, in the order it is held."""
+    return _require_yaml().dump(data, Dumper=_ConfigDumper,
+                                default_flow_style=False, allow_unicode=True)
 
 
-def load_yaml(text: str) -> Dict[str, Any]:
-    """Parse config text with PyYAML when available, else the built-in
-    reader."""
-    # Before either backend, so both reject the same inputs. See
-    # _scan_for_ambiguous_scalars for why this cannot run afterwards.
-    _scan_for_ambiguous_scalars(text)
-    if HAVE_PYYAML:
-        try:
-            return _pyyaml.safe_load(text) or {}
-        except _pyyaml.YAMLError as e:
+def load_yaml(text: str) -> Any:
+    """Parse config text. Keys are names; see _ConfigLoader."""
+    module = _require_yaml()
+    try:
+        return module.load(text, Loader=_ConfigLoader)
+    except module.YAMLError as e:
+        # PyYAML's own rendering names "<unicode string>" and spreads over
+        # several lines; the line, column and problem are what the user needs,
+        # in the same one-line shape as every other config error.
+        mark = getattr(e, "problem_mark", None)
+        problem = getattr(e, "problem", None)
+        if mark is None or not problem:
             return die("%s is not valid YAML: %s" % (CONTEXT.config_file, e))
-    return _simple_yaml_load(text)
+        context = getattr(e, "context", None)
+        return die("%s line %d, column %d: %s%s"
+                   % (CONTEXT.config_file, mark.line + 1, mark.column + 1,
+                      problem, " (%s)" % (context,) if context else ""))
 
 
 # --------------------------------------------------------------------------
@@ -1819,7 +764,7 @@ def short_hostname() -> str:
     """Host portion of the machine name, sanitised to the same charset as
     profile names so it is always safe inside a filename.
 
-    Honours --hostname, so every part of a run -- matching, visibility and
+    Honors --hostname, so every part of a run -- matching, visibility and
     the per-machine state file -- agrees about which machine it is acting
     as. Overriding only the matching would produce a run that selected one
     machine's profile and remembered it as another's.
@@ -1828,23 +773,7 @@ def short_hostname() -> str:
     return re.sub(r"[^A-Za-z0-9_.\-]", "_", name)
 
 
-def _normalize_config_keys(config: ConfigDict) -> None:
-    """Force profile and session names back to str after loading.
 
-    PyYAML parses mapping keys that look like numbers as int/float, so a
-    session literally named "123" would load under the int key 123. xtm
-    always looks names up as strings, so without this a purely numeric
-    name would silently fail every lookup rather than working or raising
-    a clear error. Mutates `config` in place.
-    """
-    profiles = config.get("profiles")
-    if not isinstance(profiles, dict):
-        return
-    config["profiles"] = dict((str(k), v) for k, v in profiles.items())
-    for profile in config["profiles"].values():
-        if isinstance(profile, dict) and isinstance(profile.get("sessions"), dict):
-            profile["sessions"] = dict(
-                (str(k), v) for k, v in profile["sessions"].items())
 
 
 def load_config(create_if_missing: bool = True) -> ConfigDict:
@@ -1867,20 +796,16 @@ def load_config(create_if_missing: bool = True) -> ConfigDict:
     data = load_yaml(raw_text)
     if not isinstance(data, dict) or "profiles" not in data:
         die("%s does not look like an xtm config (no 'profiles' key)." % (CONTEXT.config_file,))
-    # A bare "profiles:" with nothing under it reads as None through PyYAML
-    # and as {} through the built-in parser. Both mean "no profiles yet", so
-    # they are folded together here rather than being allowed to produce a
-    # different outcome depending on which backend is installed.
+    # A bare "profiles:" with nothing under it is YAML's null, and means
+    # "no profiles yet".
     if data["profiles"] is None:
         data["profiles"] = {}
     if not isinstance(data["profiles"], dict):
         die("%s: 'profiles' must be a mapping of profile name -> settings."
             % (CONTEXT.config_file,))
-    _normalize_config_keys(data)
     for name in data["profiles"]:
-        # Validated on load as well as on input, because a hand-edited
-        # name containing ':' would round-trip through the built-in
-        # dumper into a file that can no longer be parsed.
+        # Validated on load as well as on input: a hand-edited name reaches
+        # tmux, window titles and the state file's contents from here.
         validate_profile_name(name)
     if DEFAULT_PROFILE_NAME not in data["profiles"]:
         # The reserved profile is the last resort of resolution, so it has
@@ -1946,25 +871,42 @@ def validate_geometry(entry: GeometryDict, context: str,
             % (context, entry["width"], entry["height"]))
 
 
+def require_text(value: Any, context: str, field: str) -> None:
+    """Refuse a field that must be text but was read as something else.
+
+    YAML types an unquoted value: `yes`, `no`, `on` and `off` are booleans,
+    `2026-01-01` is a date and `0755` is a number. The message says so,
+    because "must be a string, got True" for `title: yes` reads as nonsense
+    to someone who wrote the word.
+    """
+    if isinstance(value, str):
+        return
+    if isinstance(value, (dict, list)):
+        die("%s: '%s' must be text, not a %s." % (
+            context, field, "mapping" if isinstance(value, dict) else "list"))
+    kind = {"bool": "boolean", "int": "number", "float": "number",
+            "NoneType": "null"}.get(type(value).__name__, type(value).__name__)
+    die("%s: '%s' must be text, but YAML read %r as a %s. Quote the value to "
+        "keep it as written." % (context, field, value, kind))
+
+
 def validate_session_entry(entry: GeometryDict, context: str) -> None:
     """Validate a slot's geometry plus its optional launch settings."""
     validate_geometry(entry, context)
     session = entry.get("session")
     if session is not None:
-        if not isinstance(session, str):
-            die("%s: 'session' must be a string, got %r." % (context, session))
+        require_text(session, context, "session")
         validate_session_name(session)
     title = entry.get("title")
     if title is not None:
-        if not isinstance(title, str):
-            die("%s: 'title' must be a string, got %r." % (context, title))
+        require_text(title, context, "title")
         validate_title_template(title, context)
     command = entry.get("command")
-    if command is not None and not isinstance(command, str):
-        die("%s: 'command' must be a string, got %r." % (context, command))
+    if command is not None:
+        require_text(command, context, "command")
     cwd = entry.get("cwd")
-    if cwd is not None and not isinstance(cwd, str):
-        die("%s: 'cwd' must be a string, got %r." % (context, cwd))
+    if cwd is not None:
+        require_text(cwd, context, "cwd")
     xterm_args = entry.get("xterm_args")
     if xterm_args is not None:
         if not isinstance(xterm_args, (list, tuple)):
@@ -1996,8 +938,7 @@ def validate_prefix(value: Any, context: str) -> None:
     name, so the result has to satisfy the same charset rules as a name
     written out in full.
     """
-    if not isinstance(value, str):
-        die("%s: 'prefix' must be a string, got %r." % (context, value))
+    require_text(value, context, "prefix")
     if value and not is_valid_session_name(value + "x"):
         die("%s: 'prefix' %r would produce invalid session names. Only "
             "letters, digits, '.', '_' and '-' are allowed."
@@ -2048,7 +989,7 @@ def validate_match(entry: Any, context: str) -> None:
 
 
 def _match_patterns(value: Any) -> List[Any]:
-    """Normalise a 'hostname' value to a list of patterns.
+    """Normalize a 'hostname' value to a list of patterns.
 
     Accepting both a bare string and a list keeps the common
     single-machine case uncluttered while allowing one profile to cover
@@ -2125,13 +1066,10 @@ def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
             % (name, CONTEXT.config_file, type(profile).__name__))
     profile.setdefault("stack", dict(DEFAULT_STACK))
     profile.setdefault("sessions", {})
-    # Same fold as in load_config: an empty "stack:" or "sessions:" block is
-    # None under PyYAML and {} under the built-in parser. setdefault cannot
-    # do this, because the key is present -- it just has no value.
-    # An empty "stack:" block is None under PyYAML and {} under the built-in
-    # parser, so both are folded to the defaults -- a stack with no fields is
-    # unusable either way, and a profile missing the section already
-    # self-heals into a complete one.
+    # An empty "stack:" block is YAML's null, and gets the defaults: a stack
+    # with no fields is unusable, and a profile missing the section already
+    # self-heals into a complete one. setdefault cannot do this, because the
+    # key is present -- it just has no value.
     if not profile["stack"]:
         profile["stack"] = dict(DEFAULT_STACK)
     # "sessions:" differs: an empty mapping is a legitimate value meaning
@@ -2150,9 +1088,7 @@ def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
     if "on_switch" in profile:
         validate_switch_mode(profile["on_switch"], "profile %r" % (name,))
     if "title" in profile:
-        if not isinstance(profile["title"], str):
-            die("profile %r: 'title' must be a string, got %r."
-                % (name, profile["title"]))
+        require_text(profile["title"], "profile %r" % (name,), "title")
         validate_title_template(profile["title"], "profile %r" % (name,))
     if "match" in profile:
         if name == DEFAULT_PROFILE_NAME:
@@ -2306,7 +1242,7 @@ def session_slot_index(profile: ProfileDict) -> Dict[str, str]:
 
     Built once and reused by callers that resolve a whole screenful of
     windows back to their slots. Earlier slots win on a duplicate, matching
-    the first-match behaviour a linear scan had; validate_profile() rejects
+    the first-match behavior a linear scan had; validate_profile() rejects
     duplicates outright, so this only matters for a profile that has not
     been validated yet.
     """
@@ -2566,8 +1502,8 @@ def _unknown_profile_message(config: ConfigDict, name: str,
 # rewrites every control character in format output to "_" there, so
 # "desk\t1" came back as "desk_1" and no session ever parsed as running.
 _FIELD_SEPARATOR = ":"
-_SESSION_FORMAT = "#{session_name}:#{session_attached}"
-_CLIENT_FORMAT = "#{client_tty}:#{client_pid}"
+_SESSION_FORMAT = "#{session_name}" + _FIELD_SEPARATOR + "#{session_attached}"
+_CLIENT_FORMAT = "#{client_tty}" + _FIELD_SEPARATOR + "#{client_pid}"
 
 
 def tmux_list_sessions() -> Dict[str, bool]:
@@ -2823,7 +1759,7 @@ def verify_placement(session: str, requested: GeometryDict,
     """Re-read a window's geometry after placement and report the delta.
 
     Placement is fire-and-forget: the escape sequence is a request to the
-    window manager, which is free to honour it approximately (size
+    window manager, which is free to honor it approximately (size
     increments, panel struts, snapping). --verify turns that silent
     approximation into a visible one, which is the difference between a
     layout that "did not work" and one that worked as well as the window
@@ -3219,7 +2155,7 @@ def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict],
     Every window gets allowWindowOps (required for placement to work at
     all), a title, and an instance name for robust identification. Any
     per-session xterm_args are inserted before -e, so a profile can set
-    fonts or colours -- colour-coding a production cluster differently
+    fonts or colors -- color-coding a production cluster differently
     from a development one, for example.
 
     The title is cosmetic and may be overridden by the profile; the
@@ -3519,7 +2455,7 @@ def cmd_close_all(args: argparse.Namespace, config: ConfigDict,
         return EXIT_OK
     if not confirm("%s %d session(s) from %s (%s)?"
                    % (verb, len(targets), scope, ", ".join(targets)), args.yes):
-        logger.info("Cancelled.")
+        logger.info("Canceled.")
         return EXIT_OK
     action = tmux_detach_session if args.detach_mode else tmux_kill_session
     failures = [s for s in targets if not action(s)]
@@ -3619,7 +2555,7 @@ def cmd_update_profile(args: argparse.Namespace, config: ConfigDict,
                 existing.update(geometry)
                 updated += 1
             elif args.capture_new:
-                # An unrecognised window is recorded under its own name with
+                # An unrecognized window is recorded under its own name with
                 # an explicit 'session', so the entry means exactly the
                 # session that was captured regardless of any prefix.
                 entry = dict(geometry)
@@ -3760,7 +2696,7 @@ def cmd_delete_profile(args: argparse.Namespace, config: ConfigDict,
                    % (name, len(profiles[name].get("sessions", {})
                               if isinstance(profiles[name], dict) else {})),
                    args.yes):
-        logger.info("Cancelled.")
+        logger.info("Canceled.")
         return EXIT_OK
     del profiles[name]
     save_config(config)
@@ -4014,7 +2950,7 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
     strays = sorted(name for name, attached in live.items()
                     if attached and name not in named)
     # Say which other profile a stray belongs to, so an accumulation left
-    # behind by an earlier profile is recognisable rather than mysterious.
+    # behind by an earlier profile is recognizable rather than mysterious.
     # The membership test runs once per session of every visible profile, so
     # it reads from a set rather than scanning the sorted list each time.
     stray_set = set(strays)
@@ -4469,7 +3405,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger.debug("xtm %s starting on python %s; args=%s", __version__,
                  platform.python_version(), vars(args))
     logger.debug("Config file: %s | state file: %s | PyYAML: %s",
-                 CONTEXT.config_file, CONTEXT.state_file, "yes" if HAVE_PYYAML else "no")
+                 CONTEXT.config_file, CONTEXT.state_file,
+                 getattr(yaml, "__version__", "not installed"))
     if CONTEXT.dry_run:
         logger.info("Dry run: no windows or files will be changed.")
     if CONTEXT.hostname:
@@ -4498,7 +3435,7 @@ def _merge_positional_profile(parser: argparse.ArgumentParser,
                               args: argparse.Namespace) -> None:
     """Fold the positional PROFILE argument into args.profile.
 
-    Supplying both spellings is rejected rather than resolved in favour
+    Supplying both spellings is rejected rather than resolved in favor
     of one, even when they name the same profile: silently picking a
     winner would hide a mistake in a script that builds its arguments
     programmatically.

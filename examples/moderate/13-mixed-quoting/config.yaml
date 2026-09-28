@@ -24,7 +24,7 @@ profiles:
         y: 700
         width: 720
         height: 700
-        # "0755" unquoted is octal 493 to PyYAML and decimal 755 without it.
+        # "0755" unquoted is the octal number 493.
         title: "0755"
         # "off" unquoted is the boolean false in YAML 1.1.
         cwd: ~/backups

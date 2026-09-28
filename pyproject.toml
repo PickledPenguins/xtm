@@ -1,7 +1,7 @@
 # Packaging for xtm.
 #
 # This is an ADDITION to install.sh, not a replacement for it. xtm targets
-# machines where you cannot install anything -- no pip, no network, often no
+# machines where you cannot install much -- no pip, no network, often no
 # write access outside your home directory -- and on those, copying one file
 # is the only thing that works. install.sh stays the primary path and is what
 # the README documents first.
@@ -10,10 +10,8 @@
 # for editable installs and tooling integration, or a distribution that
 # prefers a wheel.
 #
-# xtm is deliberately a single module with no runtime dependencies. Keep it
-# that way: the module docstring explains why, and CI runs the suite with
-# PyYAML both present and absent to prove the optional dependency stays
-# optional.
+# xtm is deliberately a single module whose one dependency is PyYAML, which
+# reads and writes the config.
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -37,15 +35,11 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-# None. PyYAML is used when importable and a built-in parser is used when it
-# is not, so it must never become a hard requirement.
-dependencies = []
+dependencies = ["PyYAML>=3.12"]
 
 [project.optional-dependencies]
-# Nicer YAML round-tripping when it happens to be available.
-yaml = ["PyYAML>=3.12"]
 # Everything needed to run `make check`.
-dev = ["PyYAML>=3.12", "coverage>=7.2", "pyflakes"]
+dev = ["coverage[toml]>=7.2", "pyflakes"]
 
 [project.scripts]
 # cli(), not main(): cli() is the layer that turns XtmError into the
@@ -70,7 +64,7 @@ package-dir = {"" = "src"}
 # names this file and a .pth bootstrap is on the path. tests/run-tests.sh
 # --coverage does both. Without it the figure collapses from ~97% to ~63%,
 # because nearly the whole command layer runs in a child process -- a
-# measurement artefact, not a regression.
+# measurement artifact, not a regression.
 #
 # Read from this file by coverage.py 7.2 or newer (for exclude_also), which
 # needs Python 3.11's tomllib or the tomli package: `coverage[toml]`.

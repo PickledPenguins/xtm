@@ -26,6 +26,6 @@ refuse are the ones it can be sure about.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/09-edge-geometry ./xtm.py --validate
-XTM_CONFIG_DIR=examples/complex/09-edge-geometry ./xtm.py --list
+XTM_CONFIG_DIR=examples/complex/09-edge-geometry src/xtm.py --validate
+XTM_CONFIG_DIR=examples/complex/09-edge-geometry src/xtm.py --list
 ```

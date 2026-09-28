@@ -11,7 +11,7 @@ Level: **complex**. What happens when most windows are not in the profile.
   at `x + N*offset_x`, `y + N*offset_y`: the twelfth lands at `(795, 480)`,
   still on a 2880-wide screen. Larger offsets would walk it off, and there is
   no wraparound — xtm does not know the screen size.
-- **Stray attribution.** A stray belonging to another profile is labelled with
+- **Stray attribution.** A stray belonging to another profile is labeled with
   that profile's name in the listing, so an incident does not leave you
   guessing which context a window came from.
 - **`--open` for an unconfigured session** uses the same stack, counted from
@@ -21,6 +21,6 @@ Level: **complex**. What happens when most windows are not in the profile.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/08-stack-heavy ./xtm.py --list
-XTM_CONFIG_DIR=examples/complex/08-stack-heavy ./xtm.py --reset-all --dry-run
+XTM_CONFIG_DIR=examples/complex/08-stack-heavy src/xtm.py --list
+XTM_CONFIG_DIR=examples/complex/08-stack-heavy src/xtm.py --reset-all --dry-run
 ```

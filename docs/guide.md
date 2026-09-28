@@ -22,7 +22,11 @@ Workflows, in the order a user meets them. The vocabulary is in
 
 The installer verifies that `python3` is present and at least 3.6 before copying anything,
 copies `src/xtm.py` to `<prefix>/xtm`, makes it executable, and warns without failing if the
-target directory is not on `PATH`. It needs only a POSIX shell and no network access.
+target directory is not on `PATH` or PyYAML is not installed. It needs only a POSIX shell and
+no network access.
+
+xtm reads its config with PyYAML. Install it from the system (`python3-yaml` on Debian and
+Ubuntu, `python3-pyyaml` on Fedora and RHEL) or with `python3 -m pip install --user PyYAML`.
 
 Manual installation is equivalent, and is the point of the single-file design:
 
@@ -191,4 +195,4 @@ when adopting the keys added in 0.5:
   already running.
 - **`on_switch` defaults to `detach`**, so the first profile switch after upgrading closes
   the previous profile's windows. Nothing is destroyed — every session, tab, pane and job
-  stays alive — but set `on_switch: leave` on a profile to keep the older behaviour.
+  stays alive — but set `on_switch: leave` on a profile to keep the older behavior.

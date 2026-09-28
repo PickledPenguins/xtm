@@ -1,4 +1,4 @@
-"""Built-in YAML reader and writer, and backend selection."""
+"""Reading and writing the config: PyYAML, with keys read as names."""
 
 import unittest
 
@@ -7,182 +7,165 @@ from tests.support import (
 )
 
 
-class TestSimpleYaml(unittest.TestCase):
-    """The dependency-free YAML reader/writer used when PyYAML is absent."""
+def load(text):
+    return xtm.load_yaml(text)
 
-    def round_trip(self, data):
-        return xtm._simple_yaml_load(xtm._simple_yaml_dump(data) + "\n")
 
-    def test_nested_mapping_round_trip(self):
-        data = {"profiles": {"one": {"stack": {"x": 1, "y": -2, "width": 3,
-                                               "height": 4}, "sessions": {}}}}
-        self.assertEqual(self.round_trip(data), data)
+def round_trip(data):
+    return xtm.load_yaml(xtm.dump_yaml(data))
 
-    def test_empty_mapping_round_trips_as_mapping(self):
-        self.assertEqual(self.round_trip({"sessions": {}}), {"sessions": {}})
 
-    def test_list_round_trip(self):
-        data = {"a": {"xterm_args": ["-fa", "Mono", "-fs", "11"]}}
-        self.assertEqual(self.round_trip(data), data)
+class TestKeysAreNames(unittest.TestCase):
+    """A key is the text written, never a boolean, a number or a null."""
 
-    def test_empty_list_round_trip(self):
-        self.assertEqual(self.round_trip({"a": {"b": []}}), {"a": {"b": []}})
+    def test_boolean_spellings_stay_names(self):
+        for word in ("on", "off", "yes", "no", "true", "False", "y", "n"):
+            data = load("%s: 1\n" % (word,))
+            self.assertEqual(list(data), [word])
 
-    def test_reserved_words_stay_strings(self):
-        for word in ("null", "Null", "yes", "no", "on", "off", "true", "False"):
-            self.assertEqual(self.round_trip({"a": {"b": word}})["a"]["b"], word)
+    def test_number_spellings_keep_their_text(self):
+        # YAML 1.1 reads 0755 as 493, 1:30 as 90 and 7. as 7.0; as names
+        # they must stay exactly what was typed.
+        for text in ("123", "0755", "1_000", "1:30", "7.", "0x1f", "1e3"):
+            data = load("'%s': 1\n" % (text,) if ":" in text else "%s: 1\n" % (text,))
+            self.assertEqual(list(data), [text])
 
-    def test_numeric_looking_string_stays_a_string(self):
-        self.assertEqual(self.round_trip({"a": {"b": "42"}})["a"]["b"], "42")
+    def test_null_spellings_stay_names(self):
+        for text in ("~", "null", "Null"):
+            self.assertEqual(list(load("%s: 1\n" % (text,))), [text])
 
-    def test_string_with_colon_round_trips(self):
-        data = {"a": {"command": "ssh host: true"}}
-        self.assertEqual(self.round_trip(data), data)
+    def test_a_date_key_stays_text(self):
+        self.assertEqual(list(load("2026-01-01: 1\n")), ["2026-01-01"])
 
-    def test_string_with_quotes_round_trips(self):
-        data = {"a": {"command": 'echo "hi" && echo \'there\''}}
-        self.assertEqual(self.round_trip(data), data)
+    def test_nested_keys_are_names_too(self):
+        data = load("profiles:\n  on:\n    sessions:\n      0755: {x: 1}\n")
+        self.assertEqual(list(data["profiles"]), ["on"])
+        self.assertEqual(list(data["profiles"]["on"]["sessions"]), ["0755"])
 
-    def test_a_doubled_quote_closes_nothing_in_a_single_quoted_scalar(self):
-        """'' is YAML's escape for a quote inside single quotes.
+    def test_a_quoted_key_is_its_unquoted_text(self):
+        self.assertEqual(list(load('"a b": 1\n')), ["a b"])
+        self.assertEqual(list(load("'it''s': 1\n")), ["it's"])
 
-        The scan checks that a quoted value closes on its last character
-        and nowhere earlier, so it has to know that the doubled quote is
-        one character of text rather than the end of the scalar.
-        """
-        parsed = xtm._simple_yaml_load("a:\n  b: 'it''s here'\n")
-        self.assertEqual(parsed["a"]["b"], "it's here")
+    def test_a_collection_as_a_key_is_refused(self):
+        with self.assertRaises(xtm.XtmError) as caught:
+            load("? [a, b]\n: 1\n")
+        self.assertIn("a key must be a name", str(caught.exception))
 
-    def test_a_newline_or_tab_survives_the_round_trip(self):
-        """A value carrying one is escaped, not written raw.
 
-        Written literally inside the quotes it split the line, and the
-        reader -- which is line-based -- then refused the file the dumper
-        had just produced.
-        """
-        for value in ("a\nb", "a\tb", "a\n\tb"):
-            data = {"a": {"command": value}}
-            self.assertEqual(self.round_trip(data), data,
-                             "%r did not survive the round trip" % (value,))
+class TestDuplicateKeys(unittest.TestCase):
+    """YAML keeps the last of two equal keys without a word; xtm refuses."""
 
-    def test_a_literal_backslash_n_is_not_a_newline(self):
-        """`a\\nb` is a backslash and an n, and stays that way.
-
-        The escapes are resolved in one left-to-right pass for this reason:
-        chained replaces would turn the escaped backslash's `n` into a
-        newline.
-        """
-        data = {"a": {"command": "a\\nb"}}
-        self.assertEqual(self.round_trip(data), data)
-        self.assertEqual(xtm._unescape_double_quoted('a\\\\nb'), 'a\\nb')
-
-    def test_leading_dash_string_round_trips(self):
-        self.assertEqual(self.round_trip({"a": {"b": "-fa"}})["a"]["b"], "-fa")
-
-    def test_negative_and_float_numbers(self):
-        parsed = xtm._simple_yaml_load("a:\n  x: -40\n  y: 1.5\n")
-        self.assertEqual(parsed["a"]["x"], -40)
-        self.assertAlmostEqual(parsed["a"]["y"], 1.5)
-
-    def test_inline_comment_is_stripped(self):
+    def test_a_slot_written_twice_is_refused_with_its_line(self):
         text = ("profiles:\n"
-                "  one:            # the layout for this desk\n"
-                "    stack:        # default slot\n"
-                "      x: 40       # left edge\n"
-                "      y: 40\n")
-        parsed = xtm._simple_yaml_load(text)
-        self.assertEqual(parsed["profiles"]["one"]["stack"]["x"], 40)
-        self.assertEqual(parsed["profiles"]["one"]["stack"]["y"], 40)
+                "  desk:\n"
+                "    sessions:\n"
+                "      logs: {x: 0, y: 0, width: 9, height: 9}\n"
+                "      logs: {x: 5, y: 0, width: 9, height: 9}\n")
+        with self.assertRaises(xtm.XtmError) as caught:
+            load(text)
+        message = str(caught.exception)
+        self.assertIn("the key 'logs' appears twice", message)
+        self.assertIn("line 5", message)
 
-    def test_hash_inside_quoted_string_is_not_a_comment(self):
-        parsed = xtm._simple_yaml_load('a:\n  command: "echo #1"\n')
-        self.assertEqual(parsed["a"]["command"], "echo #1")
+    def test_a_key_beside_a_merge_overrides_it_without_counting_twice(self):
+        data = load("base: &b {width: 1, height: 2}\n"
+                    "slot: {<<: *b, width: 9}\n")
+        self.assertEqual(data["slot"], {"width": 9, "height": 2})
 
-    def test_hash_without_leading_space_is_not_a_comment(self):
-        parsed = xtm._simple_yaml_load("a:\n  b: c#d\n")
-        self.assertEqual(parsed["a"]["b"], "c#d")
+    def test_equal_keys_in_different_mappings_are_fine(self):
+        data = load("a: {x: 1}\nb: {x: 2}\n")
+        self.assertEqual(data, {"a": {"x": 1}, "b": {"x": 2}})
 
-    def test_full_line_comment_ignored(self):
-        parsed = xtm._simple_yaml_load("# leading\na:\n  # inner\n  b: 1\n")
-        self.assertEqual(parsed, {"a": {"b": 1}})
 
-    def test_flow_mapping(self):
-        parsed = xtm._simple_yaml_load(
-            "sessions:\n  work1: {x: 0, y: 0, width: 900, height: 700}\n")
-        self.assertEqual(parsed["sessions"]["work1"],
-                         {"x": 0, "y": 0, "width": 900, "height": 700})
+class TestValuesKeepYamlMeaning(unittest.TestCase):
+    """Values are typed as every YAML reader would type them."""
 
-    def test_flow_mapping_with_quoted_comma(self):
-        parsed = xtm._simple_yaml_load(
-            'a: {command: "sleep 1, then go", x: 1}\n')
-        self.assertEqual(parsed["a"]["command"], "sleep 1, then go")
-        self.assertEqual(parsed["a"]["x"], 1)
+    def test_booleans_and_numbers(self):
+        data = load("a: yes\nb: 0755\nc: 1.5\nd: -3\ne: ~\n")
+        self.assertEqual(data, {"a": True, "b": 493, "c": 1.5, "d": -3,
+                                "e": None})
 
-    def test_flow_mapping_with_nested_list(self):
-        parsed = xtm._simple_yaml_load('a: {xterm_args: [-fa, Mono], x: 2}\n')
-        self.assertEqual(parsed["a"]["xterm_args"], ["-fa", "Mono"])
-        self.assertEqual(parsed["a"]["x"], 2)
+    def test_quoting_keeps_text(self):
+        self.assertEqual(load("a: 'yes'\nb: \"0755\"\n"),
+                         {"a": "yes", "b": "0755"})
 
-    def test_empty_flow_mapping(self):
-        self.assertEqual(xtm._simple_yaml_load("a: {}\n"), {"a": {}})
+    def test_anchors_aliases_and_merge_keys_work(self):
+        text = ("base: &base {width: 900, height: 700}\n"
+                "slot:\n"
+                "  <<: *base\n"
+                "  x: 10\n")
+        self.assertEqual(load(text)["slot"],
+                         {"width": 900, "height": 700, "x": 10})
 
-    def test_tabs_are_rejected(self):
+    def test_comments_and_a_document_marker_are_fine(self):
+        self.assertEqual(load("---\n# note\na: 1  # trailing\n"), {"a": 1})
+
+
+class TestWriting(unittest.TestCase):
+    """What xtm writes, it reads back unchanged, in the same order."""
+
+    def test_nested_config_round_trips(self):
+        data = {"profiles": {"one": {
+            "stack": {"x": 1, "y": -2, "width": 3, "height": 4,
+                      "offset_x": 5, "offset_y": 6},
+            "sessions": {"a": {"x": 0, "y": 0, "width": 9, "height": 9,
+                               "xterm_args": ["-fa", "Mono", "-fs", "11"]}},
+        }}}
+        self.assertEqual(round_trip(data), data)
+
+    def test_key_order_is_kept_not_sorted(self):
+        data = {"z": 1, "a": 2, "m": 3}
+        self.assertEqual(list(round_trip(data)), ["z", "a", "m"])
+        self.assertLess(xtm.dump_yaml(data).index("z:"),
+                        xtm.dump_yaml(data).index("a:"))
+
+    def test_text_that_looks_typed_is_quoted_on_the_way_out(self):
+        data = {"a": {"b": "yes", "c": "0755", "d": "null", "e": "1:30",
+                      "f": "2026-01-01", "g": "~"}}
+        self.assertEqual(round_trip(data), data)
+
+    def test_key_names_that_look_typed_survive(self):
+        data = {"profiles": {"on": {}, "0755": {}, "true": {}}}
+        self.assertEqual(round_trip(data), data)
+
+    def test_block_style_and_no_aliases(self):
+        shared = {"x": 1}
+        text = xtm.dump_yaml({"a": shared, "b": shared})
+        self.assertNotIn("&", text)
+        self.assertNotIn("*", text)
+        self.assertNotIn("{", text)
+
+    def test_newlines_and_unicode_survive(self):
+        data = {"a": {"command": "echo 'x'\nsecond", "title": "café ✓"}}
+        self.assertEqual(round_trip(data), data)
+        self.assertIn("café", xtm.dump_yaml(data))
+
+
+class TestErrors(unittest.TestCase):
+
+    def test_invalid_yaml_names_the_line_and_column(self):
+        with self.assertRaises(xtm.XtmError) as caught:
+            load("profiles:\n  a: {x: 1\n")
+        message = str(caught.exception)
+        self.assertRegex(message, r"line \d+, column \d+")
+        self.assertNotIn("<unicode string>", message)
+
+    def test_a_tab_in_the_indentation_names_its_line(self):
+        with self.assertRaises(xtm.XtmError) as caught:
+            load("profiles:\n\tdesk: {}\n")
+        self.assertIn("line 2, column 1", str(caught.exception))
+
+    def test_missing_pyyaml_says_how_to_install_it(self):
+        saved = xtm.yaml
+        xtm.yaml = None
+        self.addCleanup(setattr, xtm, "yaml", saved)
+        with self.assertRaises(xtm.XtmError) as caught:
+            load("a: 1\n")
+        self.assertIn("PyYAML", str(caught.exception))
+        self.assertIn("pip install --user PyYAML", str(caught.exception))
         with self.assertRaises(xtm.XtmError):
-            xtm._simple_yaml_load("a:\n\tb: 1\n")
-
-    def test_odd_indentation_is_rejected(self):
-        with self.assertRaises(xtm.XtmError):
-            xtm._simple_yaml_load("a:\n   b: 1\n")
-
-    def test_line_without_colon_is_rejected(self):
-        with self.assertRaises(xtm.XtmError):
-            xtm._simple_yaml_load("a:\n  bcd\n")
-
-    def test_malformed_flow_mapping_is_rejected(self):
-        with self.assertRaises(xtm.XtmError):
-            xtm._simple_yaml_load("a: {x}\n")
-
-    def test_dedent_back_to_top_level(self):
-        parsed = xtm._simple_yaml_load("a:\n  b: 1\nc:\n  d: 2\n")
-        self.assertEqual(parsed, {"a": {"b": 1}, "c": {"d": 2}})
-
-    def test_strip_inline_comment_helper(self):
-        self.assertEqual(xtm._strip_inline_comment("x: 1 # two").rstrip(), "x: 1")
-        self.assertEqual(xtm._strip_inline_comment("#all"), "")
-        self.assertEqual(xtm._strip_inline_comment("x: 1"), "x: 1")
-
-    def test_split_top_level_respects_nesting(self):
-        self.assertEqual(xtm._split_top_level("a, [b, c], {d: e}"),
-                         ["a", " [b, c]", " {d: e}"])
+            xtm.dump_yaml({"a": 1})
 
 
-class TestYamlBackendSelection(unittest.TestCase):
-    """dump_yaml must survive a PyYAML too old for sort_keys=."""
-
-    def test_falls_back_when_pyyaml_rejects_sort_keys(self):
-        class OldPyYaml(object):
-            YAMLError = ValueError
-
-            @staticmethod
-            def safe_dump(data, **kwargs):
-                raise TypeError("unexpected keyword argument 'sort_keys'")
-
-        original_flag, original_mod = xtm.HAVE_PYYAML, getattr(xtm, "_pyyaml", None)
-        xtm.HAVE_PYYAML = True
-        xtm._pyyaml = OldPyYaml
-        try:
-            text = xtm.dump_yaml({"profiles": {"a": {"sessions": {}}}})
-        finally:
-            xtm.HAVE_PYYAML = original_flag
-            if original_mod is not None:
-                xtm._pyyaml = original_mod
-        self.assertIn("profiles:", text)
-        self.assertIn("sessions: {}", text)
-
-
-class TestPyYamlErrorPath(unittest.TestCase):
-
-    @unittest.skipUnless(xtm.HAVE_PYYAML, "PyYAML is not installed")
-    def test_invalid_yaml_reports_cleanly(self):
-        with self.assertRaises(xtm.XtmError):
-            xtm.load_yaml("profiles:\n  a: [unclosed\n")
+if __name__ == "__main__":
+    unittest.main()

@@ -16,7 +16,7 @@ Level: **simple**. Starting each session somewhere useful, with something alread
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/07-working-directories ./xtm.py --list
+XTM_CONFIG_DIR=examples/simple/07-working-directories src/xtm.py --list
 ```
 
 The listing shows `command:` and `cwd:` for each slot that sets them.

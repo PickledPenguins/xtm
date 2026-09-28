@@ -107,7 +107,7 @@ class TestProfileScaling(CountingMixin):
         self.calls = 0        # ignore the setup above
         status = xtm.cmd_update_profile(Args(), config, "cap")
         self.assertEqual(status, xtm.EXIT_OK)
-        # Every captured window was recognised and updated in place.
+        # Every captured window was recognized and updated in place.
         self.assertEqual(profile["sessions"]["s00000"]["x"], 0)
         self.assertEqual(profile["sessions"]["s00399"]["x"], 399)
         # One index build, plus whatever reporting costs. Comfortably linear,
@@ -146,7 +146,7 @@ class TestProfileScaling(CountingMixin):
 
 
 class TestLargeConfigsStayCorrect(unittest.TestCase):
-    """Size must change cost, never behaviour."""
+    """Size must change cost, never behavior."""
 
     def test_a_large_profile_validates_and_resolves(self):
         config = {"profiles": {"big": make_profile(2000)}}
@@ -156,18 +156,9 @@ class TestLargeConfigsStayCorrect(unittest.TestCase):
         self.assertEqual(index["p-s00000"], "s00000")
         self.assertEqual(index["p-s01999"], "s01999")
 
-    def test_a_large_config_round_trips_through_both_yaml_backends(self):
+    def test_a_large_config_round_trips(self):
         config = {"profiles": {"big": make_profile(300)}}
-        saved = xtm.HAVE_PYYAML
-        self.addCleanup(setattr, xtm, "HAVE_PYYAML", saved)
-        for use_pyyaml in (False, True):
-            if use_pyyaml and not saved:
-                continue
-            xtm.HAVE_PYYAML = use_pyyaml
-            text = xtm.dump_yaml(config)
-            self.assertEqual(xtm.load_yaml(text), config,
-                             "large config did not survive a round trip with "
-                             "HAVE_PYYAML=%s" % (use_pyyaml,))
+        self.assertEqual(xtm.load_yaml(xtm.dump_yaml(config)), config)
 
     def test_session_slot_index_matches_the_scan_it_replaced(self):
         """Including on a duplicate, where first-match must still win."""

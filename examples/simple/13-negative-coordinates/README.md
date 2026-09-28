@@ -16,6 +16,6 @@ is what it is.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/13-negative-coordinates ./xtm.py --list
-XTM_CONFIG_DIR=examples/simple/13-negative-coordinates ./xtm.py --validate
+XTM_CONFIG_DIR=examples/simple/13-negative-coordinates src/xtm.py --list
+XTM_CONFIG_DIR=examples/simple/13-negative-coordinates src/xtm.py --validate
 ```

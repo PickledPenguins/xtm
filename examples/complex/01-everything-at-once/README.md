@@ -41,10 +41,10 @@ alone.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/01-everything-at-once ./xtm.py --list
-XTM_CONFIG_DIR=examples/complex/01-everything-at-once ./xtm.py --list-profiles --verbose
-XTM_CONFIG_DIR=examples/complex/01-everything-at-once ./xtm.py --validate
-XTM_CONFIG_DIR=examples/complex/01-everything-at-once ./xtm.py lab --dry-run
+XTM_CONFIG_DIR=examples/complex/01-everything-at-once src/xtm.py --list
+XTM_CONFIG_DIR=examples/complex/01-everything-at-once src/xtm.py --list-profiles --verbose
+XTM_CONFIG_DIR=examples/complex/01-everything-at-once src/xtm.py --validate
+XTM_CONFIG_DIR=examples/complex/01-everything-at-once src/xtm.py lab --dry-run
 ```
 
 The last one shows what switching away from `desk` would do: three windows

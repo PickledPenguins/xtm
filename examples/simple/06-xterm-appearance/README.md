@@ -6,7 +6,7 @@ Level: **simple**. Giving one window a different font, and another a dark backgr
 
 - **`xterm_args:` is a list appended to the xterm command line**, verbatim.
   Anything xterm accepts works: `-fa`/`-fs` for a font, `-bg`/`-fg` for
-  colours, `-sl` for scrollback.
+  colors, `-sl` for scrollback.
 - **A value containing a colon must be quoted.** `"Monospace:size=11"` is a
   fontconfig name; unquoted, YAML reads a colon as a key separator, and the
   two YAML backends would not agree on the result. xtm refuses the unquoted
@@ -18,5 +18,5 @@ Level: **simple**. Giving one window a different font, and another a dark backgr
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/06-xterm-appearance ./xtm.py --validate
+XTM_CONFIG_DIR=examples/simple/06-xterm-appearance src/xtm.py --validate
 ```

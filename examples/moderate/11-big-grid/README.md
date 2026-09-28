@@ -18,5 +18,5 @@ that goes with it.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/11-big-grid ./xtm.py --list
+XTM_CONFIG_DIR=examples/moderate/11-big-grid src/xtm.py --list
 ```

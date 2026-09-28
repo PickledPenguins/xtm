@@ -27,8 +27,8 @@ machine gets the layout that fits its screen.
 Profiles bound to other machines are hidden. `--all` reveals them:
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/01-machine-specific-profiles ./xtm.py --list-profiles
-XTM_CONFIG_DIR=examples/moderate/01-machine-specific-profiles ./xtm.py --list-profiles --all
+XTM_CONFIG_DIR=examples/moderate/01-machine-specific-profiles src/xtm.py --list-profiles
+XTM_CONFIG_DIR=examples/moderate/01-machine-specific-profiles src/xtm.py --list-profiles --all
 ```
 
 The second command shows `laptop` and `workstation`; the first almost
@@ -38,7 +38,7 @@ is the feature working.
 To see one anyway:
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/01-machine-specific-profiles ./xtm.py --all laptop --list
+XTM_CONFIG_DIR=examples/moderate/01-machine-specific-profiles src/xtm.py --all laptop --list
 ```
 
 ## Note on this example's recorded output

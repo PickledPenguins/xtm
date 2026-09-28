@@ -1,1 +1,1 @@
-xtm: error: CONFIG line 6: the unquoted value yes is read as a boolean by PyYAML and as text by the built-in parser, so this config would behave differently depending on whether PyYAML is installed. Quote it as "yes" if you mean the word.
+default              INVALID: profile 'default' slot 'shell': 'title' must be text, but YAML read True as a boolean. Quote the value to keep it as written.

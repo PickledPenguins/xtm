@@ -117,7 +117,7 @@ class TestEditor(IntegrationBase):
         path.chmod(0o755)
         return path
 
-    def test_an_editor_with_arguments_is_honoured(self):
+    def test_an_editor_with_arguments_is_honored(self):
         """VISUAL and EDITOR routinely carry arguments.
 
         "vim -p" and "code --wait" are ordinary settings; treating the
@@ -182,13 +182,11 @@ class TestInterruptHandling(IntegrationBase):
         self.assertIn("Interrupted", err)
 
 
-class TestDependencyFreeYamlEndToEnd(IntegrationBase):
-    """Exercise complete commands with PyYAML unavailable.
+class TestWithoutPyYaml(IntegrationBase):
+    """xtm needs PyYAML to read its config, and says so when it is missing.
 
-    The built-in YAML reader/writer is the code path that runs on hosts
-    where nothing can be installed, so it is verified end to end and not
-    only in isolation. PyYAML is hidden from the child process by putting
-    a module ahead of it on the import path that raises ImportError.
+    PyYAML is hidden from the child process by a module ahead of it on the
+    import path that raises ImportError.
     """
 
     def setUp(self):
@@ -201,75 +199,25 @@ class TestDependencyFreeYamlEndToEnd(IntegrationBase):
             blocker, self.env.get("PYTHONPATH", ""))
 
     def test_pyyaml_really_is_hidden(self):
-        # Guards the test itself: if the blocker ever stopped working,
-        # every other test in this class would silently fall back to
-        # testing PyYAML instead of the built-in parser.
+        # Guards the test itself: a broken blocker would make every other
+        # test here pass for the wrong reason.
         result = subprocess.run(
             [sys.executable, "-c", "import yaml"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             universal_newlines=True, env=self.env, timeout=40)
         self.assertNotEqual(result.returncode, 0)
 
-    def test_validates_an_annotated_config_with_flow_mappings(self):
-        self.write_config("""\
-            profiles:
-              desk:            # the layout used at the main desk
-                stack: {x: 20, y: 20, width: 700, height: 900, offset_x: 30, offset_y: 30}
-                sessions:
-                  work1: {x: 0, y: 0, width: 1000, height: 1400}
-                  logs:
-                    x: 1000
-                    y: 0        # top edge
-                    width: 900
-                    height: 700
-            """)
-        result = self.run_xtm("--profile", "desk", "--validate")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("desk", result.stdout)
+    def test_reading_the_config_says_how_to_install_pyyaml(self):
+        result = self.run_xtm("--list")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("xtm reads its config with PyYAML", result.stderr)
+        self.assertIn("pip install --user PyYAML", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
-    def test_set_round_trips_through_the_builtin_writer(self):
-        self.write_config("""\
-            profiles:
-              desk:
-                stack: {x: 20, y: 20, width: 700, height: 900, offset_x: 30, offset_y: 30}
-                sessions: {}
-            """)
-        first = self.run_xtm("--profile", "desk", "--set", "logs", "10,20,800,600")
-        self.assertEqual(first.returncode, 0, first.stderr)
-        # Reading the file back with the same parser must yield the values
-        # that were written, which is what makes the config durable across
-        # runs on a host without PyYAML.
-        second = self.run_xtm("--list", "--json")
-        self.assertEqual(second.returncode, 0, second.stderr)
-        payload = json.loads(second.stdout)
-        entry = next(e for e in payload["sessions"] if e["name"] == "logs")
-        configured = entry["configured"]
-        self.assertEqual(
-            [configured["x"], configured["y"],
-             configured["width"], configured["height"]],
-            [10, 20, 800, 600])
-
-    def test_a_command_containing_a_hash_survives_a_round_trip(self):
-        # '#' only starts a comment when preceded by whitespace, and never
-        # inside quotes; a launch command relying on either must not be
-        # truncated when the config is rewritten.
-        self.write_config("""\
-            profiles:
-              desk:
-                stack: {x: 20, y: 20, width: 700, height: 900, offset_x: 30, offset_y: 30}
-                sessions:
-                  logs:
-                    x: 0
-                    y: 0
-                    width: 900
-                    height: 700
-                    command: "printf '# not a comment' ; bash"
-            """)
-        rewrite = self.run_xtm("--profile", "desk", "--set", "other", "1,2,300,400")
-        self.assertEqual(rewrite.returncode, 0, rewrite.stderr)
-        self.assertIn("# not a comment", self.config_text())
-        check = self.run_xtm("--validate")
-        self.assertEqual(check.returncode, 0, check.stderr)
+    def test_help_and_version_need_no_pyyaml(self):
+        for flag in ("--help", "--version"):
+            result = self.run_xtm(flag)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class TestHostnameOverride(IntegrationBase):

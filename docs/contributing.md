@@ -24,7 +24,7 @@ layer table and the responsibility of each section.
 | What a config key means | `validate_session_entry` or `validate_profile`, then wherever it is consumed |
 | How a window is placed | the placement section; [placement.md](placement.md) explains the mechanism |
 | How the config is read or written | the YAML region — read its map first, at the head of the section |
-| What a message says | the `die()` call that produces it, and the failure catalogue that pins it |
+| What a message says | the `die()` call that produces it, and the failure catalog that pins it |
 
 ## What enforces what
 
@@ -63,20 +63,9 @@ caught something:
 1. Accept and validate it in `validate_session_entry` or `validate_profile`, with a message
    naming the profile, the slot and the field.
 2. Consume it where it applies.
-3. Check it survives a round trip through **both** YAML backends.
+3. Check it survives a save: `load_yaml(dump_yaml(config)) == config`.
 4. Document it in [configuration.md](configuration.md) and add it to `examples/config.yaml.example`.
-5. Add it to an example that already uses neighbouring keys.
-
-### Add a rule to the YAML parity guard
-
-1. **Check what PyYAML actually does with the input first.** Three rules here have been
-   written twice because the first attempt made the built-in parser stricter than PyYAML,
-   which is the same defect pointing the other way.
-2. Read the map at the head of the YAML region and decide which question the rule answers.
-   If it answers none of them, the question list is wrong — that is the finding.
-3. Add a case to `tests/differential/test_yaml_backends.py`. A rule without one is how the
-   last three divergences reached a release.
-4. Add a mutant to `tests/mutation/run.py` that breaks the rule, and check it dies.
+5. Add it to an example that already uses neighboring keys.
 
 ### Write an example
 

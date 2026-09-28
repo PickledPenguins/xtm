@@ -16,8 +16,8 @@ Level: **moderate**. Three profiles, one per disposal mode, and a session shared
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/04-switching-profiles ./xtm.py --list-profiles --verbose
-XTM_CONFIG_DIR=examples/moderate/04-switching-profiles ./xtm.py reading --dry-run
+XTM_CONFIG_DIR=examples/moderate/04-switching-profiles src/xtm.py --list-profiles --verbose
+XTM_CONFIG_DIR=examples/moderate/04-switching-profiles src/xtm.py reading --dry-run
 ```
 
 The dry run prints what switching would do to `work`'s windows without doing

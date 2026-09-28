@@ -23,14 +23,14 @@ Start here. Everything else in `examples/` adds one idea to this.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/01-one-screen ./xtm.py --list
-XTM_CONFIG_DIR=examples/simple/01-one-screen ./xtm.py --validate
+XTM_CONFIG_DIR=examples/simple/01-one-screen src/xtm.py --list
+XTM_CONFIG_DIR=examples/simple/01-one-screen src/xtm.py --validate
 ```
 
 With a real X display, `--reset` opens all three windows and places them:
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/01-one-screen ./xtm.py --reset
+XTM_CONFIG_DIR=examples/simple/01-one-screen src/xtm.py --reset
 ```
 
 ## Adjusting it to your screen
@@ -39,5 +39,5 @@ The numbers assume a 1920×1400 work area. Rather than editing them by hand,
 place the windows where you want them and let xtm record the result:
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/01-one-screen ./xtm.py --update-profile
+XTM_CONFIG_DIR=examples/simple/01-one-screen src/xtm.py --update-profile
 ```

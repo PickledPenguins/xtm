@@ -41,43 +41,27 @@ written down.
   dependency is missing tests nothing. `tests/property/engine.py` is forty lines and runs
   everywhere the suite does. Revisit if the shrinking becomes the bottleneck in reading a
   failure.
-- **A mutation tool** (`mutmut`, `cosmic-ray`) instead of the checked-in catalogue. Same
+- **A mutation tool** (`mutmut`, `cosmic-ray`) instead of the checked-in catalog. Same
   reasoning, plus one more: naming the modules that should kill each mutant keeps a full run
   to a couple of minutes, where a tool would spend most of its time on lines nobody would
   break.
-- **Refusing a plain numeric key** such as `123:` in the config. PyYAML types it as an
-  integer and the built-in reader as text, but `_normalize_config_keys` turns both into the
-  same name, so there is nothing left to disagree about. The boolean and null spellings are
-  refused, because those do not normalise to the same thing.
 - **Re-binding a global profile to a machine.** `--make-global` is one-way on purpose:
   re-binding would hide a profile that other machines may already be relying on. Adding a
   `match` block by hand is the supported route.
-
-- **Splitting the YAML region into guard, reader and writer sections.** Measured on this
-  branch: eight commits touched the YAML code, and four of them changed the guard, the
-  reader and the shared primitives in the same commit. Splitting what changes together
-  would put a single edit in three places. The writer is the part that did change alone,
-  and it has been moved next to `dump_yaml` for that reason. Revisit if the guard starts
-  changing without the reader — the map at the head of the region is what would make that
-  visible.
-- **A table-driven parity guard**, one row per rule instead of ten `_reject_*` functions.
-  The rules do not share a shape: some run per line, some per value, some per key, some
-  per flow item, and three of them need to know whether they are inside a flow collection.
-  A uniform row would have to carry all of that, so the table would be a second thing to
-  read rather than a replacement for the first.
-
+- **Keeping a built-in YAML reader for hosts without PyYAML.** Until 2026-09-27 xtm read
+  its config with PyYAML when importable and with its own parser otherwise, behind a
+  guard that refused every input the two would read differently. That guard was 580 of
+  2605 executable lines, the subject of most review findings, and the cause of the
+  config's odd refusals (`title: yes`, `0755`, `---`, merge keys). The owner uses YAML
+  deliberately and always has PyYAML, so xtm now requires it and reads real YAML. What
+  was given up: running on a host where PyYAML cannot be installed. Revisit only if such a
+  host becomes a real target — and then prefer a stdlib format over a second YAML reader.
 ## Open questions
 
-- **Whether the parity guard should become a whitelist.** It is currently a blacklist of
-  refused shapes, and two rounds of review found holes in it — each time in the seam between
-  the pre-parse scan and the reader that follows it. A whitelist of accepted value shapes
-  would close the class rather than the instance. The cost is that every legitimate value
-  shape then has to be enumerated, and the last such enumeration took three passes to get
-  right.
 - **Whether the coverage floor should reach 98.** Settled for now at 97 against 97.4
   achieved, after a deliberate push from 95.4 that added the command-failure, validation-
   message and untidy-screen tests. What is left is 39 statements and 37 partial branches of
   error handling that needs the filesystem to break underneath a running process, plus the
-  `fcntl` and PyYAML import fallbacks. Reaching 98 from there means asserting on internals.
-  Revisit if a way appears to reach those paths through behaviour rather than through
+  `fcntl` import fallback. Reaching 98 from there means asserting on internals.
+  Revisit if a way appears to reach those paths through behavior rather than through
   mocking.

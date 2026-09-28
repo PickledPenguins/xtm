@@ -14,8 +14,8 @@ Level: **simple**. Valid, and the state every new machine starts in.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/14-empty-profile ./xtm.py --list
-XTM_CONFIG_DIR=examples/simple/14-empty-profile ./xtm.py --set work1 0,0,900,700
+XTM_CONFIG_DIR=examples/simple/14-empty-profile src/xtm.py --list
+XTM_CONFIG_DIR=examples/simple/14-empty-profile src/xtm.py --set work1 0,0,900,700
 ```
 
 The second command writes the slot in, which is how a layout usually starts.

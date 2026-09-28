@@ -310,8 +310,8 @@ class TestValidation(IntegrationBase):
         self.write_config("profiles:\n\tbroken:\n\t\tsessions: {}\n")
         result = self.run_xtm("-l")
         self.assertEqual(result.returncode, 1)
-        if not xtm.HAVE_PYYAML:
-            self.assertIn("tabs", result.stderr)
+        self.assertIn("line 2, column 1", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_documented_flow_style_config_loads(self):
         self.write_config("""\

@@ -2,7 +2,7 @@
 
 test_durability.py covers the filesystem underneath a write. This covers the
 world xtm talks to: tmux, the geometry tools, the editor, the state file and
-the config directory. Each case asserts the user-visible behaviour -- which
+the config directory. Each case asserts the user-visible behavior -- which
 message, which exit code, and that nothing further was damaged -- because
 failing safely is the property under test, not failing quietly.
 """

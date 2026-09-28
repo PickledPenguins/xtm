@@ -31,9 +31,9 @@ smaller arrangement demonstrates the mode but not the exception.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/05-switch-matrix ./xtm.py detacher --dry-run
-XTM_CONFIG_DIR=examples/complex/05-switch-matrix ./xtm.py killer --dry-run
-XTM_CONFIG_DIR=examples/complex/05-switch-matrix ./xtm.py keeper --dry-run
+XTM_CONFIG_DIR=examples/complex/05-switch-matrix src/xtm.py detacher --dry-run
+XTM_CONFIG_DIR=examples/complex/05-switch-matrix src/xtm.py killer --dry-run
+XTM_CONFIG_DIR=examples/complex/05-switch-matrix src/xtm.py keeper --dry-run
 ```
 
 Each dry run names what it would do to the profile it is leaving.

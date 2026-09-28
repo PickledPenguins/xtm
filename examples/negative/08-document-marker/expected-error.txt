@@ -1,1 +1,0 @@
-xtm: error: CONFIG line 1: --- is a YAML document marker. PyYAML accepts it and the built-in parser does not, so this config would load only on a machine with PyYAML installed. Remove the line; xtm's config is always a single document.

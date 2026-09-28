@@ -1,7 +1,6 @@
-# 04 — A tab in the file
+# 04 — A tab in the indentation
 
-The built-in reader cannot indent with tabs, and PyYAML refuses one inside
-a plain scalar. Either way the file means something different depending on
-which reader opens it.
+YAML does not allow tabs for indentation. xtm reports the line and column
+of the first one.
 
-**The fix:** indent with two spaces per level.
+**The fix:** indent with spaces.

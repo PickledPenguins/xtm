@@ -1,0 +1,1 @@
+default              INVALID: profile 'default' slot 'shell': field 'width' must be a number, got '900'.

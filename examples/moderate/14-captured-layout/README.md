@@ -17,7 +17,7 @@ Level: **moderate**. What the tool writes when you let it, and how to read it.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/14-captured-layout ./xtm.py --list
+XTM_CONFIG_DIR=examples/moderate/14-captured-layout src/xtm.py --list
 ```
 
 Every slot reports `(shared, kept on profile switch)`, which is the visible

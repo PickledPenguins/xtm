@@ -16,5 +16,5 @@ Level: **moderate**. Three ways a window gets its title, in one profile.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/12-title-templates ./xtm.py --list --json | grep title
+XTM_CONFIG_DIR=examples/moderate/12-title-templates src/xtm.py --list --json | grep title
 ```

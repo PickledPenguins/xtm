@@ -19,6 +19,6 @@ it.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/15-three-profiles-one-notes ./xtm.py --list-profiles --verbose
-XTM_CONFIG_DIR=examples/moderate/15-three-profiles-one-notes ./xtm.py study --dry-run
+XTM_CONFIG_DIR=examples/moderate/15-three-profiles-one-notes src/xtm.py --list-profiles --verbose
+XTM_CONFIG_DIR=examples/moderate/15-three-profiles-one-notes src/xtm.py study --dry-run
 ```

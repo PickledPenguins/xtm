@@ -19,9 +19,9 @@ Level: **moderate**. Binding profiles to hosts without duplicating them.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/05-two-machines-one-layout ./xtm.py --list-profiles
-XTM_CONFIG_DIR=examples/moderate/05-two-machines-one-layout ./xtm.py --all --list-profiles
-XTM_CONFIG_DIR=examples/moderate/05-two-machines-one-layout ./xtm.py --validate
+XTM_CONFIG_DIR=examples/moderate/05-two-machines-one-layout src/xtm.py --list-profiles
+XTM_CONFIG_DIR=examples/moderate/05-two-machines-one-layout src/xtm.py --all --list-profiles
+XTM_CONFIG_DIR=examples/moderate/05-two-machines-one-layout src/xtm.py --validate
 ```
 
 The first two differ by exactly the profiles this machine is not.

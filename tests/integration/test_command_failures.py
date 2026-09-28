@@ -43,7 +43,7 @@ class TestPromptCancellation(IntegrationBase):
         code, _out, err = self.run_with_answer(
             ["--delete-profile", "doomed"], "n\n")
         self.assertEqual(0, code, err)
-        self.assertIn("Cancelled", err)
+        self.assertIn("Canceled", err)
         self.assertIn("doomed", self.run_xtm("-P").stdout)
 
     def test_declining_close_all_kills_nothing(self):
@@ -51,7 +51,7 @@ class TestPromptCancellation(IntegrationBase):
         self.run_xtm("-o", "work1")
         code, _out, err = self.run_with_answer(["--close-all"], "n\n")
         self.assertEqual(0, code, err)
-        self.assertIn("Cancelled", err)
+        self.assertIn("Canceled", err)
 
     def test_accepting_deletes_the_profile(self):
         """The other half: the prompt is a real question, not a formality."""

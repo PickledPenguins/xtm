@@ -18,5 +18,5 @@ Worth knowing before you hand-format a config you intend to keep editing with
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/15-comments ./xtm.py --list
+XTM_CONFIG_DIR=examples/simple/15-comments src/xtm.py --list
 ```

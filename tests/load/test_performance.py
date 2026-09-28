@@ -107,29 +107,18 @@ def big_config(profiles=20, slots=50):
 
 
 class TestParsingCost(PerformanceCase):
-    """The guard and the reader run on every single invocation."""
+    """Reading the config runs on every single invocation."""
 
     def setUp(self):
         PerformanceCase.setUp(self)
         self.text = big_config()
-        self.saved = xtm.HAVE_PYYAML
-        self.addCleanup(setattr, xtm, "HAVE_PYYAML", self.saved)
 
-    def test_the_builtin_reader_on_a_thousand_slots(self):
-        xtm.HAVE_PYYAML = False
-        self.time("builtin_read_1000_slots", lambda: xtm.load_yaml(self.text))
-
-    def test_the_parity_guard_on_a_thousand_slots(self):
-        # Separately from the reader: the guard runs for both backends, so a
-        # regression here is paid by every user, not only the ones without
-        # PyYAML.
-        self.time("guard_scan_1000_slots",
-                  lambda: xtm._scan_for_ambiguous_scalars(self.text))
+    def test_reading_a_thousand_slots(self):
+        self.time("read_1000_slots", lambda: xtm.load_yaml(self.text))
 
     def test_writing_a_thousand_slots(self):
-        xtm.HAVE_PYYAML = False
         data = xtm.load_yaml(self.text)
-        self.time("builtin_write_1000_slots", lambda: xtm.dump_yaml(data))
+        self.time("write_1000_slots", lambda: xtm.dump_yaml(data))
 
 
 class TestMemoryCeiling(unittest.TestCase):
@@ -143,24 +132,30 @@ class TestMemoryCeiling(unittest.TestCase):
         if under_instrumentation():
             self.skipTest("running under coverage; the tracer's own "
                           "allocations swamp the measurement")
-        text = big_config()
-        saved = xtm.HAVE_PYYAML
-        xtm.HAVE_PYYAML = False
-        self.addCleanup(setattr, xtm, "HAVE_PYYAML", saved)
-        tracemalloc.start()
-        try:
-            xtm.load_yaml(text)
-            _current, peak = tracemalloc.get_traced_memory()
-        finally:
-            tracemalloc.stop()
-        # The text is about 70 KiB; twenty times that is generous for a
-        # dictionary of a thousand small mappings and still catches the kind
-        # of mistake that builds a list per row.
-        ceiling = len(text) * 20
-        self.assertLess(
-            peak, ceiling,
-            "reading a %d-byte config peaked at %d bytes, over the %d-byte "
-            "ceiling" % (len(text), peak, ceiling))
+        def peak_for(text):
+            tracemalloc.start()
+            try:
+                xtm.load_yaml(text)
+                return tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+
+        small, large = big_config(profiles=5), big_config(profiles=20)
+        small_peak, large_peak = peak_for(small), peak_for(large)
+        # PyYAML composes the whole node graph before building the data, so
+        # the peak is some tens of times the text -- about 75 here, 4 MB for
+        # a thousand slots. The ceiling is on that ratio with room to spare,
+        # and the growth check is what catches a quadratic mistake: four
+        # times the config must cost about four times the memory, not
+        # sixteen.
+        self.assertLess(large_peak, len(large) * 150,
+                        "reading a %d-byte config peaked at %d bytes"
+                        % (len(large), large_peak))
+        growth = large_peak / float(small_peak)
+        size_growth = len(large) / float(len(small))
+        self.assertLess(growth, size_growth * 1.5,
+                        "memory grew %.1fx for %.1fx the config"
+                        % (growth, size_growth))
 
 
 if __name__ == "__main__":

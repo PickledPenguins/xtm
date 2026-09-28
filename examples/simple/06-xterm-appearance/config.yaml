@@ -1,4 +1,4 @@
-# Per-slot xterm arguments: fonts, colours, scrollback.
+# Per-slot xterm arguments: fonts, colors, scrollback.
 profiles:
   default:
     stack: {x: 40, y: 40, width: 900, height: 650, offset_x: 40, offset_y: 40}

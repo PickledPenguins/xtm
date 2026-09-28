@@ -18,5 +18,5 @@ Level: **moderate**. `command` doing the real work it was added for.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/10-remote-work ./xtm.py --list
+XTM_CONFIG_DIR=examples/moderate/10-remote-work src/xtm.py --list
 ```

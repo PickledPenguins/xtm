@@ -18,7 +18,7 @@ Level: **simple**. One configured window, and somewhere for everything else to g
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/05-stacking ./xtm.py --list
+XTM_CONFIG_DIR=examples/simple/05-stacking src/xtm.py --list
 ```
 
 With a real display, `--reset-all` places `main` and stacks anything else

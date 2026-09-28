@@ -20,13 +20,13 @@ Level: **simple**. Two monitors, with the secondary positioned to the **left** o
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/02-two-monitors ./xtm.py dual --list
+XTM_CONFIG_DIR=examples/simple/02-two-monitors src/xtm.py dual --list
 ```
 
 Setting geometry from the command line uses the same comma form:
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/02-two-monitors ./xtm.py dual --set notes -1920,1000,1900,400
+XTM_CONFIG_DIR=examples/simple/02-two-monitors src/xtm.py dual --set notes -1920,1000,1900,400
 ```
 
 ## Finding your own coordinates

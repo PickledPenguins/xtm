@@ -1,5 +1,4 @@
-# `yes` unquoted is the boolean true in YAML 1.1: PyYAML reads a boolean
-# and the built-in reader reads the word. Quote it.
+# `yes` unquoted is the boolean true in YAML, not the word.
 profiles:
   default:
     sessions:

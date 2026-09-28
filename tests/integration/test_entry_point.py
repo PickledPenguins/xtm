@@ -1,4 +1,4 @@
-"""tests/run-tests.sh is the entry point, so its own behaviour is a contract.
+"""tests/run-tests.sh is the entry point, so its own behavior is a contract.
 
 Selecting no modules is the case worth pinning: a pattern that matches
 nothing must say so, in both the isolated and the shared mode. The shared

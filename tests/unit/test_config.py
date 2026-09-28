@@ -57,7 +57,7 @@ class TestStateFile(PathIsolationMixin):
         xtm.CONTEXT.state_file.write_text("\n\n")
         self.assertIsNone(xtm.read_current_profile_state())
 
-    def test_legacy_machine_independent_file_is_honoured(self):
+    def test_legacy_machine_independent_file_is_honored(self):
         xtm.CONTEXT.state_dir.mkdir(parents=True, exist_ok=True)
         (xtm.CONTEXT.state_dir / "current_profile").write_text("legacy\n")
         self.assertEqual(xtm.read_current_profile_state(), "legacy")
@@ -180,7 +180,7 @@ class TestConfigIO(PathIsolationMixin):
         with self.assertRaises(xtm.XtmError):
             xtm.load_config()
 
-    def test_numeric_names_normalised_to_strings(self):
+    def test_numeric_names_normalized_to_strings(self):
         xtm.CONTEXT.config_file.write_text(
             "profiles:\n  123:\n    sessions:\n      456:\n"
             "        x: 0\n        y: 0\n        width: 8\n        height: 6\n")
@@ -376,7 +376,7 @@ class TestConfigLocking(unittest.TestCase):
         self.addCleanup(holder.close)
         fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
         # A second exclusive, non-blocking attempt must be refused while
-        # the first is held; that refusal is what serialises writers.
+        # the first is held; that refusal is what serializes writers.
         contender = open(str(lock_path), "w")
         self.addCleanup(contender.close)
         with self.assertRaises(IOError):

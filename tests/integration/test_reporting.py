@@ -156,7 +156,7 @@ class TestOrderingGuarantees(IntegrationBase):
 
 
 class TestCliCombinations(IntegrationBase):
-    """Option ordering, precedence and combination behaviour.
+    """Option ordering, precedence and combination behavior.
 
     Options interact: some override each other, some are scoped to only
     a subset of commands, and none of them should depend on the order

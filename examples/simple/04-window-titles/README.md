@@ -17,5 +17,5 @@ Level: **simple**. What the window manager shows in the title bar, and how to co
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/04-window-titles ./xtm.py --list --json | grep title
+XTM_CONFIG_DIR=examples/simple/04-window-titles src/xtm.py --list --json | grep title
 ```

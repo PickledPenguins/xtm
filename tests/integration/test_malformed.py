@@ -1,4 +1,4 @@
-"""Malformed configs and documented behaviours."""
+"""Malformed configs and documented behaviors."""
 
 import json
 import textwrap
@@ -102,7 +102,7 @@ class TestMalformedConfig(IntegrationBase):
         result = self.assert_clean_failure("--profile", "desk", "--list")
         # Assert the invariant (the name is refused), not the exact name in
         # the message, because the two YAML backends recover a different key
-        # from this line. PyYAML honours the quotes and reports 'bad:name';
+        # from this line. PyYAML honors the quotes and reports 'bad:name';
         # the built-in parser splits on the first ':' without regard to
         # quoting, so it reports '"bad'. Both reject the config, which is
         # what this test is for. The parser gap itself is tracked separately
@@ -200,7 +200,7 @@ class TestMalformedConfig(IntegrationBase):
         self.assertEqual(before, self.config_text())
 
 
-class TestDocumentedBehaviours(IntegrationBase):
+class TestDocumentedBehaviors(IntegrationBase):
     """Assertions made in the README that are not covered elsewhere."""
 
     DESK_HEADER = """\
@@ -250,7 +250,7 @@ class TestDocumentedBehaviours(IntegrationBase):
 
     def test_command_is_not_used_when_attaching_to_an_existing_session(self):
         # tmux new-session -A ignores the command when the session already
-        # exists, so the documented behaviour is that `command` applies at
+        # exists, so the documented behavior is that `command` applies at
         # creation only.
         self.desk(
             "logs: {x: 0, y: 0, width: 900, height: 700, "
@@ -366,7 +366,7 @@ class TestMachineVisibility(IntegrationBase):
 
         The help text used to promise "every profile", while the code passes
         include_all=False and covers only profiles visible here. The code is
-        the safer behaviour -- a run must not kill sessions claimed by a
+        the safer behavior -- a run must not kill sessions claimed by a
         layout bound to a different host -- so the text was corrected to
         match, and this test stops the two drifting apart again.
         """
@@ -398,7 +398,7 @@ class TestMachineVisibility(IntegrationBase):
                       "--all --close-all killed a session claimed only by a "
                       "profile bound to another machine")
 
-    def test_all_help_text_matches_close_all_behaviour(self):
+    def test_all_help_text_matches_close_all_behavior(self):
         """The help must not re-acquire the promise the code does not keep."""
         help_text = self.run_xtm("--help").stdout
         flat = " ".join(help_text.split())

@@ -32,8 +32,8 @@ a slot called `editor` that means different things.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/02-shared-sessions ./xtm.py dev --list
-XTM_CONFIG_DIR=examples/moderate/02-shared-sessions ./xtm.py ops --list
+XTM_CONFIG_DIR=examples/moderate/02-shared-sessions src/xtm.py dev --list
+XTM_CONFIG_DIR=examples/moderate/02-shared-sessions src/xtm.py ops --list
 ```
 
 Note that `dev`'s `editor` reports session `dev-editor` while `ops`'s

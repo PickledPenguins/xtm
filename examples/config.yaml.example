@@ -2,8 +2,8 @@
 #
 # Copy to ~/.config/xtm/config.yaml and adjust the pixel positions to the
 # machine. Both the indented style and the compact {key: value} style shown
-# below are accepted, with or without PyYAML installed, and comments may
-# appear on their own line or at the end of a line.
+# below are accepted, and comments may appear on their own line or at the
+# end of a line.
 #
 # Session and profile names may contain letters, digits, '.', '_' and '-'.
 # Positions and sizes are in pixels; x and y may be negative for a monitor

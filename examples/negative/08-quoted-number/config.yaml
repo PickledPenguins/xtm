@@ -1,0 +1,5 @@
+# Quotes make a value text, and a position has to be a number.
+profiles:
+  default:
+    sessions:
+      shell: {x: 0, y: 0, width: "900", height: 700}

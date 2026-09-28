@@ -5,21 +5,16 @@ on:
     branches: [main]
   pull_request:
 
-# The matrix crosses Python version with PyYAML present/absent. That second
-# axis is not optional padding: xtm ships its own dependency-free YAML
-# parser and falls back to it whenever PyYAML is missing, so every config
-# path has two implementations behind it. A single-configuration build
-# exercises one of them and silently asserts nothing about the other.
+# PyYAML is xtm's one runtime dependency, so every job installs it.
 
 jobs:
   test:
-    name: py${{ matrix.python }} · ${{ matrix.yaml }}
+    name: py${{ matrix.python }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-        yaml: [without-pyyaml, with-pyyaml]
 
     steps:
       - uses: actions/checkout@v4
@@ -29,26 +24,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Install PyYAML
-        if: matrix.yaml == 'with-pyyaml'
         run: python -m pip install --disable-pip-version-check PyYAML
-
-      # Guards the matrix against itself. If PyYAML were present on a leg
-      # labelled "without", both legs would test the same code path and the
-      # build would look green while covering half of what it claims.
-      - name: Verify the PyYAML axis
-        run: |
-          python - <<'PY'
-          import sys
-          want = "${{ matrix.yaml }}" == "with-pyyaml"
-          try:
-              import yaml
-              have = True
-          except ImportError:
-              have = False
-          print("PyYAML present: %s (expected %s)" % (have, want))
-          if have != want:
-              sys.exit("matrix leg does not match its label")
-          PY
 
       # The commit gate first: it fails in seconds when something is broadly
       # broken, so the matrix does not spend six minutes discovering it.
@@ -61,10 +37,6 @@ jobs:
   legacy:
     name: py3.6 compatibility
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        yaml: [without-pyyaml, with-pyyaml]
 
     steps:
       - uses: actions/checkout@v4
@@ -75,13 +47,8 @@ jobs:
       # the interpreter is old.
       - name: Run the suite under Python 3.6
         run: |
-          if [ "${{ matrix.yaml }}" = "with-pyyaml" ]; then
-            INSTALL="pip install --quiet PyYAML &&"
-          else
-            INSTALL=""
-          fi
           docker run --rm -v "$PWD:/w" -w /w python:3.6-slim \
-            sh -c "$INSTALL python -m unittest discover -t . -s tests"
+            sh -c "pip install --quiet PyYAML && python -m unittest discover -t . -s tests"
 
   # Mutation and property runs are their own job: both are slower than the
   # suite and neither is a pass/fail signal about this change alone -- a
@@ -103,12 +70,11 @@ jobs:
 
       # Every mutant must be killed by the suite. A survivor is reported
       # with the decision it broke and the tests that should have noticed.
-      - name: Mutation catalogue
+      - name: Mutation catalog
         run: python tests/mutation/run.py
 
-      # Generated inputs against stated properties. No third-party
-      # dependency: the engine is in tests/property/engine.py, for the same
-      # reason the tool has none.
+      # Generated inputs against stated properties. The engine is
+      # tests/property/engine.py, so the suite needs nothing beyond PyYAML.
       - name: Property tests
         run: python tests/property/run.py
 
@@ -147,7 +113,7 @@ jobs:
         run: make test
 
       # tests/run-tests.sh --coverage sets up subprocess tracking. Without
-      # it the integration tests, which run xtm.py as a child process,
+      # it the integration tests, which run src/xtm.py as a child process,
       # contribute nothing and the figure drops from ~97% to ~63%. The floor
       # in pyproject.toml fails the job on a drop.
       - name: Coverage

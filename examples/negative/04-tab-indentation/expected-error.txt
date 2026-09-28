@@ -1,1 +1,1 @@
-xtm: error: CONFIG line 4: config lines must not contain tabs, because the built-in YAML parser cannot handle them reliably. Use spaces: '\t      shell: {x: 0, y: 0, width: 900, height: 700}'
+xtm: error: CONFIG line 4, column 1: found character that cannot start any token (while scanning for the next token)

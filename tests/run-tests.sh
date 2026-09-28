@@ -9,7 +9,7 @@
 #   tests/run-tests.sh --coverage      the suite under coverage, gated by the floor
 #   tests/run-tests.sh --perf          timing and memory gates, own baseline
 #   tests/run-tests.sh --property      generated inputs against stated invariants
-#   tests/run-tests.sh --mutation      the mutation catalogue
+#   tests/run-tests.sh --mutation      the mutation catalog
 #   tests/run-tests.sh --lint          pyflakes and a compile check
 #   tests/run-tests.sh --examples      every example, the failures, and a profile
 #   tests/run-tests.sh --profile       where the time goes in real usage
@@ -23,7 +23,7 @@
 # hiding a leak between them. --shared is there for a quick answer while
 # working, not for a gate.
 #
-# Every artefact this script produces lands under .build/. Nothing it runs
+# Every artifact this script produces lands under .build/. Nothing it runs
 # writes to the project root.
 
 set -eu
@@ -181,7 +181,7 @@ run_coverage() {
     # The .pth file runs at interpreter startup in EVERY child process, which
     # is the only hook early enough to measure a subprocess from its first
     # line. Without it the reported figure collapses to about 63%, which is a
-    # measurement artefact rather than a regression.
+    # measurement artifact rather than a regression.
     mkdir -p "$COVERAGE_BOOTSTRAP"
     printf 'import coverage; coverage.process_startup()\n' \
         > "$COVERAGE_BOOTSTRAP/coverage-subprocess.pth"
@@ -222,7 +222,7 @@ run_property() {
 run_mutation() {
     echo "--- mutation ($(date +%H:%M:%S))"
     if [ ! -d "$ROOT/tests/mutation" ]; then
-        echo "no mutation catalogue in this tree; skipped."
+        echo "no mutation catalog in this tree; skipped."
         return
     fi
     $PYTHON tests/mutation/run.py

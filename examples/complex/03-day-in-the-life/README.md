@@ -27,6 +27,6 @@ when starting your own.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/03-day-in-the-life ./xtm.py --list
-XTM_CONFIG_DIR=examples/complex/03-day-in-the-life ./xtm.py --list --json
+XTM_CONFIG_DIR=examples/complex/03-day-in-the-life src/xtm.py --list
+XTM_CONFIG_DIR=examples/complex/03-day-in-the-life src/xtm.py --list --json
 ```

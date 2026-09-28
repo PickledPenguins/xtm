@@ -24,7 +24,7 @@ knowing: the resize sends `SIGWINCH`, so tmux reflows the session's panes. Nothi
 but a hand-tuned split shifts if the new slot is a different size.
 
 Because placement is a *request* to the window manager, the result is whatever the window
-manager decides to honour. Size increments, panel struts and snapping can all adjust it.
+manager decides to honor. Size increments, panel struts and snapping can all adjust it.
 `--verify` makes that visible by re-reading the geometry afterwards and reporting the
 difference.
 

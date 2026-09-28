@@ -15,5 +15,5 @@ Level: **simple**. The exception to the prefix, and the only way to share.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/simple/11-explicit-session ./xtm.py --list
+XTM_CONFIG_DIR=examples/simple/11-explicit-session src/xtm.py --list
 ```

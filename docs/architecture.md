@@ -1,6 +1,6 @@
 # Architecture
 
-How xtm is built, where each behaviour lives, and what to know before changing it.
+How xtm is built, where each behavior lives, and what to know before changing it.
 
 ## Shape
 
@@ -24,8 +24,8 @@ config + profile  ─┘
 | Subprocess | One wrapper for every external call | `run`, `_subprocess_env`, `which_or_none` |
 | File I/O | Atomic, durable writes and clean read errors | `_write_text_safe`, `_read_text_safe`, `_fsync_directory` |
 | Locking | Advisory lock around read-modify-write | `config_lock` |
-| YAML | PyYAML with a complete dependency-free fallback, and the parity guard | `dump_yaml`, `load_yaml`, `_simple_yaml_load`, `_scan_for_ambiguous_scalars` |
-| Config | Load, normalise, validate, save, guarded edits | `load_config`, `save_config`, `validate_profile`, `edit_profile` |
+| YAML | PyYAML, with keys read as names and key order kept | `load_yaml`, `dump_yaml`, `_ConfigLoader`, `_ConfigDumper` |
+| Config | Load, validate, save, guarded edits | `load_config`, `save_config`, `validate_profile`, `edit_profile` |
 | State | Per-machine current profile and selection rules | `read_current_profile_state`, `match_profile`, `resolve_profile_name` |
 | Naming | Slot-to-session and title resolution | `resolve_session_name`, `resolve_window_title`, `profile_slots`, `slot_for_session` |
 | tmux | Session and client queries | `tmux_list_sessions`, `tmux_client_tty_for_pid`, `tmux_kill_session`, `tmux_detach_session` |
@@ -38,8 +38,9 @@ config + profile  ─┘
 
 ## Key design decisions
 
-**Single file.** The tool has to be copied to servers where nothing can be installed; one
-file with a shebang is the simplest thing that can be deployed by `scp`. `install.sh` copies
+**Single file.** The tool has to be copied to servers where nothing else can be installed
+beyond PyYAML; one file with a shebang is the simplest thing that can be deployed by `scp`.
+`install.sh` copies
 exactly one file. Splitting it into a package would break that, so the repository grows
 structure around it instead.
 
@@ -82,38 +83,26 @@ command refused to load, leaving hand-editing as the only way back.
 **stdout for data, stderr for logs**, so reporting commands stay pipeable under any log
 level.
 
-## The YAML parity guard
+## Reading the config
 
-Two readers stand behind every config value, and the contract is that a config means the
-same thing whichever one is present. The guard enforcing that runs **before** either backend
-parses, in `_scan_for_ambiguous_scalars`, and refuses input the two would read differently.
+The config is read and written by PyYAML alone, through two small subclasses:
 
-Three things a change here has to respect:
+- `_ConfigLoader` builds every mapping key from the text written, so a key is always a
+  name — `on:` stays `on` rather than becoming `True` — and refuses a key written twice
+  in one mapping, which YAML would otherwise collapse to its last value. Duplicates are
+  counted among the keys written, before a merge key is folded in, so a key beside
+  `<<: *base` overrides rather than collides.
+- `_ConfigDumper` keeps key order (slots are placed in the order written, and every
+  PyYAML release sorts a plain dict) and writes no anchors.
 
-- **Every rule exists because the two backends actually disagreed.** The list is in
-  [configuration.md](configuration.md).
-- **Several rules were written twice**, because the first attempt made the built-in parser
-  *stricter* than PyYAML — which is the same defect pointing the other way. Check what
-  PyYAML really does with an input before adding a rule for it.
-- **A key is a name, not a value.** `_simple_yaml_key_load` interprets the quoting and
-  nothing else; running the value rules over keys refused names PyYAML accepts.
-  `_normalize_config_keys` then forces PyYAML's typed keys back to `str`, which is why a
-  numeric key needs no rule and a boolean one does.
+Both use the libyaml-backed classes when PyYAML was built with them, which read a
+thousand-slot config in about 0.04s.
 
-`_partition_key` splits on a colon only before a space or the end of a line, and honours a
-quote only where a scalar may begin. Both were once "anywhere", and both produced silent
-disagreements between the backends.
-
-The region opens with a map naming the question each function answers and the four pairs
-that must agree, because every defect found there so far has lived in a seam rather than
-inside one function. Read it before adding a rule.
-
-**The guard and the reader stay in one section, deliberately.** They look like two
-concerns and they are not two units of change: of the eight commits on this branch that
-touched the YAML code, four changed the guard, the reader and the shared primitives
-together, two the guard alone, one the reader alone. Parts that change together belong
-together. The writer is the exception the same evidence names — it changed alone twice —
-which is why it sits next to `dump_yaml` rather than beside the reader.
+Values keep YAML's own typing. `require_text` turns "YAML read `yes` as a boolean" into a
+message naming the field and saying to quote it. A second, built-in reader existed until
+2026-09-27 so that xtm could run without PyYAML, with a guard refusing everything the two
+readers disagreed about; it was the most defect-prone part of the program, and the owner
+decided PyYAML is always available. The reasoning is in [future-work.md](future-work.md).
 
 ## Data structures
 
@@ -156,7 +145,7 @@ session name by hand:
 
 ## Extending the tool
 
-Where a change goes, the recipes for adding a command, a config key or a parity rule, and
+Where a change goes, the recipes for adding a command or a config key, and
 what each gate enforces are in [contributing.md](contributing.md). The parts that are
 design decisions rather than procedure stay here:
 
@@ -173,7 +162,7 @@ design decisions rather than procedure stay here:
 ## Project structure
 
 ```
-src/xtm.py             The tool. Single file, no imports outside the stdlib.
+src/xtm.py             The tool. Single file; PyYAML is its one import outside the stdlib.
 completions/xtm.bash   Bash completion for actions, profiles and session names.
 install.sh             Installer: copies src/xtm.py to a PATH directory, optional completion.
 pyproject.toml         Packaging, for `pip install -e .`, and the coverage settings.
@@ -182,8 +171,7 @@ Makefile               Delegates every target to tests/run-tests.sh.
 scripts/profile_examples.py  Profiles the examples; run with any that executes them.
 scripts/record_metrics.py    Records what a coverage run measured, for the docs test.
 .gitignore             .build/, plus the names the same tools use when run by hand.
-.github/workflows/     CI: the suite across Python versions, crossed with PyYAML present
-                       and absent, plus lint and the examples.
+.github/workflows/     CI: the suite across Python versions, plus lint and the examples.
 .build/                Every generated file: coverage, bytecode, profiles, mutants.
 
 README.md              Index: what xtm is, how to install it, where everything is.
@@ -195,7 +183,6 @@ tests/
   test_documentation.py  The docs must describe the tool that ships with them.
   unit/                Pure logic: YAML, validation, geometry, config, CLI.
   integration/         xtm run as a subprocess against the fakes.
-  differential/        The two YAML backends must agree.
   property/            Stated invariants over generated input, plus the engine.
   mutation/            Decisions broken on purpose; the suite must notice.
   concurrency/         Real processes contending for the config and the lock.

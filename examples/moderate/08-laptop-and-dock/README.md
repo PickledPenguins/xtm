@@ -17,6 +17,6 @@ Level: **moderate**. Two layouts for one machine, switched by hand.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/moderate/08-laptop-and-dock ./xtm.py docked --list
-XTM_CONFIG_DIR=examples/moderate/08-laptop-and-dock ./xtm.py mobile --list
+XTM_CONFIG_DIR=examples/moderate/08-laptop-and-dock src/xtm.py docked --list
+XTM_CONFIG_DIR=examples/moderate/08-laptop-and-dock src/xtm.py mobile --list
 ```

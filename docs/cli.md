@@ -105,7 +105,7 @@ strays are stacked alphabetically.
 
 ## Per-option edge cases
 
-| Option | Edge-case behaviour |
+| Option | Edge-case behavior |
 |---|---|
 | `--profile` | A name that is not in the config is an error, and the state file is left unchanged. |
 | `--auto` | With no matching `match` block, falls through to the reserved `default` profile, which always exists. |
@@ -213,7 +213,7 @@ Stray attached sessions (no configured position):
 | `session:` | The tmux session name this slot resolves to. Shown when it differs from the slot name, or when it is shared. `(shared, kept on profile switch)` marks a slot with an explicit `session:`. |
 | `command:` | The slot's configured launch command, shown only when one is set. |
 | `cwd:` | The slot's configured working directory, shown only when one is set. |
-| Stray sessions | Attached sessions matching no slot in this profile. Those belonging to another profile are labelled with its name. |
+| Stray sessions | Attached sessions matching no slot in this profile. Those belonging to another profile are labeled with its name. |
 
 A trailing note appears when no geometry tool is installed, explaining that live positions
 cannot be shown.

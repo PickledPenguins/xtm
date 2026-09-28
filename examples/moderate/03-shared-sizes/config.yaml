@@ -1,0 +1,19 @@
+# One window size, written once, used by four slots.
+#
+# The config is ordinary YAML, so an anchor (&name) marks a mapping and a
+# merge key (<<: *name) copies it in. A key written beside the merge wins
+# over the merged value, which is how the wide slot overrides the width.
+sizes:
+  quarter: &quarter {width: 960, height: 540}
+
+profiles:
+  default:
+    sessions: {}
+
+  grid:
+    prefix: g-
+    sessions:
+      editor: {<<: *quarter, x: 0, y: 0}
+      shell:  {<<: *quarter, x: 960, y: 0}
+      logs:   {<<: *quarter, x: 0, y: 540, command: journalctl -f}
+      wide:   {<<: *quarter, x: 960, y: 540, width: 1200}

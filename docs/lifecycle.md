@@ -67,7 +67,8 @@ being **left**:
 Every write is the same four steps, whatever triggered it:
 
 1. Validate the edited profile, and restore it if the edit would not survive a reload.
-2. Serialise, quoting anything the parity guard would refuse unquoted.
+2. Serialize with PyYAML in the order the config is held, quoting any text YAML would
+   read as something else.
 3. Write to a temporary file in the same directory, flush, `fsync`, rename into place, and
    sync the parent directory. A crash leaves the old config, never half of a new one.
 4. Release the lock.

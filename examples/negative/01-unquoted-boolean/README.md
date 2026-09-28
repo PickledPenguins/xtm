@@ -1,7 +1,7 @@
-# 01 — An unquoted YAML 1.1 boolean
+# 01 — An unquoted YAML boolean
 
-`title: yes` is the boolean `true` to PyYAML and the string `yes` to the
-built-in reader, so the same config would title the window differently
-depending on what is installed.
+YAML reads an unquoted `yes`, `no`, `on` or `off` as a boolean, so
+`title: yes` is `true`, not the word. xtm says which field wanted text and
+what YAML read instead.
 
 **The fix:** `title: "yes"`.

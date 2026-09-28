@@ -22,6 +22,6 @@ file.
 ## Try it
 
 ```bash
-XTM_CONFIG_DIR=examples/complex/04-overlapping-slot-names ./xtm.py --list-profiles --verbose
-XTM_CONFIG_DIR=examples/complex/04-overlapping-slot-names ./xtm.py beta --list
+XTM_CONFIG_DIR=examples/complex/04-overlapping-slot-names src/xtm.py --list-profiles --verbose
+XTM_CONFIG_DIR=examples/complex/04-overlapping-slot-names src/xtm.py beta --list
 ```

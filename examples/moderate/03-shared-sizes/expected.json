@@ -1,0 +1,65 @@
+{
+  "on_switch": "detach",
+  "prefix": "g-",
+  "profile": "grid",
+  "sessions": [
+    {
+      "command": null,
+      "configured": {
+        "height": 540,
+        "width": 960,
+        "x": 0,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "editor",
+      "session": "g-editor",
+      "shared": false,
+      "title": "xtm:g-editor"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 540,
+        "width": 960,
+        "x": 960,
+        "y": 0
+      },
+      "cwd": null,
+      "name": "shell",
+      "session": "g-shell",
+      "shared": false,
+      "title": "xtm:g-shell"
+    },
+    {
+      "command": "journalctl -f",
+      "configured": {
+        "height": 540,
+        "width": 960,
+        "x": 0,
+        "y": 540
+      },
+      "cwd": null,
+      "name": "logs",
+      "session": "g-logs",
+      "shared": false,
+      "title": "xtm:g-logs"
+    },
+    {
+      "command": null,
+      "configured": {
+        "height": 540,
+        "width": 1200,
+        "x": 960,
+        "y": 540
+      },
+      "cwd": null,
+      "name": "wide",
+      "session": "g-wide",
+      "shared": false,
+      "title": "xtm:g-wide"
+    }
+  ],
+  "stray_owners": {},
+  "strays": []
+}
