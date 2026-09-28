@@ -191,6 +191,17 @@ class TestBuildXtermCommand(unittest.TestCase):
         self.assertEqual(tail[5:7], ["-c", "/var/log"])
         self.assertEqual(tail[7], "tail -f /var/log/messages")
 
+    def test_a_failing_command_is_held_when_asked(self):
+        argv = xtm.build_xterm_command("logs", {"command": "ssh headnode"},
+                                       hold_failures=True)
+        tail = argv[argv.index("-e") + 1:]
+        self.assertEqual(tail[5:], ["ssh headnode", ";", "set-option", "-p",
+                                    "remain-on-exit", "failed"])
+
+    def test_nothing_is_held_without_a_command(self):
+        argv = xtm.build_xterm_command("shell", None, hold_failures=True)
+        self.assertNotIn("remain-on-exit", argv)
+
     def test_cwd_is_expanded(self):
         argv = xtm.build_xterm_command("s", {"cwd": "~/src"})
         self.assertEqual(argv[argv.index("-c") + 1],

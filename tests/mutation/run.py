@@ -99,6 +99,20 @@ CATALOG = [
         "A window whose top-left corner is off every monitor cannot be "
         "dragged back by hand."),
     Mutant(
+        "a-failing-start-command-is-held",
+        "        if hold_failures:",
+        "        if False:",
+        ["tests.unit.test_cli", "tests.integration.test_windows"],
+        "A slot command that failed took its pane, session and window with "
+        "it, so a window was just missing in the morning."),
+    Mutant(
+        "check-fails-on-a-missing-cwd",
+        "        if cwd and not os.path.isdir(os.path.expanduser(str(cwd))):",
+        "        if False:",
+        ["tests.integration.test_reporting"],
+        "tmux silently starts a session whose cwd is missing in $HOME; the "
+        "preflight is the only place that says so."),
+    Mutant(
         "placement-resize-before-move",
         "send_window_op(tty, _CSI_RESIZE_WINDOW_PX_TEMPLATE.format(height=height,\n"
         "                                                             width=width))\n"

@@ -25,6 +25,7 @@ Every action has a short and a long form. At most one action may be given. With 
 | `-P` | `--list-profiles` | — | List every profile in the config. |
 | `-C` | `--current-profile` | — | Print this machine's current profile. |
 | `-V` | `--validate` | — | Check every profile in the config file. |
+| — | `--check` | — | Check that the profile would come up without trouble: display, xterm, tmux, tools, monitors, and each slot's `cwd`, command and position. Changes nothing. |
 | `-e` | `--edit` | — | Open the config in `$VISUAL`/`$EDITOR`, then validate it. |
 | — | `--delete-profile` | `NAME` | Delete a profile from the config. |
 | — | `--copy-profile` | `SOURCE TARGET` | Copy an existing profile to a new name. |
@@ -46,7 +47,7 @@ Every action has a short and a long form. At most one action may be given. With 
 | `-c` | `--config` | `PATH` | Path to the config file. |
 | — | `--state-dir` | `PATH` | Directory holding the current-profile state file. |
 | — | `--hostname` | `NAME` | Act as the machine `NAME`: `match` blocks, profile visibility and the state file all follow it. |
-| `-j` | `--json` | — | Emit JSON from `--list`, `--list-profiles`, `--current-profile` and `--validate`. |
+| `-j` | `--json` | — | Emit JSON from `--list`, `--list-profiles`, `--current-profile`, `--validate` and `--check`. |
 | `-N` | `--dry-run` | — | Show what would happen without launching, moving, closing or saving anything. |
 | `-y` | `--yes` | — | Answer yes to confirmation prompts. |
 | — | `--verify` | — | After placing a window, read its position back and report any difference. |
@@ -85,7 +86,7 @@ window placement, xterm launches and session kills all become log lines beginnin
 `--close-all`. `--no-frame-compensation` changes the numbers stored by `--update-profile`
 and `--new-profile`.
 
-**What is reported.** `--json` changes the format of the four reporting commands and nothing
+**What is reported.** `--json` changes the format of the five reporting commands and nothing
 else. `--verify` adds a read-back-and-compare step after each placement. `--debug`,
 `--quiet`, `--log-level` and `--log-file` affect only the log stream, never stdout.
 
@@ -131,7 +132,7 @@ strays are stacked alphabetically.
 | `--edit` | `$VISUAL` is checked before `$EDITOR`, and either may carry arguments (`vim -p`); the config path is appended last. A config left invalid after editing is reported and exits 1; the file is not reverted, so the edit is never lost. |
 | `--dry-run` | Confirmation prompts are auto-accepted, since nothing will actually happen. |
 | `--verify` | Without a geometry tool, warns once and skips verification rather than failing the placement. |
-| `--json` | Applies only to `--list`, `--list-profiles`, `--current-profile` and `--validate`. With no profile saved, `--current-profile --json` reports `current_profile: null` alongside the `resolved_profile` that would be used. |
+| `--json` | Applies only to `--list`, `--list-profiles`, `--current-profile`, `--validate` and `--check`, and to a bare `xtm`, which it turns into `--list`. With no profile saved, `--current-profile --json` reports `current_profile: null` alongside the `resolved_profile` that would be used. |
 
 Any command that edits a profile re-runs validation before saving and leaves the profile
 untouched if the edit would not survive it, so no command writes a config a later command
@@ -333,6 +334,43 @@ Sessions claimed by no profile:
 `--all` extends this to profiles bound to other machines. With `--json`, the same data is
 emitted as `{"profiles": [...], "unclaimed": [...], "config": ...}`, each profile carrying
 `name`, `current`, `prefix`, `on_switch` and `slots`.
+
+## The preflight report (`--check`)
+
+Everything that decides whether `xtm` will bring the profile up, one line each, then a count:
+
+```
+  ok    profile          desk, saved for this machine, 4 slot(s)
+  ok    display          :0
+  ok    xterm            /usr/bin/xterm
+  ok    tmux             3.6
+  warn  geometry tool    xwininfo reads positions but cannot raise a window, so --focus needs xdotool or wmctrl
+  ok    monitors         eDP-1 1440x900+0+0
+  ok    slot editor      desk-editor
+  fail  slot logs        cwd ~/work/service does not exist; tmux would silently start in your home directory
+  warn  slot db          command 'psql service': psql is not on PATH
+  fail  slot wall        off screen on this screen; --clamp brings it onto a monitor
+
+2 problem(s), 2 warning(s).
+```
+
+A **fail** stops a window from appearing where the profile says: no display, no xterm or
+tmux, a `cwd` that does not exist, a slot off every monitor. A **warn** may: an older tmux,
+a limited geometry tool, unknown monitors, a command whose program is not on `PATH` (a
+command that is a shell line — `cd x && make` — is not guessed at). The command exits 1
+when anything fails and 0 otherwise, so it can gate a login script.
+
+With `--json`:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `config` | string | Path of the config file checked. |
+| `profile` | string | The profile checked. |
+| `ok` | boolean | Whether nothing failed. |
+| `checks` | array | One entry per line of the report. |
+| `checks[].check` | string | What was checked: `profile`, `display`, `xterm`, `tmux`, `geometry tool`, `monitors`, or `slot NAME`. |
+| `checks[].status` | string | `ok`, `warn` or `fail`. |
+| `checks[].detail` | string | What was found. |
 
 ## The validation report (`--validate`)
 

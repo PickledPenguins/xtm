@@ -66,7 +66,7 @@ line or at the end of a line.
 |---|---|---|---|
 | `x`, `y` | number | Yes | Window position in pixels. May be negative for monitors left of or above the origin. |
 | `width`, `height` | number | Yes | Window size in pixels. Must be positive. |
-| `command` | string | No | Shell command run in the session when it is **created**. Ignored when attaching to a session that already exists. |
+| `command` | string | No | Shell command run in the session when it is **created**. Ignored when attaching to a session that already exists. It replaces the pane's shell: when it exits the pane closes, unless it failed and tmux is 3.2 or newer, in which case the pane stays on screen with the exit status. |
 | `cwd` | string | No | Working directory for a newly created session. `~` is expanded. |
 | `xterm_args` | list of strings | No | Extra arguments appended to the `xterm` command line, for fonts, colors, scrollback and so on. |
 | `session` | string | No | Tmux session name, used verbatim and **never prefixed**. This is how two profiles deliberately share one session. |

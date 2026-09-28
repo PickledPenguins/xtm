@@ -139,6 +139,9 @@ def tool_tmux(argv):
     if verb in os.environ.get("XTM_FAKE_TMUX_REFUSE", "").split(","):
         sys.stderr.write("tmux: refusing %s (XTM_FAKE_TMUX_REFUSE)\n" % (verb,))
         fail()
+    if verb == "-V":
+        print("tmux %s" % (os.environ.get("XTM_FAKE_TMUX_VERSION", "3.6"),))
+        return
     rows = read_rows("sessions.txt")
     # Clients beyond each session's own row: another terminal, an SSH login.
     # session|tty|pid, one per line.

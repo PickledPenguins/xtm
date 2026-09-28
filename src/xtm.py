@@ -2302,8 +2302,23 @@ def stack_slot(stack_cfg: GeometryDict, index: int) -> GeometryDict:
 # Opening sessions
 # --------------------------------------------------------------------------
 
+def tmux_version() -> Optional[Tuple[int, int]]:
+    """tmux's (major, minor) version, or None when it cannot be told."""
+    res = run(["tmux", "-V"], required=False)
+    if res is None or res.returncode != 0:
+        return None
+    match = re.search(r"(\d+)\.(\d+)", res.stdout)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+# `remain-on-exit failed`, which keeps a pane only when its program exits
+# non-zero, arrived in tmux 3.2.
+HOLD_FAILED_PANES_SINCE = (3, 2)
+
+
 def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict],
-                        title: Optional[str] = None) -> List[str]:
+                        title: Optional[str] = None,
+                        hold_failures: bool = False) -> List[str]:
     """Assemble the xterm argument vector for one session.
 
     Every window gets allowWindowOps (required for placement to work at
@@ -2320,6 +2335,14 @@ def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict],
     when it already exists and creates it otherwise. Note that -c and the
     startup command apply only when the session is actually created;
     tmux ignores them when attaching to an existing session.
+
+    With `hold_failures`, the tmux command also sets `remain-on-exit
+    failed` on the pane. A slot's command replaces the pane's shell, so
+    when it failed -- `ssh headnode` before the VPN is up, a typo -- the
+    pane, the session and the window all vanished, and in the morning a
+    window was simply missing. Held, the dead pane stays on screen with
+    the exit status, and `tmux respawn-pane` runs the command again. A
+    command that succeeds still closes its pane, as before.
     """
     sess_cfg = sess_cfg or {}
     argv = [
@@ -2340,6 +2363,8 @@ def build_xterm_command(session: str, sess_cfg: Optional[GeometryDict],
         # Passed as a single argument: tmux hands it to the shell, so
         # pipelines and && work as written in the config.
         tmux_argv.append(str(command))
+        if hold_failures:
+            tmux_argv += [";", "set-option", "-p", "remain-on-exit", "failed"]
 
     return argv + ["-e"] + tmux_argv
 
@@ -2348,10 +2373,8 @@ def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None,
                 title: Optional[str] = None) -> Optional[subprocess.Popen]:
     """Launch a new xterm attached to `session` and return the process.
 
-    Does not wait for the tmux client to attach; see wait_for_client_tty.
-    The PID is threaded through to place_window() so that, when more than
-    one client ends up attached to a session, xtm can identify its own
-    rather than acting on whichever tmux happens to list first.
+    Does not wait for the tmux client to attach; see wait_for_own_client,
+    which uses the process to tell this xterm's client from any other.
 
     Uses Popen directly rather than run(): this starts the user's real
     interactive terminal, so unlike xtm's information-gathering calls it
@@ -2361,7 +2384,11 @@ def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None,
         die("$DISPLAY is not set, so xterm has nowhere to open a window. Make "
             "sure this shell has a working X display (an X-forwarded or local "
             "session rather than a plain non-X SSH login).")
-    argv = build_xterm_command(session, sess_cfg, title)
+    hold = bool((sess_cfg or {}).get("command"))
+    if hold:
+        version = tmux_version()
+        hold = version is not None and version >= HOLD_FAILED_PANES_SINCE
+    argv = build_xterm_command(session, sess_cfg, title, hold_failures=hold)
     logger.debug("Spawning: %s", " ".join(argv))
     if CONTEXT.dry_run:
         logger.info("[dry-run] would launch: %s", " ".join(argv))
@@ -3069,6 +3096,138 @@ def validate_all(json_output: bool) -> int:
     return EXIT_ERROR if bad else EXIT_OK
 
 
+# Shell words that are not programs on PATH, so a command starting with one
+# is not reported as missing.
+_SHELL_WORDS = ("cd", "exec", "source", ".", "export", "set", "eval", "env",
+                "if", "for", "while", "case", "{", "(", "!", "time", "nohup")
+
+CHECK_OK, CHECK_WARN, CHECK_FAIL = "ok", "warn", "fail"
+
+
+def _command_program(command: str) -> Optional[str]:
+    """The program a slot's command starts, when that can be told.
+
+    None for anything a shell has to interpret first -- an assignment, a
+    shell word, a line that does not split -- since guessing would report
+    a working command as missing.
+    """
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if not words or "=" in words[0] or words[0] in _SHELL_WORDS:
+        return None
+    return words[0]
+
+
+def _profile_reason(args: argparse.Namespace, profile_name: str) -> str:
+    """Why this profile is the one in effect, in the words the docs use."""
+    if args.profile:
+        return "named on the command line"
+    if not args.auto and read_current_profile_state() == profile_name:
+        return "saved for this machine"
+    if profile_name == DEFAULT_PROFILE_NAME:
+        return "the reserved default"
+    return "matched to this hostname"
+
+
+def run_checks(args: argparse.Namespace, config: ConfigDict,
+               profile_name: str) -> List[Dict[str, str]]:
+    """Everything that decides whether `xtm` will bring the profile up.
+
+    Each check is {"check", "status", "detail"} with status ok, warn or
+    fail. A failure is something that will stop a window from appearing
+    where the profile says; a warning is something that may.
+    """
+    checks = []  # type: List[Dict[str, str]]
+
+    def add(name: str, status: str, detail: str) -> None:
+        checks.append({"check": name, "status": status, "detail": detail})
+
+    profile = validate_profile(config, profile_name)
+    add("profile", CHECK_OK, "%s, %s, %d slot(s)"
+        % (profile_name, _profile_reason(args, profile_name),
+           len(profile["sessions"])))
+    display = os.environ.get("DISPLAY")
+    add("display", CHECK_OK if display else CHECK_FAIL,
+        display or "DISPLAY is not set, so no window can open")
+    xterm = which_or_none("xterm")
+    add("xterm", CHECK_OK if xterm else CHECK_FAIL,
+        xterm or "not found on PATH")
+    version = tmux_version()
+    if version is None:
+        add("tmux", CHECK_FAIL, "not found on PATH, or did not report a version")
+    elif version < HOLD_FAILED_PANES_SINCE:
+        add("tmux", CHECK_WARN, "%d.%d: a failing start command closes its window "
+            "without a trace; 3.2 or newer keeps it on screen" % version)
+    else:
+        add("tmux", CHECK_OK, "%d.%d" % version)
+    tool = detect_geometry_tool()
+    if tool is None:
+        add("geometry tool", CHECK_WARN, "none of %s: placement works, but "
+            "--update-profile, --verify and --focus do not"
+            % (", ".join(GEOMETRY_TOOLS),))
+    elif tool == "xwininfo":
+        add("geometry tool", CHECK_WARN, "xwininfo reads positions but cannot "
+            "raise a window, so --focus needs xdotool or wmctrl")
+    else:
+        add("geometry tool", CHECK_OK, tool)
+    monitors = screen_monitors() if display else None
+    if monitors:
+        add("monitors", CHECK_OK, _describe_monitors(monitors))
+    else:
+        add("monitors", CHECK_WARN, "unknown (no xrandr or xwininfo answer), "
+            "so windows are not checked against the screen")
+
+    for slot, session in profile_slots(profile):
+        cfg = profile["sessions"][slot]
+        label = "slot %s" % (slot,)
+        problems = []  # type: List[Tuple[str, str]]
+        cwd = cfg.get("cwd")
+        if cwd and not os.path.isdir(os.path.expanduser(str(cwd))):
+            problems.append((CHECK_FAIL, "cwd %s does not exist; tmux would "
+                             "silently start in your home directory" % (cwd,)))
+        command = cfg.get("command")
+        program = _command_program(str(command)) if command else None
+        if program:
+            found = (os.access(os.path.expanduser(program), os.X_OK)
+                     if "/" in program else which_or_none(program))
+            if not found:
+                problems.append((CHECK_WARN, "command %r: %s is not on PATH"
+                                 % (command, program)))
+        if monitors:
+            fit = screen_fit(session_geometry(cfg), monitors)
+            if fit != ON_SCREEN:
+                problems.append((CHECK_FAIL, "%s on this screen; --clamp brings "
+                                 "it onto a monitor" % (fit,)))
+        if not problems:
+            add(label, CHECK_OK, session)
+        for status, detail in problems:
+            add(label, status, detail)
+    return checks
+
+
+def cmd_check(args: argparse.Namespace, config: ConfigDict,
+              profile_name: str) -> int:
+    """Say whether `xtm` would bring the profile up without trouble.
+
+    Changes nothing. Exits 1 when any check fails, so it can gate a login
+    script; warnings alone exit 0.
+    """
+    checks = run_checks(args, config, profile_name)
+    failed = [c for c in checks if c["status"] == CHECK_FAIL]
+    if args.json:
+        emit_json({"config": str(CONTEXT.config_file), "profile": profile_name,
+                   "checks": checks, "ok": not failed})
+    else:
+        for c in checks:
+            print("  %-5s %-16s %s" % (c["status"], c["check"], c["detail"]))
+        warned = sum(1 for c in checks if c["status"] == CHECK_WARN)
+        print("")
+        print("%d problem(s), %d warning(s)." % (len(failed), warned))
+    return EXIT_ERROR if failed else EXIT_OK
+
+
 def cmd_validate(args: argparse.Namespace, config: ConfigDict,
                  profile_name: str) -> int:
     """Check every profile in the config file."""
@@ -3395,6 +3554,7 @@ COMMANDS = (
     # editor session. See its docstring.
     ("edit", cmd_edit, False, False),
     ("validate", cmd_validate, False, False),
+    ("check", cmd_check, False, True),
 )
 
 def cmd_default(args: argparse.Namespace, config: ConfigDict,
@@ -3501,7 +3661,7 @@ def build_parser() -> argparse.ArgumentParser:
     general.add_argument("-j", "--json", action="store_true",
                          help="Emit machine-readable JSON from reporting "
                               "commands (--list, --list-profiles, "
-                              "--current-profile, --validate).")
+                              "--current-profile, --validate, --check).")
     general.add_argument("-N", "--dry-run", action="store_true",
                          help="Show what would happen without launching, "
                               "moving, closing or saving anything.")
@@ -3583,6 +3743,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "available on every machine. One-way.")
     action.add_argument("-e", "--edit", action="store_true",
                         help="Open the config in $EDITOR, then validate it.")
+    action.add_argument("--check", action="store_true",
+                        help="Check that the profile would come up without "
+                             "trouble: display, xterm, tmux, tools, monitors, "
+                             "and each slot's cwd, command and position. "
+                             "Changes nothing.")
     action.add_argument("-V", "--validate", action="store_true",
                         help="Check every profile in the config file.")
     return parser

@@ -137,10 +137,18 @@ an explicit `session:` naming what is already running.
 It is scoped to the effective profile's sessions. `--all` widens it to every visible
 profile's sessions; sessions belonging to no profile are never touched, deliberately.
 
+## A window shows "Pane is dead (status N)"
+
+The slot's `command` failed — `ssh headnode` before the VPN was up, a typo, a program not
+installed. xtm asks tmux (3.2 and newer) to keep a failed pane on screen rather than let
+the window vanish. Fix the cause, then `tmux respawn-pane` in that window runs the command
+again. `xtm --check` warns about a command whose program is not on `PATH`.
+
 ## A pane closes as soon as the window opens
 
-`command` replaces the pane's shell, so the pane closes when the command exits. Use
-something like `bash -lc 'cmd; exec bash'` to keep the pane alive afterwards.
+`command` replaces the pane's shell, so the pane closes when the command exits
+successfully — and on a tmux older than 3.2, when it fails too. Use something like
+`bash -lc 'cmd; exec bash'` to keep a shell open afterwards.
 
 ## An edit was rejected with "would leave profile ... invalid"
 
@@ -151,6 +159,7 @@ same session — so nothing was written. The message carries the underlying vali
 ## Everything is confusing and the config may be wrong
 
 ```bash
+xtm --check                                     # would the profile come up cleanly
 xtm --validate                                  # check every profile
 xtm --list-profiles --verbose                   # what exists, what is running, who owns it
 xtm --dry-run --reset-all --debug               # what a reset would do, changing nothing

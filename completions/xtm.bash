@@ -43,7 +43,7 @@ _xtm() {
     local actions="--list --open --reset --reset-all --close --close-all
         --focus --update-profile --new-profile --set --delete-session
         --list-profiles --current-profile --validate --edit --delete-profile
-        --copy-profile --rename-profile --make-global --detach"
+        --copy-profile --rename-profile --make-global --detach --check"
     local options="--profile --auto --all --verbose --on-switch --capture-new
         --detach-mode --config --state-dir --hostname --json --dry-run --yes --verify
         --clamp --no-frame-compensation --debug --quiet --log-level --log-file

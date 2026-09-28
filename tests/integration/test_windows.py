@@ -765,3 +765,36 @@ class TestOffScreenWindows(IntegrationBase):
         payload = json.loads(self.run_xtm("-l", "-j").stdout)
         self.assertIsNone(payload["monitors"])
         self.assertIsNone(payload["sessions"][0]["placement"])
+
+
+class TestFailingStartCommands(IntegrationBase):
+    """A slot's command replaces the pane's shell; when it failed, the pane,
+    the session and the window all vanished without a trace."""
+
+    def launched(self):
+        path = self.state / "launched.log"
+        return [json.loads(l) for l in path.read_text().splitlines()]
+
+    def test_the_pane_is_held_on_failure_where_tmux_can(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions:
+                  cluster: {x: 0, y: 0, width: 900, height: 700, command: ssh headnode}
+            """)
+        result = self.run_xtm("-r")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        tail = self.launched()[0]
+        self.assertEqual(tail[-6:], ["ssh headnode", ";", "set-option", "-p",
+                                     "remain-on-exit", "failed"])
+
+    def test_an_older_tmux_gets_the_plain_command(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions:
+                  cluster: {x: 0, y: 0, width: 900, height: 700, command: ssh headnode}
+            """)
+        result = self.run_xtm("-r", env={"XTM_FAKE_TMUX_VERSION": "3.1c"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launched()[0][-1], "ssh headnode")

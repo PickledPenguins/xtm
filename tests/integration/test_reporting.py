@@ -332,3 +332,74 @@ class TestEffectiveProfileMarker(IntegrationBase):
                                           "--list-profiles", "--json").stdout)
         self.assertEqual(payload["effective"], "laptop")
         self.assertEqual(payload["current"], "desk")
+
+
+class TestCheck(IntegrationBase):
+    """--check says whether `xtm` would bring the profile up cleanly."""
+
+    def config_with(self, slot):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions:
+                  %s
+            """ % (slot,))
+
+    def checks(self, *extra, **kwargs):
+        result = self.run_xtm("--check", "--json", *extra, **kwargs)
+        payload = json.loads(result.stdout)
+        return result.returncode, payload, dict(
+            ((c["check"], c["status"]), c["detail"]) for c in payload["checks"])
+
+    def test_a_healthy_profile_passes(self):
+        self.config_with("work: {x: 0, y: 0, width: 900, height: 700, cwd: %s}"
+                         % (self.tmp,))
+        code, payload, found = self.checks(env={"XTM_FAKE_MONITORS": "eDP-1:1440x900+0+0"})
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertIn(("slot work", "ok"), found)
+        self.assertIn(("monitors", "ok"), found)
+
+    def test_a_missing_cwd_fails(self):
+        self.config_with("work: {x: 0, y: 0, width: 900, height: 700, "
+                         "cwd: /no/such/dir}")
+        code, payload, found = self.checks()
+        self.assertEqual(code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertIn("does not exist", found[("slot work", "fail")])
+
+    def test_a_command_not_on_path_warns(self):
+        self.config_with("logs: {x: 0, y: 0, width: 900, height: 700, "
+                         "command: journalctl -f}")
+        code, _payload, found = self.checks()
+        self.assertEqual(code, 0)
+        self.assertIn("journalctl is not on PATH", found[("slot logs", "warn")])
+
+    def test_a_shell_line_is_not_guessed_at(self):
+        self.config_with("x: {x: 0, y: 0, width: 900, height: 700, "
+                         "command: 'cd /tmp && make'}")
+        _code, _payload, found = self.checks()
+        self.assertIn(("slot x", "ok"), found)
+
+    def test_an_off_screen_slot_fails(self):
+        self.config_with("right: {x: 1920, y: 0, width: 900, height: 700}")
+        code, _payload, found = self.checks(
+            env={"XTM_FAKE_MONITORS": "eDP-1:1440x900+0+0"})
+        self.assertEqual(code, 1)
+        self.assertIn("off screen", found[("slot right", "fail")])
+
+    def test_no_display_fails(self):
+        self.config_with("work: {x: 0, y: 0, width: 900, height: 700}")
+        env = dict(self.env)
+        env.pop("DISPLAY")
+        self.env = env
+        code, _payload, found = self.checks()
+        self.assertEqual(code, 1)
+        self.assertIn(("display", "fail"), found)
+
+    def test_the_text_report_counts_problems(self):
+        self.config_with("work: {x: 0, y: 0, width: 900, height: 700, "
+                         "cwd: /no/such/dir}")
+        result = self.run_xtm("--check")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("1 problem(s)", result.stdout)
