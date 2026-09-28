@@ -133,12 +133,7 @@ class TestCompletionScript(unittest.TestCase):
     """The completion script must keep up with the parser."""
 
     def parser_long_options(self):
-        """Every long option xtm accepts, excluding hidden legacy aliases.
-
-        The single-dash spellings kept for backwards compatibility (-open,
-        -reset, ...) are deliberately not required in completion: they exist
-        so old scripts keep working, not to be suggested to anyone new.
-        """
+        """Every long option xtm accepts."""
         options = set()
         for action in xtm.build_parser()._actions:
             for spelling in action.option_strings:

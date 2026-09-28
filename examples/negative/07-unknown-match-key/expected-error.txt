@@ -1,1 +1,1 @@
-lab                  INVALID: profile 'lab': matching on 'display' was removed in version 0.4. Use 'hostname' instead.
+lab                  INVALID: profile 'lab': unknown 'match' key 'display' (expected 'hostname').

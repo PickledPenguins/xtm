@@ -106,9 +106,6 @@ A `match` block that is malformed — an unknown key, an empty or non-string hos
 leaves the profile **visible** rather than hidden, so the validation error is what you see
 instead of the profile silently vanishing.
 
-Matching on `$DISPLAY`, supported in 0.3, was removed in 0.4; a config still using it fails
-validation with an explanation rather than silently never matching.
-
 ## Missing data
 
 Handled uniformly. A profile with no `stack` gets the built-in default, a profile with no

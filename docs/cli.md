@@ -70,11 +70,6 @@ stream is:
 xtm --list --json --quiet | jq -r '.sessions[].name'
 ```
 
-The long forms used before version 0.3 — `-open`, `-reset`, `-resetall`, `-updateprofile`,
-`-newprofile`, `-list`, `-listprofiles`, `-currentprofile`, `-profile`, `-debug`,
-`-log-file`, `-version` — are still accepted, so existing scripts and shell aliases keep
-working.
-
 ## What each option changes
 
 **What is read.** `--config` and `--state-dir` change which files are consulted, before

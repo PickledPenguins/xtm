@@ -57,10 +57,10 @@ class TestStateFile(PathIsolationMixin):
         xtm.CONTEXT.state_file.write_text("\n\n")
         self.assertIsNone(xtm.read_current_profile_state())
 
-    def test_legacy_machine_independent_file_is_honored(self):
+    def test_only_this_machines_state_file_is_read(self):
         xtm.CONTEXT.state_dir.mkdir(parents=True, exist_ok=True)
-        (xtm.CONTEXT.state_dir / "current_profile").write_text("legacy\n")
-        self.assertEqual(xtm.read_current_profile_state(), "legacy")
+        (xtm.CONTEXT.state_dir / "current_profile").write_text("other\n")
+        self.assertIsNone(xtm.read_current_profile_state())
 
     def test_clear_state(self):
         xtm.write_current_profile_state("work")

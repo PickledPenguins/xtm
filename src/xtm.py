@@ -968,12 +968,6 @@ def validate_match(entry: Any, context: str) -> None:
         die("%s: 'match' is empty. Remove it to make the profile global, "
             "or give it a 'hostname'." % (context,))
     for key, value in entry.items():
-        if key == "display":
-            # Named explicitly rather than folded into the generic
-            # unknown-key error: a config written for 0.3 would otherwise
-            # fail with a message that does not explain what happened.
-            die("%s: matching on 'display' was removed in version 0.4. "
-                "Use 'hostname' instead." % (context,))
         if key != "hostname":
             die("%s: unknown 'match' key %r (expected 'hostname')."
                 % (context, key))
@@ -1117,8 +1111,8 @@ def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
     return profile
 
 
-# Kept as the historical name used across the command implementations.
-get_profile = validate_profile
+
+
 
 
 @contextlib.contextmanager
@@ -1305,23 +1299,18 @@ def parse_geometry_spec(spec: str) -> GeometryDict:
 # who also want a real environment variable.
 
 def read_current_profile_state() -> Optional[str]:
-    """Return the persisted current profile for this machine, if any.
-
-    Falls back to the pre-0.3 machine-independent state file so that an
-    existing setup keeps working after the upgrade.
-    """
-    for candidate in (CONTEXT.state_file, CONTEXT.state_dir / "current_profile"):
-        if not candidate.exists():
-            continue
-        raw = _read_text_safe(candidate, "current-profile state file")
-        # Only the first line is meaningful; anything odd appended after
-        # it is ignored rather than returned as a name that could never
-        # match a real profile.
-        first_line = raw.splitlines()[0].strip() if raw.strip() else ""
-        if first_line:
-            logger.debug("Current profile %r read from %s", first_line, candidate)
-            return first_line
-    return None
+    """Return the persisted current profile for this machine, if any."""
+    if not CONTEXT.state_file.exists():
+        return None
+    raw = _read_text_safe(CONTEXT.state_file, "current-profile state file")
+    # Only the first line is meaningful; anything odd appended after it is
+    # ignored rather than returned as a name that could never match a real
+    # profile.
+    first_line = raw.splitlines()[0].strip() if raw.strip() else ""
+    if not first_line:
+        return None
+    logger.debug("Current profile %r read from %s", first_line, CONTEXT.state_file)
+    return first_line
 
 
 def write_current_profile_state(name: str) -> None:
@@ -2293,7 +2282,7 @@ def count_unnamed_open(profile: ProfileDict,
 
 def cmd_open(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
     """Open one session, at its configured position or the next stack slot."""
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     name = validate_session_name(args.open)
     # The argument may name a slot in the profile or a session directly,
     # so that both `xtm --open work1` (the slot) and `xtm --open
@@ -2321,7 +2310,7 @@ def cmd_open(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
 
 def cmd_reset(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
     """Reposition, or open, every named session in the profile."""
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     if not profile["sessions"]:
         logger.info("Profile %s has no slots configured.", profile_name)
         return EXIT_OK
@@ -2347,7 +2336,7 @@ def cmd_reset(args: argparse.Namespace, config: ConfigDict, profile_name: str) -
 def cmd_reset_all(args: argparse.Namespace, config: ConfigDict,
                   profile_name: str) -> int:
     """Reset named sessions, then stack every stray session as well."""
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     status = cmd_reset(args, config, profile_name)
 
     named = set(profile_sessions(profile))
@@ -2386,7 +2375,7 @@ def _resolve_target_session(profile: ProfileDict, name: str) -> str:
 
 def cmd_close(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
     """Kill one tmux session, which closes its window with it."""
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     session = _resolve_target_session(profile,
                                       validate_session_name(args.close))
     live = tmux_list_sessions()
@@ -2408,7 +2397,7 @@ def cmd_detach(args: argparse.Namespace, config: ConfigDict,
     keeps every tab, pane and running job alive, while closing destroys
     them. Detaching is the reversible one.
     """
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     session = _resolve_target_session(profile,
                                       validate_session_name(args.detach))
     live = tmux_list_sessions()
@@ -2433,7 +2422,7 @@ def cmd_close_all(args: argparse.Namespace, config: ConfigDict,
     are, by definition, sessions xtm was never told to manage, and some
     of them may be long-running work started elsewhere.
     """
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     live = tmux_list_sessions()
     if args.all:
         # Every session any visible profile lays claim to, so that
@@ -2479,7 +2468,7 @@ def cmd_focus(args: argparse.Namespace, config: ConfigDict, profile_name: str) -
     prefix: the hint names a SLOT, and the window is named after the
     session the slot resolves to.
     """
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     session = _resolve_target_session(profile,
                                       validate_session_name(args.focus))
     tool = require_acting_geometry_tool()
@@ -2529,7 +2518,7 @@ def capture_layout(tool: str) -> Dict[str, GeometryDict]:
 def cmd_update_profile(args: argparse.Namespace, config: ConfigDict,
                        profile_name: str) -> int:
     """Save the current on-screen layout into the current profile."""
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     tool = require_geometry_tool()
     layout = capture_layout(tool)
     if not layout:
@@ -2628,7 +2617,7 @@ def cmd_new_profile(args: argparse.Namespace, config: ConfigDict,
 
 def cmd_set(args: argparse.Namespace, config: ConfigDict, profile_name: str) -> int:
     """Add or update one slot's position in the profile."""
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     slot = validate_session_name(args.set[0])
     geometry = parse_geometry_spec(args.set[1])
     existing = profile["sessions"].get(slot)
@@ -2654,7 +2643,7 @@ def cmd_delete_session(args: argparse.Namespace, config: ConfigDict,
     This edits configuration only. A running session of the same name
     keeps running; use --close to kill it.
     """
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     name = args.delete_session
     # Accept a slot name or the session name it resolves to, matching
     # every other command that takes one.
@@ -2924,7 +2913,7 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
     renderings cannot drift apart, and the live-position lookup happens
     exactly once either way.
     """
-    profile = get_profile(config, profile_name)
+    profile = validate_profile(config, profile_name)
     tool = detect_geometry_tool()
     live = tmux_list_sessions()
 
@@ -3233,11 +3222,7 @@ def selected_action(args: argparse.Namespace) -> Tuple[str, Any, bool, bool]:
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser.
 
-    Every frequently used option has both a short and a long form. The
-    single-dash long spellings from earlier releases (-open, -reset,
-    -resetall, -updateprofile, -newprofile, -listprofiles,
-    -currentprofile, -log-file) are kept as hidden aliases so existing
-    scripts and shell functions keep working.
+    Every frequently used option has both a short and a long form.
     """
     parser = argparse.ArgumentParser(
         prog="xtm",
@@ -3245,7 +3230,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="With no action, xtm prints the status of the current profile.",
     )
 
-    parser.add_argument("--version", "-version", action="version",
+    parser.add_argument("--version", action="version",
                         version="xtm %s" % (__version__,))
 
     # Switching profiles is by far the most common thing the tool is asked
@@ -3256,7 +3241,7 @@ def build_parser() -> argparse.ArgumentParser:
                              "Equivalent to --profile NAME.")
 
     general = parser.add_argument_group("general options")
-    general.add_argument("-p", "--profile", "-profile", metavar="NAME",
+    general.add_argument("-p", "--profile", metavar="NAME",
                          help="Use profile NAME and persist it as this "
                               "machine's current profile. Same as giving the "
                               "name as a positional argument.")
@@ -3311,7 +3296,7 @@ def build_parser() -> argparse.ArgumentParser:
                               "manager decorations (see README).")
 
     logging_group = parser.add_argument_group("logging options")
-    logging_group.add_argument("-d", "--debug", "-debug", action="store_true",
+    logging_group.add_argument("-d", "--debug", action="store_true",
                                help="Verbose diagnostic logging to stderr: "
                                     "every subprocess call, parsing decision "
                                     "and file operation.")
@@ -3322,18 +3307,18 @@ def build_parser() -> argparse.ArgumentParser:
                                         "critical"],
                                help="Set the stderr log level explicitly "
                                     "(overrides --debug/--quiet).")
-    logging_group.add_argument("-L", "--log-file", "-log-file", metavar="PATH",
+    logging_group.add_argument("-L", "--log-file", metavar="PATH",
                                help="Also write full DEBUG-level logs to PATH. "
                                     "Off by default.")
 
     actions = parser.add_argument_group("actions (choose at most one)")
     action = actions.add_mutually_exclusive_group()
-    action.add_argument("-o", "--open", "-open", metavar="SESSION",
+    action.add_argument("-o", "--open", metavar="SESSION",
                         help="Open one tmux session in a new xterm.")
-    action.add_argument("-r", "--reset", "-reset", action="store_true",
+    action.add_argument("-r", "--reset", action="store_true",
                         help="Reposition or open every named session in the "
                              "profile.")
-    action.add_argument("-R", "--reset-all", "-resetall", action="store_true",
+    action.add_argument("-R", "--reset-all", action="store_true",
                         help="Like --reset, and also stack any stray sessions.")
     action.add_argument("-k", "--close", metavar="SESSION",
                         help="Kill one tmux session and close its window.")
@@ -3341,19 +3326,19 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Kill every running session named in the profile.")
     action.add_argument("-f", "--focus", metavar="SESSION",
                         help="Raise and focus one session's window.")
-    action.add_argument("-l", "--list", "-list", action="store_true",
+    action.add_argument("-l", "--list", action="store_true",
                         help="Show session and window status for the profile "
                              "(the default action).")
-    action.add_argument("-P", "--list-profiles", "-listprofiles",
+    action.add_argument("-P", "--list-profiles",
                         action="store_true",
                         help="List every profile in the config.")
-    action.add_argument("-C", "--current-profile", "-currentprofile",
+    action.add_argument("-C", "--current-profile",
                         action="store_true",
                         help="Print this machine's current profile.")
-    action.add_argument("-u", "--update-profile", "-updateprofile",
+    action.add_argument("-u", "--update-profile",
                         action="store_true",
                         help="Save current window positions into the profile.")
-    action.add_argument("-n", "--new-profile", "-newprofile", metavar="NAME",
+    action.add_argument("-n", "--new-profile", metavar="NAME",
                         help="Create a new profile from the current layout.")
     action.add_argument("-s", "--set", nargs=2, metavar=("SESSION", "GEOMETRY"),
                         help="Set a session's position in the profile. "

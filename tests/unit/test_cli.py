@@ -45,16 +45,12 @@ class TestParser(unittest.TestCase):
         self.assertEqual(self.parse("--rename-profile", "a", "b").rename_profile,
                          ["a", "b"])
 
-    def test_legacy_single_dash_aliases(self):
-        self.assertTrue(self.parse("-reset").reset)
-        self.assertTrue(self.parse("-resetall").reset_all)
-        self.assertTrue(self.parse("-listprofiles").list_profiles)
-        self.assertTrue(self.parse("-currentprofile").current_profile)
-        self.assertTrue(self.parse("-updateprofile").update_profile)
-        self.assertEqual(self.parse("-open", "w").open, "w")
-        self.assertEqual(self.parse("-newprofile", "n").new_profile, "n")
-        self.assertEqual(self.parse("-profile", "p").profile, "p")
-        self.assertTrue(self.parse("-debug").debug)
+    def test_single_dash_long_spellings_are_not_options(self):
+        # The pre-0.3 spellings (-reset, -open, ...) were removed; argparse
+        # must not quietly read "-reset" as -r plus a stray argument.
+        for spelling in ("-reset", "-resetall", "-listprofiles", "-debug"):
+            with self.assertRaises(SystemExit):
+                self.parse(spelling)
 
     def test_general_options(self):
         args = self.parse("-p", "work", "-j", "-N", "-y", "--verify",

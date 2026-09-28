@@ -182,17 +182,3 @@ xtm() {
     export XTM_PROFILE="$(command xtm --current-profile --quiet 2>/dev/null)"
 }
 ```
-
-## Adopting the newer profile keys
-
-Existing configs keep working unchanged, and a profile with no `prefix` behaves exactly as
-it always did: slot names are used as session names directly. Two things to be aware of
-when adopting the keys added in 0.5:
-
-- **Adding a `prefix:` renames a profile's sessions.** Sessions already running under the
-  old names match no slot afterwards, so they appear as strays until closed or reattached.
-  Either close them first, or give the affected slots an explicit `session:` naming what is
-  already running.
-- **`on_switch` defaults to `detach`**, so the first profile switch after upgrading closes
-  the previous profile's windows. Nothing is destroyed — every session, tab, pane and job
-  stays alive — but set `on_switch: leave` on a profile to keep the older behavior.

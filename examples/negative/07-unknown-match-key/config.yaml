@@ -1,5 +1,5 @@
-# Matching on DISPLAY was removed in 0.4. A config still using it fails
-# with an explanation rather than silently never matching.
+# `match` binds a profile by hostname and nothing else; any other key is
+# refused rather than silently never matching.
 profiles:
   lab:
     match: {display: "|0"}

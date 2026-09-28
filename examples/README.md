@@ -100,7 +100,7 @@ python3 examples/run.py --negative
 | [negative/04-tab-indentation](negative/04-tab-indentation/) | YAML does not indent with tabs; the error names the line and column. |
 | [negative/05-two-slots-one-session](negative/05-two-slots-one-session/) | Two slots resolving to one session would fight over one window. |
 | [negative/06-negative-size](negative/06-negative-size/) | A position may be negative; a size may not. |
-| [negative/07-unknown-match-key](negative/07-unknown-match-key/) | `match` takes `hostname` and nothing else; `display:` was removed in 0.4. |
+| [negative/07-unknown-match-key](negative/07-unknown-match-key/) | `match` takes `hostname` and nothing else. |
 | [negative/08-quoted-number](negative/08-quoted-number/) | `"900"` is text; a size has to be a number. |
 
 ## What a directory may contain

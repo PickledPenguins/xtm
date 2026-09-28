@@ -121,13 +121,10 @@ class TestSessionEntryValidation(unittest.TestCase):
         with self.assertRaises(xtm.XtmError):
             xtm.validate_match("desk1", "ctx")
 
-    def test_display_matching_was_removed(self):
-        # A 0.3 config must fail with an explanation, not a generic
-        # unknown-key error that leaves the user guessing.
+    def test_an_unknown_match_key_is_named(self):
         with self.assertRaises(xtm.XtmError) as caught:
             xtm.validate_match({"display": ":0*"}, "ctx")
-        self.assertIn("display", str(caught.exception))
-        self.assertIn("0.4", str(caught.exception))
+        self.assertIn("unknown 'match' key 'display'", str(caught.exception))
 
 
 class TestGeometrySpec(unittest.TestCase):

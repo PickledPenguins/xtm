@@ -90,8 +90,8 @@ guard test that fails if the hiding ever stops working.
 
 Classes of risk that carry their own groups, and what each protects:
 
-- **CLI combination and ordering** — option order never matters; short, long and pre-0.3
-  single-dash forms produce identical output; `--config` beats `XTM_CONFIG_DIR`;
+- **CLI combination and ordering** — option order never matters; short and long forms
+  produce identical output; `--config` beats `XTM_CONFIG_DIR`;
   `--profile` beats `--auto` while `--auto` beats a saved profile; `--log-level` overrides
   `--debug` and `--quiet`; `--json` affects only the reporting commands.
 - **Malformed input** — an empty file, binary junk, a top-level list, a missing or
