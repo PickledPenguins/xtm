@@ -2,14 +2,15 @@
 
 Every action, every option, every field of every view, and the exit status.
 
-Every action has a short and a long form. At most one action may be given; with none, xtm
-prints the status of the effective profile.
+Every action has a short and a long form. At most one action may be given. With none, xtm
+**brings the effective profile up** — exactly `--reset` — unless the profile has no slots or
+`--json` was given, in which case it prints the status, as `--list` does.
 
 ## Actions
 
 | Short | Long | Argument | Description |
 |---|---|---|---|
-| `-l` | `--list` | — | Show session and window status for the profile. **Default action.** |
+| `-l` | `--list` | — | Show session and window status for the profile, changing nothing. |
 | `-o` | `--open` | `SESSION` | Open one tmux session in a new xterm and place it. |
 | `-r` | `--reset` | — | Reposition, or open if missing, every named session in the profile. |
 | `-R` | `--reset-all` | — | As `--reset`, and also stack stray xtm windows. |
@@ -34,7 +35,7 @@ prints the status of the effective profile.
 
 | Short | Long | Argument | Description |
 |---|---|---|---|
-| — | *(positional)* | `PROFILE` | Switch to a profile: `xtm desk`. Equivalent to `--profile`. |
+| — | *(positional)* | `PROFILE` | Switch to a profile: `xtm desk`. Equivalent to `--profile`; with no action, the profile is then brought up. |
 | `-p` | `--profile` | `NAME` | Use profile `NAME` and persist it as this machine's current profile. |
 | `-a` | `--auto` | — | Ignore the saved current profile; select one by matching the hostname. |
 | `-A` | `--all` | — | Widen the scope: include profiles belonging to other machines when selecting or listing them, and with `--close-all` cover every profile visible on this machine rather than only the current one. Never reaches a profile bound to another host. |
@@ -171,7 +172,7 @@ that machine's state file, because acting as a machine means acting as it throug
 
 ## The status view (`--list`)
 
-What xtm prints with no arguments.
+What `xtm --list` prints, and what a bare `xtm` prints for a profile with no slots.
 
 ```
 Profile: desk

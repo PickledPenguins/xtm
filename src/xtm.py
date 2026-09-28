@@ -3259,28 +3259,39 @@ COMMANDS = (
     ("validate", cmd_validate, False, False),
 )
 
-DEFAULT_ACTION = "list"
+def cmd_default(args: argparse.Namespace, config: ConfigDict,
+                profile_name: str) -> int:
+    """What a bare `xtm`, or `xtm NAME`, does: bring the profile up.
+
+    Sitting down and typing one word should give back the whole layout, so
+    the default is --reset -- which is idempotent: it opens what is missing
+    and snaps back what has moved, and never closes anything. A profile with
+    no slots has nothing to bring up, and --json asks for a report, so both
+    get the status view instead: on a fresh install `xtm` explains itself
+    rather than doing nothing.
+    """
+    profile = validate_profile(config, profile_name)
+    if args.json or not profile["sessions"]:
+        logger.debug("Showing status: %s.", "--json was given" if args.json
+                     else "profile %s has no slots" % (profile_name,))
+        args.list = True
+        return cmd_list(args, config, profile_name)
+    logger.debug("Bringing profile %s up.", profile_name)
+    return cmd_reset(args, config, profile_name)
+
+
+# What runs when no action is named. Not in COMMANDS: it is not an option.
+DEFAULT_ENTRY = ("default", cmd_default, False, True)
 
 
 def selected_action(args: argparse.Namespace) -> Tuple[str, Any, bool, bool]:
     """Return the (dest, handler, mutates_config, needs_profile) entry for
-    this run.
-
-    With no action flag at all, xtm reports the status of the resolved
-    profile. That makes a bare `xtm` both safe and informative: it answers
-    "what am I set up for right now" without opening, moving or closing
-    anything.
-    """
+    this run: the one action named, or cmd_default when none is."""
     for entry in COMMANDS:
         if getattr(args, entry[0], None):
             return entry
-    logger.debug("No action requested; defaulting to --%s.",
-                 DEFAULT_ACTION.replace("_", "-"))
-    setattr(args, DEFAULT_ACTION, True)
-    for entry in COMMANDS:
-        if entry[0] == DEFAULT_ACTION:
-            return entry
-    raise AssertionError("DEFAULT_ACTION is not present in COMMANDS")
+    logger.debug("No action requested; bringing the profile up.")
+    return DEFAULT_ENTRY
 
 
 # --------------------------------------------------------------------------
@@ -3295,7 +3306,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="xtm",
         description="xterm + tmux workspace manager (version %s)" % (__version__,),
-        epilog="With no action, xtm prints the status of the current profile.",
+        epilog="With no action, xtm brings the profile up: it opens every "
+               "slot's window that is missing and moves the rest back into "
+               "place (--reset). A profile with no slots shows its status.",
     )
 
     parser.add_argument("--version", action="version",
@@ -3395,8 +3408,7 @@ def build_parser() -> argparse.ArgumentParser:
     action.add_argument("-f", "--focus", metavar="SESSION",
                         help="Raise and focus one session's window.")
     action.add_argument("-l", "--list", action="store_true",
-                        help="Show session and window status for the profile "
-                             "(the default action).")
+                        help="Show session and window status for the profile.")
     action.add_argument("-P", "--list-profiles",
                         action="store_true",
                         help="List every profile in the config.")

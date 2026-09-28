@@ -67,13 +67,13 @@ class TestParser(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.parse("--log-level", "chatty")
 
-    def test_no_action_defaults_to_list(self):
+    def test_no_action_brings_the_profile_up(self):
         args = self.parse()
-        dest, _handler, mutates, needs_profile = xtm.selected_action(args)
-        self.assertEqual(dest, "list")
+        dest, handler, mutates, needs_profile = xtm.selected_action(args)
+        self.assertEqual(dest, "default")
+        self.assertIs(handler, xtm.cmd_default)
         self.assertFalse(mutates)
         self.assertTrue(needs_profile)
-        self.assertTrue(args.list)
 
     def test_selected_action_reports_mutation(self):
         args = self.parse("-s", "a", "0,0,1,1")

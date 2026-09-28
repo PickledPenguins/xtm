@@ -357,12 +357,13 @@ class TestPositionalProfile(IntegrationBase):
                   work1: {x: 0, y: 0, width: 900, height: 700}
             """)
 
-    def test_positional_switches_and_persists(self):
+    def test_positional_switches_persists_and_brings_the_profile_up(self):
         self.two_profiles()
         result = self.run_xtm("desk")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Profile: desk", result.stdout)
+        self.assertIn("Opened work1", result.stderr)
         self.assertEqual(self.run_xtm("--current-profile").stdout.strip(), "desk")
+
 
     def test_positional_matches_the_profile_flag_exactly(self):
         self.two_profiles()
@@ -544,3 +545,58 @@ class TestConfigEditsStayLoadable(IntegrationBase):
         result = self.run_xtm("desk", "--set", "gamma", "1,2,300,400")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("gamma", self.config_text())
+
+
+class TestBareXtm(IntegrationBase):
+    """`xtm` alone is the morning command: it brings the profile up."""
+
+    def write_desk(self, sessions="work1: {x: 0, y: 0, width: 900, height: 700}"):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                sessions:
+                  %s
+            """ % (sessions,))
+        self.run_xtm("desk", "--list")
+
+    def launched(self):
+        path = self.state / "launched.log"
+        return path.read_text().count("\n") if path.exists() else 0
+
+    def test_opens_every_missing_window_of_the_saved_profile(self):
+        self.write_desk()
+        result = self.run_xtm()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Opened work1", result.stderr)
+        self.assertEqual(self.launched(), 1)
+
+    def test_a_second_run_moves_rather_than_opens(self):
+        self.write_desk()
+        self.run_xtm()
+        result = self.run_xtm()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Repositioned work1", result.stderr)
+        self.assertEqual(self.launched(), 1)
+
+    def test_a_profile_with_no_slots_shows_its_status(self):
+        # A fresh install: nothing to bring up, so say what is there.
+        result = self.run_xtm()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Profile: default", result.stdout)
+        self.assertEqual(self.launched(), 0)
+
+    def test_json_asks_for_the_report(self):
+        self.write_desk()
+        result = self.run_xtm("--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["profile"], "desk")
+        self.assertEqual(self.launched(), 0)
+
+    def test_dry_run_opens_nothing(self):
+        self.write_desk()
+        result = self.run_xtm("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[dry-run] would launch", result.stderr)
+        self.assertEqual(self.launched(), 0)

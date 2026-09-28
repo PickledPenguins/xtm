@@ -78,6 +78,13 @@ CATALOG = [
         "Waiting for any client was satisfied at once by one attached "
         "elsewhere, and xtm then placed that terminal instead of its own."),
     Mutant(
+        "bare-xtm-brings-the-profile-up",
+        '    if args.json or not profile["sessions"]:',
+        "    if True:",
+        ["tests.integration.test_basics"],
+        "The morning command is one word: a bare `xtm` must restore the "
+        "profile, not only report on it."),
+    Mutant(
         "placement-resize-before-move",
         "send_window_op(tty, _CSI_RESIZE_WINDOW_PX_TEMPLATE.format(height=height,\n"
         "                                                             width=width))\n"

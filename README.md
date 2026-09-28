@@ -66,10 +66,9 @@ Options and prerequisites are in [docs/guide.md](docs/guide.md).
 ## Quick start
 
 ```bash
-xtm                          # status of the current profile (default action)
-xtm desk                     # switch to the "desk" profile and show its status
-xtm desk --reset-all         # switch, then open and position everything
-xtm --reset                  # snap the named windows back where they belong
+xtm                          # bring the current profile up: open what is missing, move the rest back
+xtm desk                     # switch to the "desk" profile and bring it up
+xtm --list                   # status of the current profile, changing nothing
 xtm --update-profile         # save the current arrangement into the profile
 ```
 

@@ -40,11 +40,17 @@ xtm --help
 ## First run
 
 ```bash
-xtm                          # status of the current profile (default action)
-xtm desk                     # switch to the "desk" profile and show its status
-xtm desk --reset-all         # switch, then open/position everything
-xtm --reset-all              # same, using whichever profile is current
+xtm                          # bring the current profile up
+xtm desk                     # switch to the "desk" profile and bring it up
+xtm desk --list              # switch, and only show the status
+xtm --reset-all              # bring it up, and stack every other xtm window too
 ```
+
+With no action, xtm **brings the profile up**: it opens every slot's window that is missing
+— creating the tmux session with its `command` and `cwd`, or reattaching one that already
+runs — and moves every window that is open back into its slot. It never closes anything,
+so running it twice is the same as running it once. A profile with no slots has nothing to
+bring up, so on a fresh install `xtm` shows the status instead; so does `xtm --json`.
 
 Naming a profile is the most common thing xtm is asked to do, so it needs no flag: `xtm
 desk` is exactly `xtm --profile desk`, and the selection is remembered until changed.
@@ -58,8 +64,16 @@ reserved `default` profile.
 Sit down at a machine and restore everything:
 
 ```bash
-xtm --profile desk --reset-all
+xtm
 ```
+
+The profile is remembered per machine, so after the first `xtm desk` this one word is the
+whole morning. It also snaps windows back after a monitor woke up and the desktop piled
+them onto one screen.
+
+To have it happen at login instead, run `xtm --log-file ~/.local/state/xtm/login.log`
+from whatever your session starts at login. With no terminal to print to, the log file is
+where a failure is reported.
 
 Snap windows back after dragging them around:
 
@@ -113,10 +127,10 @@ runs the fast half and the linter, and `git commit --no-verify` bypasses it.
 
 | Task | Command |
 |---|---|
-| Restore the whole desktop | `xtm --reset-all` |
+| Restore the whole desktop | `xtm` |
 | Restore without touching unrelated terminals | `xtm --reset` |
 | Set up a new machine's layout by hand | `xtm --new-profile thismachine`, then `xtm --set …` per window |
-| Switch profile | `xtm desk` |
+| Switch profile, and bring it up | `xtm desk` |
 | Bind a profile to one machine | Add `match: {hostname: …}` to it |
 | Bind one profile to several machines | `match: {hostname: [box-a, box-b]}` |
 | Make a machine-specific profile universal | `xtm --make-global desk` |
