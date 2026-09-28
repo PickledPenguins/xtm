@@ -203,14 +203,12 @@ examples/
 
 ## Assumptions and limitations
 
-- **Linux.** Matching a tmux client to the xterm that spawned it reads `/proc/<pid>/stat`.
-- **X11.** There is no Wayland support; the placement mechanism is an X window operation.
+- **Linux.** Telling xtm's tmux clients from anyone else's reads `/proc/<pid>/cmdline` and
+  `/proc/<pid>/stat`. Without `/proc`, every attached client is taken to be xtm's.
+- **X11.** Placement is an X window operation. Under a Wayland desktop xterm runs through
+  Xwayland, and placement, capture and `--verify` work there too (verified on KDE Plasma 6
+  with Xwayland at scale 1); native Wayland terminals are not supported.
 - **xterm specifically.** Placement relies on xterm's `allowWindowOps` escape sequences.
-- **One client per session.** When several tmux clients are attached to one session, xtm can
-  identify its own only for a window it opened in the same invocation. For `--reset` on a
-  session opened by an earlier run, it acts on whichever client tmux lists first. A PID is
-  deliberately not persisted across invocations, because a reused PID would be actively
-  misleading.
 - **No screen-size awareness.** Stack offsets can push a window off-screen; there is no
   wraparound.
 - **Absolute pixels only.** Positions do not scale between resolutions, which is why

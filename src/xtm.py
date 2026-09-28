@@ -1431,17 +1431,20 @@ def apply_switch_action(config: ConfigDict, old_profile_name: str,
                      old_profile_name)
         return
     keep = set(profile_sessions(new_profile)) if isinstance(new_profile, dict) else set()
-    live = tmux_list_sessions()
+    # Only sessions with an xtm window on screen: a session attached only
+    # in somebody else's terminal is not one of this profile's windows.
+    windows = xtm_windows()
     targets = [s for s in profile_sessions(old_profile)
-               if live.get(s) and s not in keep]
+               if s in windows and s not in keep]
     if not targets:
         logger.debug("No windows from profile %s need %sing.",
                      old_profile_name, mode)
         return
-    action = tmux_detach_session if mode == "detach" else tmux_kill_session
     done, failed = [], []
     for session in targets:
-        (done if action(session) else failed).append(session)
+        ok = (tmux_detach_session(session, windows) if mode == "detach"
+              else tmux_kill_session(session))
+        (done if ok else failed).append(session)
     if done:
         logger.info("%s %d window(s) from profile %s: %s",
                     "Detached" if mode == "detach" else "Closed",
@@ -1524,9 +1527,7 @@ def tmux_list_sessions() -> Dict[str, bool]:
     return sessions
 
 
-def tmux_session_attached(name: str) -> bool:
-    """Whether a tmux session currently has at least one client."""
-    return tmux_list_sessions().get(name, False)
+
 
 
 def tmux_kill_session(name: str) -> bool:
@@ -1542,48 +1543,74 @@ def tmux_kill_session(name: str) -> bool:
     return True
 
 
-def tmux_detach_session(name: str) -> bool:
-    """Detach every client from a session, closing its window.
+def tmux_detach_client(tty: str) -> bool:
+    """Detach one client, by its tty, closing the window it runs in.
 
     The window closes as a consequence rather than being killed: the
-    xterm's `tmux new-session -A` command returns when its client
-    detaches, so the terminal exits on its own. The session, its windows,
-    its panes and everything running in them stay alive.
+    xterm's `tmux new-session -A` command returns when its client detaches,
+    so the terminal exits on its own. The session, its windows, its panes
+    and everything running in them stay alive -- and so does any OTHER
+    client attached to the same session, which `detach-client -s` would
+    have thrown off too: an SSH login to the same session is not xtm's to
+    close.
     """
     if CONTEXT.dry_run:
-        logger.info("[dry-run] would detach tmux session %r", name)
+        logger.info("[dry-run] would detach the tmux client on %s", tty)
         return True
-    res = run(["tmux", "detach-client", "-s", name])
+    res = run(["tmux", "detach-client", "-t", tty])
     if res is None or res.returncode != 0:
-        logger.debug("detach-client %r failed: %s", name,
+        logger.debug("detach-client %r failed: %s", tty,
                      _truncate(res.stderr if res else ""))
         return False
     return True
 
 
-def tmux_client_tty(name: str) -> Optional[str]:
-    """tty device of the first client attached to `name`, or None.
+def tmux_detach_session(name: str, windows: Optional[Dict[str, List[str]]] = None
+                        ) -> bool:
+    """Close every xtm window on a session, leaving the session running.
 
-    Used only to detect THAT something has attached (see
-    wait_for_client_tty). Once a specific client has to be acted on,
-    tmux_client_tty_for_pid() is used instead, because it can tell xtm's
-    own client apart from an unrelated second one.
+    Only xtm's own clients are detached. Returns False when there was
+    nothing to detach or a detach failed.
     """
-    res = run(["tmux", "list-clients", "-t", name, "-F", "#{client_tty}"])
+    ttys = (xtm_windows() if windows is None else windows).get(name, [])
+    if not ttys:
+        return False
+    return all([tmux_detach_client(tty) for tty in ttys])
+
+
+# Every attached client, of every session, in one call.
+_ALL_CLIENTS_FORMAT = ("#{session_name}" + _FIELD_SEPARATOR + "#{client_tty}"
+                       + _FIELD_SEPARATOR + "#{client_pid}")
+
+
+def tmux_clients() -> Dict[str, List[Tuple[str, Optional[int]]]]:
+    """{session: [(client tty, client pid), ...]} for every attached client.
+
+    An empty dict when no server is running or tmux is missing: both mean
+    nothing is attached anywhere.
+    """
+    res = run(["tmux", "list-clients", "-F", _ALL_CLIENTS_FORMAT], required=False)
     if res is None or res.returncode != 0:
-        return None
+        return {}
+    clients = {}  # type: Dict[str, List[Tuple[str, Optional[int]]]]
     for line in res.stdout.splitlines():
-        line = line.strip()
-        if line:
-            return line
-    return None
+        if not line.strip():
+            continue
+        session, _, rest = line.partition(_FIELD_SEPARATOR)
+        tty, _, pid_text = rest.partition(_FIELD_SEPARATOR)
+        try:
+            pid = int(pid_text)  # type: Optional[int]
+        except ValueError:
+            pid = None
+        clients.setdefault(session, []).append((tty, pid))
+    return clients
 
 
 def _read_proc_ppid(pid: int) -> Optional[int]:
     """Parent PID of `pid`, read from /proc/<pid>/stat.
 
-    Linux-specific, which is fine because xtm targets RHEL/Ubuntu hosts.
-    Returns None when it cannot be read (process already gone, no /proc).
+    Linux-specific, which is fine because xtm targets Linux hosts. Returns
+    None when it cannot be read (process already gone, no /proc).
     """
     try:
         stat_text = Path("/proc/%d/stat" % (pid,)).read_text()
@@ -1601,6 +1628,15 @@ def _read_proc_ppid(pid: int) -> Optional[int]:
         return None
 
 
+def _read_proc_cmdline(pid: int) -> List[str]:
+    """The argument vector of a process, or [] when it cannot be read."""
+    try:
+        raw = Path("/proc/%d/cmdline" % (pid,)).read_bytes()
+    except OSError:
+        return []
+    return [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
+
+
 def _is_descendant_of(pid: int, ancestor_pid: int, max_depth: int = 8) -> bool:
     """Whether `ancestor_pid` appears in `pid`'s parent chain within
     `max_depth` hops. Used to confirm that a tmux client really is
@@ -1616,62 +1652,76 @@ def _is_descendant_of(pid: int, ancestor_pid: int, max_depth: int = 8) -> bool:
     return False
 
 
-def tmux_client_tty_for_pid(session: str, xterm_pid: Optional[int]) -> Optional[str]:
-    """Like tmux_client_tty, but prefer the client running inside
-    `xterm_pid` when several clients are attached to `session`.
+def _runs_in_xtm_window(pid: Optional[int], session: str, max_depth: int = 8
+                        ) -> bool:
+    """Whether a tmux client is inside the xterm xtm opens for `session`.
 
-    Falls back to the first-listed client when `xterm_pid` is None or
-    none of the attached clients descend from it, which keeps this safe
-    to call when the caller has no PID to check -- for instance during
-    --reset, repositioning a session opened by a previous, now-exited
-    invocation. That PID is deliberately not persisted: PIDs are reused,
-    so trusting a stale one would be worse than having none. In practice
-    this therefore disambiguates the narrow race at open time, not a
-    stray extra client attached to a long-running session.
+    xtm starts that xterm as `xterm ... -name xtm-<session> ... -e tmux
+    new-session -A -s <session>`, so the client's parent -- or, through a
+    wrapper, a nearby ancestor -- carries `-name xtm-<session>` in its
+    command line. Nothing else does: a Konsole, an SSH login or a hand-
+    opened xterm attached to the same session is somebody else's window,
+    and xtm neither moves it, nor detaches it, nor counts it as the
+    session's window.
     """
-    res = run(["tmux", "list-clients", "-t", session, "-F", _CLIENT_FORMAT])
-    if res is None or res.returncode != 0:
-        return None
-    clients = []  # type: List[Tuple[str, Optional[int]]]
-    for line in res.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        tty, _, pid_str = line.partition(_FIELD_SEPARATOR)
-        try:
-            clients.append((tty, int(pid_str)))
-        except ValueError:
-            clients.append((tty, None))
-    if not clients:
-        return None
-    if xterm_pid is not None:
-        for tty, client_pid in clients:
-            if client_pid is not None and _is_descendant_of(client_pid, xterm_pid):
-                logger.debug("Matched tmux client %s (pid=%s) as a descendant of "
-                             "xterm pid=%d for session %r",
-                             tty, client_pid, xterm_pid, session)
-                return tty
-        logger.debug("No tmux client of %r descends from xterm pid=%d; using the "
-                     "first-listed client.", session, xterm_pid)
-    return clients[0][0]
+    if pid is None:
+        return False
+    instance = window_instance(session)
+    current = pid
+    for _ in range(max_depth):
+        argv = _read_proc_cmdline(current)
+        for index, arg in enumerate(argv[:-1]):
+            if arg == "-name" and argv[index + 1] == instance:
+                return True
+        parent = _read_proc_ppid(current)
+        if parent is None or parent == current or parent <= 1:
+            return False
+        current = parent
+    return False
 
 
-def wait_for_client_tty(session: str, proc: Optional[subprocess.Popen] = None,
+def _can_see_processes() -> bool:
+    """Whether /proc is there to tell xtm's clients from anyone else's."""
+    return os.path.isdir("/proc/self")
+
+
+def xtm_windows(clients: Optional[Dict[str, List[Tuple[str, Optional[int]]]]] = None
+                ) -> Dict[str, List[str]]:
+    """{session: [tty, ...]} of the clients running in xtm's own windows.
+
+    Without /proc there is no way to tell, and every attached client is
+    taken to be xtm's -- the behavior before clients were told apart.
+    """
+    clients = tmux_clients() if clients is None else clients
+    own_all = not _can_see_processes()
+    windows = {}  # type: Dict[str, List[str]]
+    for session, entries in clients.items():
+        ttys = [tty for tty, pid in entries
+                if own_all or _runs_in_xtm_window(pid, session)]
+        if ttys:
+            windows[session] = ttys
+    return windows
+
+
+def wait_for_own_client(session: str, proc: Optional[subprocess.Popen],
                         timeout: float = WAIT_FOR_ATTACH_TIMEOUT_SECONDS
                         ) -> Optional[str]:
-    """Poll until a tmux client attaches to `session`, or time out.
+    """Poll until the xterm just spawned has attached; return its tty.
 
-    When the spawned xterm process is supplied, its exit is detected
-    immediately and reported with its real exit status, instead of making
-    the user wait out the full timeout for a generic message.
+    Only a client inside that xterm counts. Waiting for "any client" was
+    satisfied at once by one already attached elsewhere -- an SSH login to
+    the same session -- and xtm then moved that terminal instead of its own.
+
+    When the spawned process exits first, that is reported with its real
+    exit status, instead of making the user wait out the full timeout.
     """
     logger.debug("Waiting up to %.1fs for a client to attach to %r", timeout, session)
     deadline = time.time() + timeout
     while time.time() < deadline:
-        tty = tmux_client_tty(session)
-        if tty:
-            logger.debug("%r attached on %s", session, tty)
-            return tty
+        for tty, pid in tmux_clients().get(session, []):
+            if proc is None or (pid is not None and _is_descendant_of(pid, proc.pid)):
+                logger.debug("%r attached on %s", session, tty)
+                return tty
         if proc is not None and proc.poll() is not None:
             die("xterm exited immediately (status %s) without attaching to tmux "
                 "session %r. Run with --debug, and check DISPLAY, the xterm "
@@ -1712,28 +1762,17 @@ def send_window_op(tty_path: str, seq: str) -> None:
         die("Could not write to %s: %s" % (tty_path, e))
 
 
-def place_window(session: str, geometry: GeometryDict,
-                 xterm_pid: Optional[int] = None) -> None:
-    """Move and resize one session's window to `geometry`.
+def place_window(session: str, geometry: GeometryDict, tty: str) -> None:
+    """Move and resize one session's window, through its client's tty.
 
-    The client tty is resolved once and reused for both operations: two
-    lookups meant two `tmux list-clients` calls that could disagree if a
-    client attached or detached between them.
+    The tty is always xtm's own client: the caller found it among the
+    session's clients by the xterm it runs in (see xtm_windows), so another
+    terminal attached to the same session is never written to.
 
     Resize happens before move because on some window managers a resize
     can shift the window's anchor point, so moving last guarantees the
     final position is the requested one either way.
-
-    `xterm_pid` is known only when this invocation just spawned the
-    window itself, and lets tmux_client_tty_for_pid() pick the right
-    client when several are attached. It is None for --reset, which has
-    no reliable record of a past invocation's PID and deliberately does
-    not persist one.
     """
-    tty = tmux_client_tty_for_pid(session, xterm_pid)
-    if not tty:
-        die("No attached client for tmux session %r; cannot place its window."
-            % (session,))
     x, y = int(geometry["x"]), int(geometry["y"])
     width, height = int(geometry["width"]), int(geometry["height"])
     send_window_op(tty, _CSI_RESIZE_WINDOW_PX_TEMPLATE.format(height=height,
@@ -2214,45 +2253,50 @@ def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None,
 def open_session(session: str, geometry: GeometryDict,
                  sess_cfg: Optional[GeometryDict] = None,
                  title: Optional[str] = None) -> None:
-    """Open one session in a new window and place it. Errors if the
-    session already has a window attached."""
+    """Open one session in a new xterm and place it.
+
+    Errors if the session already has an xtm window. A session attached
+    only elsewhere -- an SSH login, another terminal -- still gets one:
+    `tmux new-session -A` attaches a second client beside the first.
+    """
     validate_session_name(session)
-    if tmux_session_attached(session):
-        die("tmux session %r is already attached to a window." % (session,))
+    if xtm_windows().get(session):
+        die("tmux session %r already has an xtm window." % (session,))
     proc = spawn_xterm(session, sess_cfg, title)
     if CONTEXT.dry_run:
         logger.info("[dry-run] would place %r at x=%s y=%s %sx%s", session,
                     geometry["x"], geometry["y"], geometry["width"],
                     geometry["height"])
         return
-    tty = wait_for_client_tty(session, proc)
+    tty = wait_for_own_client(session, proc)
     if not tty:
         die("Timed out waiting for tmux session %r to attach. Check that xterm "
             "is installed and DISPLAY is set correctly." % (session,))
-    place_window(session, geometry, proc.pid if proc else None)
+    place_window(session, geometry, tty)
     logger.info("Opened %s at x=%s y=%s %sx%s", session, geometry["x"],
                 geometry["y"], geometry["width"], geometry["height"])
 
 
 def reposition_or_open(session: str, geometry: GeometryDict,
                        sess_cfg: Optional[GeometryDict] = None,
-                       attached: Optional[bool] = None,
+                       window_tty: Optional[str] = None,
                        title: Optional[str] = None) -> None:
-    """Move an already-open session's window, or open it if it is not up.
+    """Move a session's xtm window, or open one if it has none.
 
-    `attached` lets a caller pass in a session snapshot it already has,
-    avoiding one `tmux list-sessions` call per session on a bulk reset.
+    `window_tty` is the tty of the session's xtm client, from an
+    xtm_windows() snapshot the caller already took for the whole profile.
+    None means the session has no xtm window -- whether it is not running,
+    detached, or attached only in someone else's terminal -- so one is
+    opened.
     """
     validate_session_name(session)
-    if attached is None:
-        attached = tmux_session_attached(session)
-    if attached:
+    if window_tty:
         if CONTEXT.dry_run:
             logger.info("[dry-run] would reposition %s to x=%s y=%s %sx%s",
                         session, geometry["x"], geometry["y"],
                         geometry["width"], geometry["height"])
             return
-        place_window(session, geometry)
+        place_window(session, geometry, window_tty)
         logger.info("Repositioned %s to x=%s y=%s %sx%s", session, geometry["x"],
                     geometry["y"], geometry["width"], geometry["height"])
     else:
@@ -2260,8 +2304,8 @@ def reposition_or_open(session: str, geometry: GeometryDict,
 
 
 def count_unnamed_open(profile: ProfileDict,
-                       live: Optional[Dict[str, bool]] = None) -> int:
-    """How many attached tmux sessions are not named in this profile.
+                       windows: Optional[Dict[str, List[str]]] = None) -> int:
+    """How many xtm windows show a session this profile does not name.
 
     Used to choose the next stack slot for --open on an unconfigured
     session. This is deliberately a different ordering strategy from
@@ -2271,9 +2315,8 @@ def count_unnamed_open(profile: ProfileDict,
     just serve different purposes.
     """
     named = set(profile_sessions(profile))
-    live = tmux_list_sessions() if live is None else live
-    return sum(1 for name, attached in live.items()
-               if attached and name not in named)
+    windows = xtm_windows() if windows is None else windows
+    return sum(1 for name in windows if name not in named)
 
 
 # --------------------------------------------------------------------------
@@ -2314,14 +2357,14 @@ def cmd_reset(args: argparse.Namespace, config: ConfigDict, profile_name: str) -
     if not profile["sessions"]:
         logger.info("Profile %s has no slots configured.", profile_name)
         return EXIT_OK
-    live = tmux_list_sessions()
+    windows = xtm_windows()
     failures = []
     for slot, session in profile_slots(profile):
         slot_cfg = profile["sessions"][slot]
         try:
             reposition_or_open(
                 session, session_geometry(slot_cfg), slot_cfg,
-                attached=live.get(session, False),
+                window_tty=(windows.get(session) or [None])[0],
                 title=resolve_window_title(profile, profile_name, slot, session))
         except XtmError as e:
             logger.warning("%s: %s", session, e)
@@ -2335,18 +2378,23 @@ def cmd_reset(args: argparse.Namespace, config: ConfigDict, profile_name: str) -
 
 def cmd_reset_all(args: argparse.Namespace, config: ConfigDict,
                   profile_name: str) -> int:
-    """Reset named sessions, then stack every stray session as well."""
+    """Reset named sessions, then stack every stray xtm window as well.
+
+    A stray is an xtm window showing a session the profile does not name.
+    Terminals xtm did not open are never strays, even when they are
+    attached to a tmux session: they are not xtm's to move.
+    """
     profile = validate_profile(config, profile_name)
     status = cmd_reset(args, config, profile_name)
 
     named = set(profile_sessions(profile))
-    strays = sorted(name for name, attached in tmux_list_sessions().items()
-                    if attached and name not in named)
+    windows = xtm_windows()
+    strays = sorted(name for name in windows if name not in named)
     failures = []
     for index, session in enumerate(strays):
         geometry = stack_slot(profile["stack"], index)
         try:
-            place_window(session, geometry)
+            place_window(session, geometry, windows[session][0])
             logger.info("Stacked stray session %s at slot #%d (x=%s y=%s)",
                         session, index, geometry["x"], geometry["y"])
         except XtmError as e:
@@ -2404,10 +2452,13 @@ def cmd_detach(args: argparse.Namespace, config: ConfigDict,
     if session not in live:
         logger.error("No tmux session named %r is running.", session)
         return EXIT_ERROR
-    if not live[session]:
-        logger.info("Session %s has no window attached.", session)
+    windows = xtm_windows()
+    if not windows.get(session):
+        logger.info("Session %s has no xtm window%s.", session,
+                    " (it is attached elsewhere, which xtm leaves alone)"
+                    if live[session] else "")
         return EXIT_OK
-    if not tmux_detach_session(session):
+    if not tmux_detach_session(session, windows):
         logger.error("Could not detach tmux session %r.", session)
         return EXIT_ERROR
     logger.info("Detached %s; the session is still running.", session)
@@ -2437,7 +2488,11 @@ def cmd_close_all(args: argparse.Namespace, config: ConfigDict,
     else:
         wanted = set(profile_sessions(profile))
         scope = "profile %s" % (profile_name,)
-    targets = sorted(s for s in wanted if s in live)
+    windows = xtm_windows() if args.detach_mode else {}
+    # Detaching closes xtm's windows, so only sessions that have one are
+    # targets; closing kills the session, so any running one is.
+    targets = sorted(s for s in wanted
+                     if (s in windows if args.detach_mode else s in live))
     verb = "Detach" if args.detach_mode else "Close"
     if not targets:
         logger.info("No sessions from %s are running.", scope)
@@ -2446,8 +2501,10 @@ def cmd_close_all(args: argparse.Namespace, config: ConfigDict,
                    % (verb, len(targets), scope, ", ".join(targets)), args.yes):
         logger.info("Canceled.")
         return EXIT_OK
-    action = tmux_detach_session if args.detach_mode else tmux_kill_session
-    failures = [s for s in targets if not action(s)]
+    if args.detach_mode:
+        failures = [s for s in targets if not tmux_detach_session(s, windows)]
+    else:
+        failures = [s for s in targets if not tmux_kill_session(s)]
     for session in targets:
         if session not in failures:
             logger.info("%s %s", "Detached" if args.detach_mode else "Closed",
@@ -2899,11 +2956,19 @@ def emit_json(payload: Any) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
-def session_status(session: str, live: Dict[str, bool]) -> str:
-    """Human-readable running state of one session."""
+def session_status(session: str, live: Dict[str, bool],
+                   windows: Dict[str, List[str]]) -> str:
+    """Human-readable running state of one session.
+
+    "attached" means an xtm window shows it. "attached elsewhere" means
+    only other terminals do -- an SSH login, a Konsole -- so a reset will
+    open an xtm window beside them.
+    """
     if session not in live:
         return "not running"
-    return "attached" if live[session] else "detached"
+    if session in windows:
+        return "attached"
+    return "attached elsewhere" if live[session] else "detached"
 
 
 def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
@@ -2916,6 +2981,7 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
     profile = validate_profile(config, profile_name)
     tool = detect_geometry_tool()
     live = tmux_list_sessions()
+    windows = xtm_windows()
 
     sessions = []
     for slot, session in profile_slots(profile):
@@ -2925,19 +2991,18 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
             "session": session,
             "shared": bool(cfg.get("session")),
             "title": resolve_window_title(profile, profile_name, slot, session),
-            "status": session_status(session, live),
+            "status": session_status(session, live, windows),
             "configured": session_geometry(cfg),
             "command": cfg.get("command"),
             "cwd": cfg.get("cwd"),
             "live": None,
         }
-        if live.get(session) and tool:
+        if session in windows and tool:
             entry["live"] = get_window_geometry(session, tool)
         sessions.append(entry)
 
     named = set(profile_sessions(profile))
-    strays = sorted(name for name, attached in live.items()
-                    if attached and name not in named)
+    strays = sorted(name for name in windows if name not in named)
     # Say which other profile a stray belongs to, so an accumulation left
     # behind by an earlier profile is recognizable rather than mysterious.
     # The membership test runs once per session of every visible profile, so
@@ -2991,13 +3056,13 @@ def cmd_list(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
             geometry = entry["live"]
             live_text = "  [live: x=%s y=%s %sx%s]" % (
                 geometry["x"], geometry["y"], geometry["width"], geometry["height"])
-        print("  %-20s %-12s configured: %s%s"
+        print("  %-20s %-18s configured: %s%s"
               % (entry["name"], entry["status"], position, live_text))
         # Worth a line whenever the session name is not simply the slot
         # name, or whenever it is shared -- being shared changes what a
         # profile switch will do to it, so it should never be invisible.
         if entry["session"] != entry["name"] or entry["shared"]:
-            print("  %-20s %-12s session:    %s%s"
+            print("  %-20s %-18s session:    %s%s"
                   % ("", "", entry["session"],
                      "  (shared, kept on profile switch)"
                      if entry["shared"] else ""))
@@ -3005,11 +3070,11 @@ def cmd_list(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
         # the common case stays a single line per session while a session
         # that does something unusual on startup says so.
         if entry["command"]:
-            print("  %-20s %-12s command:    %s" % ("", "", entry["command"]))
+            print("  %-20s %-18s command:    %s" % ("", "", entry["command"]))
         if entry["cwd"]:
-            print("  %-20s %-12s cwd:        %s" % ("", "", entry["cwd"]))
+            print("  %-20s %-18s cwd:        %s" % ("", "", entry["cwd"]))
     print("")
-    print("Stray attached sessions (no configured position):")
+    print("Stray xtm windows (sessions this profile does not name):")
     if not status["strays"]:
         print("  (none)")
     for session in status["strays"]:
@@ -3036,6 +3101,7 @@ def _list_profiles_verbose(args: argparse.Namespace, config: ConfigDict,
     which would collide with naming a specific profile to look at.
     """
     live = tmux_list_sessions()
+    windows = xtm_windows()
     names = visible_profile_names(config, args.all)
     report = []
     for name in names:
@@ -3049,7 +3115,7 @@ def _list_profiles_verbose(args: argparse.Namespace, config: ConfigDict,
                 "name": slot,
                 "session": session,
                 "shared": bool(cfg.get("session")),
-                "status": session_status(session, live),
+                "status": session_status(session, live, windows),
             })
         report.append({
             "name": name,
@@ -3062,8 +3128,7 @@ def _list_profiles_verbose(args: argparse.Namespace, config: ConfigDict,
     claimed = set()
     for entry in report:
         claimed.update(slot["session"] for slot in entry["slots"])
-    unclaimed = sorted(name for name, attached in live.items()
-                       if attached and name not in claimed)
+    unclaimed = sorted(name for name in windows if name not in claimed)
 
     if args.json:
         emit_json({"profiles": report, "unclaimed": unclaimed,
@@ -3082,7 +3147,7 @@ def _list_profiles_verbose(args: argparse.Namespace, config: ConfigDict,
         if not entry["slots"]:
             print("  (no slots configured)")
         for slot in entry["slots"]:
-            print("  %-18s %-14s %-12s%s"
+            print("  %-18s %-14s %-18s%s"
                   % (slot["name"], slot["session"], slot["status"],
                      "  shared" if slot["shared"] else ""))
     print("")
@@ -3119,7 +3184,10 @@ def cmd_list_profiles(args: argparse.Namespace, config: ConfigDict,
     if args.verbose:
         return _list_profiles_verbose(args, config, profile_name)
     current = read_current_profile_state()
-    effective = current or profile_name
+    # The profile this run acts on. The saved one only when nothing could
+    # be resolved: under --auto they differ, and marking the saved profile
+    # then pointed at one the run was not going to touch.
+    effective = profile_name or current
     profiles = config.get("profiles", {})
     names = visible_profile_names(config, args.all)
     hidden = len(profiles) - len(names)

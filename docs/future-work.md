@@ -10,8 +10,6 @@ written down.
   `xrandr`, so a profile survives a resolution change and is portable between machines.
 - **Per-session tmux window and pane layouts**, which would make xtm a full workspace
   manager rather than a placement tool.
-- **`--restore`**, reattaching windows to profile sessions that already exist in tmux after
-  an X restart.
 - **A placement backend using `xdotool`/`wmctrl`** instead of escape sequences, which would
   remove the dependency on `allowWindowOps` and open the door to terminal emulators other
   than xterm.

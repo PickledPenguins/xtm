@@ -90,8 +90,8 @@ window.
 
 A session with no recorded position is placed at the profile's `stack` position, offset
 diagonally by `offset_x`/`offset_y` per window already stacked. Strays are stacked in
-alphabetical order; `--open` for an unconfigured session counts from the number of
-currently attached strays.
+alphabetical order; `--open` for an unconfigured session counts from the number of stray
+xtm windows.
 
 There is no screen-size awareness: offsets can eventually push a window off-screen, and
 there is no wraparound. Lower the offsets, or give the sessions explicit positions.
@@ -115,13 +115,14 @@ Now run `xtm --profile desk --reset-all --verify --debug`:
 2. Paths resolve to `~/.config/xtm/config.yaml` and
    `~/.local/state/xtm/current_profile.workstation`.
 3. `desk` is validated and written to the state file.
-4. `logs` is attached, so it is repositioned rather than opened. Its `command` is not used:
-   the session already exists.
-5. The client tty is resolved once: `/dev/pts/5`.
+4. `logs` has an xtm window, so it is repositioned rather than opened. Its `command` is not
+   used: the session already exists.
+5. One `tmux list-clients` finds the clients of every session; the one whose parent xterm
+   was started with `-name xtm-logs` is xtm's, on `/dev/pts/5`.
 6. `ESC [ 4 ; 580 ; 960 t` is written to that pty, then `ESC [ 3 ; 960 ; 0 t`.
 7. `--verify` waits briefly, reads the geometry back as `x=960 y=0 960x580` after frame
    compensation, and reports no delta.
-8. Strays are listed, sorted, and placed at stack slot 0 — `x=40, y=40, 900x650` — slot 1
+8. Stray xtm windows are listed, sorted, and placed at stack slot 0 — `x=40, y=40, 900x650` — slot 1
    at `x=80, y=80`, and so on.
 
 Then capture the result with `xtm --update-profile`:

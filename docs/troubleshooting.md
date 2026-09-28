@@ -106,6 +106,14 @@ The same message appears when a saved profile becomes *hidden* — someone added
 `match` block binding it to another machine. `xtm --all --list-profiles` shows it, and
 `xtm --hostname NAME --list` shows what the machine it now belongs to would do with it.
 
+## A session shows "attached elsewhere", or a reset opens a second terminal for it
+
+The session is attached in a terminal xtm did not open — an SSH login, a Konsole, an xterm
+started by hand. xtm leaves that terminal alone and opens its own window beside it, so both
+show the session. tmux sizes a session to its most recently active client, so the other
+terminal may reflow while the xtm window is in use. `tmux detach-client -t TTY` closes the
+other one if it was left behind; `tmux list-clients` shows which ttys are attached.
+
 ## A session shows as a stray after adding a prefix
 
 Adding `prefix:` renames every slot's session, so sessions already running under the old

@@ -39,6 +39,18 @@ import textwrap
 import unittest
 from pathlib import Path
 
+# No test may reach the real desktop or the real tmux server. Tests run
+# xtm in-process with the real PATH, and a unit test that stubs one tool
+# but not the next would otherwise open a real xterm on the developer's
+# screen, attached to their own tmux server -- which happened once, when
+# placement started asking tmux for its clients through a new function.
+# Without DISPLAY no window can open; with TMUX unset and TMUX_TMPDIR
+# pointing at an empty directory, a real tmux finds no server at all.
+# Integration tests set their own DISPLAY and PATH for the fakes.
+os.environ.pop("DISPLAY", None)
+os.environ.pop("TMUX", None)
+os.environ["TMUX_TMPDIR"] = tempfile.mkdtemp(prefix="xtm-test-tmux-")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT))
@@ -128,20 +140,31 @@ def tool_tmux(argv):
         sys.stderr.write("tmux: refusing %s (XTM_FAKE_TMUX_REFUSE)\n" % (verb,))
         fail()
     rows = read_rows("sessions.txt")
+    # Clients beyond each session's own row: another terminal, an SSH login.
+    # session|tty|pid, one per line.
+    others = read_rows("clients.txt")
+
+    def clients():
+        """(session, tty, pid) for every attached client, xtm's first."""
+        found = [(r[0], r[2], r[3]) for r in rows if r[1] != "0"]
+        return found + [(c[0], c[1], c[2]) for c in others]
+
     if verb == "list-sessions":
         if not rows:
             sys.stderr.write("no server running\n")
             fail()
-        for name, attached, _tty, _pid in rows:
+        for name, _attached, _tty, _pid in rows:
+            count = sum(1 for c in clients() if c[0] == name)
             print(render_format(argv, {"session_name": name,
-                                       "session_attached": attached}))
+                                       "session_attached": count}))
         return
     if verb == "list-clients":
         target = argv[argv.index("-t") + 1] if "-t" in argv else None
-        for name, attached, tty, pid in rows:
-            if name != target or attached == "0":
+        for name, tty, pid in clients():
+            if target is not None and name != target:
                 continue
-            print(render_format(argv, {"client_tty": tty, "client_pid": pid}))
+            print(render_format(argv, {"session_name": name,
+                                       "client_tty": tty, "client_pid": pid}))
         return
     if verb == "kill-session":
         target = argv[argv.index("-t") + 1] if "-t" in argv else None
@@ -150,6 +173,7 @@ def tool_tmux(argv):
             sys.stderr.write("session not found\n")
             fail()
         write_rows("sessions.txt", remaining)
+        write_rows("clients.txt", [c for c in others if c[0] != target])
         write_rows("windows.txt",
                    [w for w in read_rows("windows.txt")
                     if w[2] != "xtm-" + target])
@@ -157,23 +181,31 @@ def tool_tmux(argv):
     if verb == "detach-client":
         # Detaching closes the window (the xterm's tmux command returns)
         # but leaves the session, its windows and its panes running, so
-        # the row stays and only its attached flag is cleared.
-        target = argv[argv.index("-s") + 1] if "-s" in argv else None
-        found = False
+        # the row stays and only its attached flag is cleared. `-s` throws
+        # every client of the session off; `-t TTY` only that one.
+        session = argv[argv.index("-s") + 1] if "-s" in argv else None
+        tty = argv[argv.index("-t") + 1] if "-t" in argv else None
+        # A real tty names one client. The fakes share /dev/null between
+        # sessions, so `-t` takes the first match, as tmux's one would be.
+        detached = set()
         updated = []
         for r in rows:
-            if r[0] == target:
-                found = True
+            by_tty = tty is not None and r[2] == tty and not detached
+            if r[1] != "0" and (r[0] == session or by_tty):
+                detached.add(r[0])
                 updated.append([r[0], "0"] + list(r[2:]))
             else:
                 updated.append(r)
-        if not found:
-            sys.stderr.write("session not found\n")
+        kept = [c for c in others
+                if not (c[0] == session or (c[1] == tty and not detached))]
+        if not detached and len(kept) == len(others):
+            sys.stderr.write("can't find client\n")
             fail()
         write_rows("sessions.txt", updated)
+        write_rows("clients.txt", kept)
         write_rows("windows.txt",
                    [w for w in read_rows("windows.txt")
-                    if w[2] != "xtm-" + target])
+                    if w[2] not in ["xtm-" + d for d in detached]])
         return
     if verb == "new-session":
         return
@@ -212,6 +244,9 @@ def tool_xterm(argv):
         detach_stdio()
         time.sleep(float(os.environ.get("XTM_FAKE_XTERM_LIFETIME", "8")))
         return
+    # A terminal that takes a moment to attach, so a test can check that
+    # xtm waits for THIS client rather than taking whichever is there first.
+    time.sleep(float(os.environ.get("XTM_FAKE_XTERM_ATTACH_DELAY", "0")))
     tty = os.environ.get("XTM_FAKE_TTY", "/dev/null")
     rows = read_rows("sessions.txt")
     if not any(r[0] == session for r in rows):
@@ -504,10 +539,34 @@ class IntegrationBase(unittest.TestCase):
         (self.tmp / "cfg").mkdir(parents=True, exist_ok=True)
         (self.tmp / "cfg" / "config.yaml").write_text(textwrap.dedent(text))
 
-    def add_session(self, name, tty="/dev/null", attached="1", pid=1):
+    def add_session(self, name, tty="/dev/null", attached="1", pid=1,
+                    owned=True):
+        """A running session. Attached, it is shown in an xtm window unless
+        `owned` is False: its client is then a real process whose command
+        line carries `-name xtm-<name>`, exactly what xtm looks for in /proc
+        to tell its own windows from anyone else's."""
+        if attached != "0" and owned:
+            pid = self.xtm_window_process(name)
         rows = self.rows("sessions.txt")
         rows.append([name, attached, tty, pid])
         self.write_rows("sessions.txt", rows)
+
+    def add_client(self, session, tty="/dev/pts/99", pid=1):
+        """A second client on a session that is not an xtm window: another
+        terminal, or an SSH login."""
+        rows = self.rows("clients.txt")
+        rows.append([session, tty, pid])
+        self.write_rows("clients.txt", rows)
+
+    def xtm_window_process(self, session):
+        """A live stand-in for the xterm xtm opens for `session`."""
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(120)",
+             "-name", "xtm-" + session],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        return proc.pid
 
     def calls(self, tool=None):
         """Invocations of the fake tools, optionally filtered to one tool."""

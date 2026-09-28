@@ -25,14 +25,18 @@ class TestCaptureAndStatusHelpers(unittest.TestCase):
         self.assertEqual(list(layout), ["good"])
 
     def test_session_status(self):
-        self.assertEqual(xtm.session_status("a", {"a": True}), "attached")
-        self.assertEqual(xtm.session_status("a", {"a": False}), "detached")
-        self.assertEqual(xtm.session_status("a", {}), "not running")
+        own = {"a": ["/dev/pts/1"]}
+        self.assertEqual(xtm.session_status("a", {"a": True}, own), "attached")
+        self.assertEqual(xtm.session_status("a", {"a": True}, {}),
+                         "attached elsewhere")
+        self.assertEqual(xtm.session_status("a", {"a": False}, {}), "detached")
+        self.assertEqual(xtm.session_status("a", {}, {}), "not running")
 
-    def test_count_unnamed_open(self):
+    def test_count_unnamed_open_counts_xtm_windows_only(self):
         profile = {"sessions": {"named": {}}}
-        live = {"named": True, "stray1": True, "stray2": True, "detached": False}
-        self.assertEqual(xtm.count_unnamed_open(profile, live), 2)
+        windows = {"named": ["/dev/pts/1"], "stray1": ["/dev/pts/2"],
+                   "stray2": ["/dev/pts/3"]}
+        self.assertEqual(xtm.count_unnamed_open(profile, windows), 2)
 
 
 class TestBulkFailureHandling(unittest.TestCase):
@@ -44,36 +48,41 @@ class TestBulkFailureHandling(unittest.TestCase):
             "stack": dict(xtm.DEFAULT_STACK),
             "sessions": {"a": {"x": 0, "y": 0, "width": 8, "height": 6},
                          "b": {"x": 1, "y": 1, "width": 8, "height": 6}}}}}
-        self.saved = (xtm.tmux_list_sessions, xtm.place_window)
+        self.saved = (xtm.xtm_windows, xtm.place_window)
         self.addCleanup(self._restore)
         self.placed = []
 
     def _restore(self):
-        xtm.tmux_list_sessions, xtm.place_window = self.saved
+        xtm.xtm_windows, xtm.place_window = self.saved
+
+    def windows(self, *sessions):
+        """Every named session shown in an xtm window on its own tty."""
+        return lambda clients=None: dict(
+            (s, ["/dev/pts/%d" % (i,)]) for i, s in enumerate(sessions))
 
     def _fail_on(self, failing):
-        def place(session, geometry, xterm_pid=None):
+        def place(session, geometry, tty):
             if session in failing:
                 raise xtm.XtmError("simulated placement failure")
             self.placed.append(session)
         return place
 
     def test_reset_continues_past_a_failure(self):
-        xtm.tmux_list_sessions = lambda: {"a": True, "b": True}
+        xtm.xtm_windows = self.windows("a", "b")
         xtm.place_window = self._fail_on({"a"})
         self.assertEqual(xtm.cmd_reset(self.args, self.config, "p"),
                          xtm.EXIT_ERROR)
         self.assertEqual(self.placed, ["b"])
 
     def test_reset_all_reports_stray_failures(self):
-        xtm.tmux_list_sessions = lambda: {"a": True, "b": True, "stray": True}
+        xtm.xtm_windows = self.windows("a", "b", "stray")
         xtm.place_window = self._fail_on({"stray"})
         self.assertEqual(xtm.cmd_reset_all(self.args, self.config, "p"),
                          xtm.EXIT_ERROR)
         self.assertEqual(sorted(self.placed), ["a", "b"])
 
     def test_reset_all_succeeds_when_everything_places(self):
-        xtm.tmux_list_sessions = lambda: {"a": True, "b": True, "stray": True}
+        xtm.xtm_windows = self.windows("a", "b", "stray")
         xtm.place_window = self._fail_on(set())
         self.assertEqual(xtm.cmd_reset_all(self.args, self.config, "p"),
                          xtm.EXIT_OK)

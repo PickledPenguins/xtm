@@ -105,9 +105,18 @@ See [configuration.md](configuration.md) for the `match` syntax and
 
 ## Stray sessions
 
-A **stray** is an attached tmux session that matches no slot in the effective profile. It
-may belong to another profile — the status views say so when it does — or to nothing at
-all.
+A **stray** is an xtm window showing a tmux session that matches no slot in the effective
+profile. It may belong to another profile — the status views say so when it does — or to
+nothing at all.
+
+## xtm's windows, and everyone else's
+
+A tmux session can be attached in several terminals at once: xtm's xterm at the desk, an
+SSH login from a laptop, a Konsole. xtm acts only on its own: the client running inside the
+xterm it opened for that session, recognized by that xterm's `-name xtm-<session>`. A
+session attached only elsewhere shows as `attached elsewhere`, and a reset opens an xtm
+window beside the other terminal rather than moving it. Detaching, switching and stacking
+never touch a terminal xtm did not open.
 
 `--reset` ignores strays. `--reset-all` also stacks them, diagonally, from the profile's
 `stack` position. Nothing ever kills a stray that belongs to no profile.

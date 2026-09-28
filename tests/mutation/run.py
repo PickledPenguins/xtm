@@ -63,6 +63,21 @@ CATALOG = [
         "tmux 3.6 rewrites control characters to _ in the C locale xtm runs "
         "it in, so a tab separator makes every session look not running."),
     Mutant(
+        "only-xtms-own-clients-are-its-windows",
+        '    return os.path.isdir("/proc/self")',
+        "    return False",
+        ["tests.integration.test_windows"],
+        "A session attached in someone else's terminal is not an xtm window: "
+        "counting it opened no window, wrote escapes into that terminal, "
+        "stacked it as a stray and detached it."),
+    Mutant(
+        "wait-for-the-xterm-just-spawned",
+        "            if proc is None or (pid is not None and _is_descendant_of(pid, proc.pid)):",
+        "            if True:",
+        ["tests.integration.test_windows"],
+        "Waiting for any client was satisfied at once by one attached "
+        "elsewhere, and xtm then placed that terminal instead of its own."),
+    Mutant(
         "placement-resize-before-move",
         "send_window_op(tty, _CSI_RESIZE_WINDOW_PX_TEMPLATE.format(height=height,\n"
         "                                                             width=width))\n"

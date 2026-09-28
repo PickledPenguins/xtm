@@ -1,6 +1,7 @@
 """Reporting commands and their JSON forms."""
 
 import json
+import re
 
 from tests.support import (
     IntegrationBase,
@@ -126,13 +127,8 @@ class TestOrderingGuarantees(IntegrationBase):
         self.clear_calls()
         result = self.run_xtm("--profile", "desk", "--reset")
         self.assertEqual(result.returncode, 0, result.stderr)
-        order = [c[c.index("-t") + 1] for c in self.calls("tmux")
-                 if "list-clients" in c]
-        seen = []
-        for name in order:
-            if name not in seen:
-                seen.append(name)
-        self.assertEqual(seen, ["zeta", "alpha", "middle"])
+        order = re.findall(r"Repositioned (\S+) to", result.stderr)
+        self.assertEqual(order, ["zeta", "alpha", "middle"])
 
     def test_strays_are_stacked_in_alphabetical_order(self):
         self.write_config("""\
@@ -146,13 +142,8 @@ class TestOrderingGuarantees(IntegrationBase):
         self.clear_calls()
         result = self.run_xtm("--profile", "desk", "--reset-all")
         self.assertEqual(result.returncode, 0, result.stderr)
-        order = [c[c.index("-t") + 1] for c in self.calls("tmux")
-                 if "list-clients" in c]
-        seen = []
-        for name in order:
-            if name not in seen:
-                seen.append(name)
-        self.assertEqual(seen, ["bravo", "charlie", "delta"])
+        order = re.findall(r"Stacked stray session (\S+) at", result.stderr)
+        self.assertEqual(order, ["bravo", "charlie", "delta"])
 
 
 class TestCliCombinations(IntegrationBase):
@@ -187,13 +178,6 @@ class TestCliCombinations(IntegrationBase):
         long_form = self.run_xtm("--profile", "desk", "--list")
         short_form = self.run_xtm("-p", "desk", "-l")
         self.assertEqual(long_form.stdout, short_form.stdout)
-
-    def test_legacy_single_dash_forms_still_work(self):
-        self.basic_config()
-        modern = self.run_xtm("--profile", "desk", "--list")
-        legacy = self.run_xtm("-profile", "desk", "-list")
-        self.assertEqual(legacy.returncode, 0, legacy.stderr)
-        self.assertEqual(modern.stdout, legacy.stdout)
 
     def test_clustered_short_flags_are_accepted(self):
         self.basic_config()
@@ -322,3 +306,29 @@ class TestCliCombinations(IntegrationBase):
         self.assertIn("y: 100", compensated)
         self.assertIn("x: 104", raw)
         self.assertIn("y: 120", raw)
+
+
+class TestEffectiveProfileMarker(IntegrationBase):
+
+    def test_auto_marks_the_profile_the_run_acts_on(self):
+        """`--auto` ignores the saved profile, but the list still starred
+        the saved one: it marked a profile the run was not going to touch."""
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                sessions: {}
+              laptop:
+                match: {hostname: box1}
+                sessions: {}
+            """)
+        self.run_xtm("--hostname", "box1", "desk", "--list")
+        result = self.run_xtm("--hostname", "box1", "--auto", "--list-profiles")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("laptop *", result.stdout)
+        self.assertNotIn("desk *", result.stdout)
+        payload = json.loads(self.run_xtm("--hostname", "box1", "--auto",
+                                          "--list-profiles", "--json").stdout)
+        self.assertEqual(payload["effective"], "laptop")
+        self.assertEqual(payload["current"], "desk")

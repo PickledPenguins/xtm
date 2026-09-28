@@ -4,6 +4,8 @@ import logging
 import os
 import pty
 import select
+import subprocess
+import sys
 import time
 import unittest
 
@@ -39,12 +41,9 @@ class TestPlacementSequences(unittest.TestCase):
     def setUp(self):
         self.master_fd, self.slave_fd = pty.openpty()
         self.slave_path = os.ttyname(self.slave_fd)
-        self._original = xtm.tmux_client_tty_for_pid
-        xtm.tmux_client_tty_for_pid = lambda session, pid: self.slave_path
         self.addCleanup(self._restore)
 
     def _restore(self):
-        xtm.tmux_client_tty_for_pid = self._original
         os.close(self.master_fd)
         os.close(self.slave_fd)
 
@@ -59,35 +58,33 @@ class TestPlacementSequences(unittest.TestCase):
         return b"".join(chunks).decode("ascii", "replace")
 
     def test_resize_precedes_move(self):
-        xtm.place_window("s", {"x": 100, "y": 200, "width": 900, "height": 700})
+        xtm.place_window("s", {"x": 100, "y": 200, "width": 900, "height": 700},
+                         self.slave_path)
         self.assertEqual(self.read_all(), "\x1b[4;700;900t\x1b[3;100;200t")
 
     def test_float_geometry_is_coerced_to_int(self):
         xtm.place_window("s", {"x": 10.0, "y": 20.9, "width": 800.5,
-                               "height": 600.0})
+                               "height": 600.0}, self.slave_path)
         self.assertEqual(self.read_all(), "\x1b[4;600;800t\x1b[3;10;20t")
 
     def test_negative_coordinates(self):
-        xtm.place_window("s", {"x": -1920, "y": -50, "width": 800, "height": 600})
+        xtm.place_window("s", {"x": -1920, "y": -50, "width": 800, "height": 600},
+                         self.slave_path)
         self.assertIn("\x1b[3;-1920;-50t", self.read_all())
 
     def test_dry_run_writes_nothing(self):
         xtm.CONTEXT.dry_run = True
         try:
-            xtm.place_window("s", {"x": 1, "y": 2, "width": 3, "height": 4})
+            xtm.place_window("s", {"x": 1, "y": 2, "width": 3, "height": 4},
+                             self.slave_path)
         finally:
             xtm.CONTEXT.dry_run = False
         self.assertEqual(self.read_all(), "")
 
-    def test_missing_client_is_an_error(self):
-        xtm.tmux_client_tty_for_pid = lambda session, pid: None
-        with self.assertRaises(xtm.XtmError):
-            xtm.place_window("s", {"x": 1, "y": 2, "width": 3, "height": 4})
-
     def test_unwritable_tty_is_an_error(self):
-        xtm.tmux_client_tty_for_pid = lambda session, pid: "/nonexistent/tty"
         with self.assertRaises(xtm.XtmError):
-            xtm.place_window("s", {"x": 1, "y": 2, "width": 3, "height": 4})
+            xtm.place_window("s", {"x": 1, "y": 2, "width": 3, "height": 4},
+                             "/nonexistent/tty")
 
 
 class TestFrameCompensation(unittest.TestCase):
@@ -315,41 +312,50 @@ class TestFrameExtentsFailures(RunPatchMixin):
 
 
 class TestClientSelection(RunPatchMixin):
+    """Which of a session's clients is xtm's own window."""
 
-    def test_prefers_own_descendant_client(self):
+    def sleeper(self, *argv):
+        """A real process whose command line xtm can read from /proc."""
+        proc = subprocess.Popen([sys.executable, "-c",
+                                 "import time; time.sleep(30)"] + list(argv))
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        return proc.pid
+
+    def test_all_clients_are_listed_in_one_call(self):
         self.patch_run(lambda cmd: FakeResult(
-            0, "/dev/pts/1:999999999\n/dev/pts/2:%d\n" % (os.getpid(),)))
-        self.assertEqual(xtm.tmux_client_tty_for_pid("s", os.getppid()),
-                         "/dev/pts/2")
+            0, "a:/dev/pts/1:10\na:/dev/pts/2:11\nb:/dev/pts/3:x\n\n"))
+        self.assertEqual(xtm.tmux_clients(),
+                         {"a": [("/dev/pts/1", 10), ("/dev/pts/2", 11)],
+                          "b": [("/dev/pts/3", None)]})
 
-    def test_falls_back_to_first_client(self):
-        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/1:123\n/dev/pts/2:456\n"))
-        self.assertEqual(xtm.tmux_client_tty_for_pid("s", 999999999), "/dev/pts/1")
-
-    def test_no_pid_uses_first_client(self):
-        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/7:123\n"))
-        self.assertEqual(xtm.tmux_client_tty_for_pid("s", None), "/dev/pts/7")
-
-    def test_unparsable_pid_is_tolerated(self):
-        self.patch_run(lambda cmd: FakeResult(0, "/dev/pts/7:notanumber\n"))
-        self.assertEqual(xtm.tmux_client_tty_for_pid("s", 1), "/dev/pts/7")
-
-    def test_no_clients_returns_none(self):
-        self.patch_run(lambda cmd: FakeResult(0, "\n"))
-        self.assertIsNone(xtm.tmux_client_tty_for_pid("s", None))
-
-    def test_command_failure_returns_none(self):
+    def test_no_server_means_no_clients(self):
         self.patch_run(lambda cmd: FakeResult(1))
-        self.assertIsNone(xtm.tmux_client_tty_for_pid("s", None))
-        self.assertIsNone(xtm.tmux_client_tty("s"))
+        self.assertEqual(xtm.tmux_clients(), {})
 
-    def test_client_tty_skips_blank_lines(self):
-        self.patch_run(lambda cmd: FakeResult(0, "\n\n/dev/pts/3\n"))
-        self.assertEqual(xtm.tmux_client_tty("s"), "/dev/pts/3")
+    def test_a_client_in_an_xtm_xterm_is_xtms(self):
+        pid = self.sleeper("-name", "xtm-desk")
+        self.assertTrue(xtm._runs_in_xtm_window(pid, "desk"))
 
-    def test_wait_for_client_tty_times_out(self):
+    def test_a_client_in_another_sessions_xterm_is_not(self):
+        pid = self.sleeper("-name", "xtm-other")
+        self.assertFalse(xtm._runs_in_xtm_window(pid, "desk"))
+
+    def test_a_client_in_some_other_terminal_is_not(self):
+        pid = self.sleeper("konsole", "-e", "tmux", "attach", "-t", "desk")
+        self.assertFalse(xtm._runs_in_xtm_window(pid, "desk"))
+        self.assertFalse(xtm._runs_in_xtm_window(None, "desk"))
+
+    def test_xtm_windows_keeps_only_xtms_clients(self):
+        mine = self.sleeper("-name", "xtm-desk")
+        other = self.sleeper("ssh-session")
+        clients = {"desk": [("/dev/pts/1", other), ("/dev/pts/2", mine)],
+                   "w": [("/dev/pts/3", other)]}
+        self.assertEqual(xtm.xtm_windows(clients), {"desk": ["/dev/pts/2"]})
+
+    def test_wait_for_own_client_times_out(self):
         self.patch_run(lambda cmd: FakeResult(1))
-        self.assertIsNone(xtm.wait_for_client_tty("s", None, timeout=0.3))
+        self.assertIsNone(xtm.wait_for_own_client("s", None, timeout=0.3))
 
     def test_session_list_parsing(self):
         self.patch_run(lambda cmd: FakeResult(0, "a:1\nb:0\nc:2\n\n"))

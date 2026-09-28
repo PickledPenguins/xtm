@@ -39,10 +39,11 @@ trust.
 
 For each session in turn:
 
-1. If it is not running, open it: spawn an xterm, wait for tmux to report a client, and
-   fail with a message naming the session if it never attaches.
-2. Resolve the client's tty once, and reuse it for both operations — two lookups could
-   disagree if a client attached or detached between them.
+1. If it has no xtm window — not running, detached, or attached only in another terminal —
+   open one: spawn an xterm, wait for the client running inside *that* xterm to attach,
+   and fail with a message naming the session if it never does.
+2. Otherwise use the tty of the session's xtm client, found once for the whole profile
+   from a single `tmux list-clients`. A terminal xtm did not open is never written to.
 3. **Resize, then move.** On some window managers a resize shifts the anchor point, so
    moving last is what makes the final position the requested one.
 4. Under `--verify`, wait briefly, read the geometry back, and report any difference.

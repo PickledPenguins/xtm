@@ -52,7 +52,7 @@ class TestWindowActions(IntegrationBase):
         self.add_session("work1")
         result = self.run_xtm("-o", "work1")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("already attached", result.stderr)
+        self.assertIn("already has an xtm window", result.stderr)
 
     def test_open_reports_immediate_xterm_failure(self):
         result = self.run_xtm("-o", "work1",
@@ -604,3 +604,98 @@ class TestFocusTargets(IntegrationBase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("xdotool or wmctrl", result.stderr)
         self.assertNotIn("Could not find or focus", result.stderr)
+
+
+class TestTerminalsXtmDidNotOpen(IntegrationBase):
+    """A session attached in someone else's terminal is not an xtm window.
+
+    Before xtm told its own clients apart, a session attached from an SSH
+    login or a Konsole counted as "up": --reset opened no window for it and
+    wrote the move and resize escape sequences into that other terminal
+    instead; --reset-all stacked every such terminal as a stray; and
+    detaching threw the SSH login off along with xtm's window.
+    """
+
+    def foreign_pty(self):
+        master_fd, slave_fd = pty.openpty()
+        self.addCleanup(os.close, master_fd)
+        self.addCleanup(os.close, slave_fd)
+        os.set_blocking(master_fd, False)
+        return master_fd, os.ttyname(slave_fd)
+
+    def written(self, master_fd):
+        time.sleep(0.1)
+        try:
+            return os.read(master_fd, 4096)
+        except BlockingIOError:
+            return b""
+
+    def launched_sessions(self):
+        path = self.state / "launched.log"
+        if not path.exists():
+            return []
+        return [argv[argv.index("-s") + 1]
+                for argv in (json.loads(l) for l in path.read_text().splitlines())
+                if "-s" in argv]
+
+    def test_reset_opens_a_window_beside_a_foreign_client(self):
+        master_fd, foreign_tty = self.foreign_pty()
+        self.run_xtm("-s", "work1", "100,200,900,700")
+        self.add_session("work1", attached="0")
+        self.add_client("work1", tty=foreign_tty)
+        # The new xterm attaches after a pause, while the foreign client is
+        # already there: xtm must wait for its own, not take the first.
+        result = self.run_xtm("-r", env={"XTM_FAKE_XTERM_ATTACH_DELAY": "0.6"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launched_sessions(), ["work1"])
+        self.assertIn("Opened work1", result.stderr)
+        self.assertEqual(self.written(master_fd), b"",
+                         "xtm wrote to a terminal it did not open")
+
+    def test_status_says_attached_elsewhere(self):
+        _master, foreign_tty = self.foreign_pty()
+        self.run_xtm("-s", "work1", "0,0,900,700")
+        self.add_session("work1", attached="0")
+        self.add_client("work1", tty=foreign_tty)
+        payload = json.loads(self.run_xtm("-l", "-j").stdout)
+        self.assertEqual(payload["sessions"][0]["status"], "attached elsewhere")
+        self.assertIn("attached elsewhere", self.run_xtm("-l").stdout)
+
+    def test_reset_all_does_not_stack_a_foreign_terminal(self):
+        master_fd, foreign_tty = self.foreign_pty()
+        self.add_session("mine")
+        self.add_session("theirs", attached="0")
+        self.add_client("theirs", tty=foreign_tty)
+        result = self.run_xtm("-R")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Stacked stray session mine at slot #0", result.stderr)
+        self.assertNotIn("theirs", result.stderr)
+        self.assertEqual(self.written(master_fd), b"")
+
+    def test_detach_leaves_the_foreign_client_attached(self):
+        self.run_xtm("-s", "work1", "0,0,900,700")
+        self.add_session("work1")
+        self.add_client("work1", tty="/dev/pts/77")
+        result = self.run_xtm("--detach", "work1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r[1] for r in self.rows("clients.txt")], ["/dev/pts/77"])
+        detaches = [c for c in self.calls("tmux") if "detach-client" in c]
+        self.assertTrue(detaches)
+        self.assertTrue(all("-s" not in c for c in detaches))
+
+    def test_detach_with_only_a_foreign_client_changes_nothing(self):
+        self.run_xtm("-s", "work1", "0,0,900,700")
+        self.add_session("work1", attached="0")
+        self.add_client("work1", tty="/dev/pts/77")
+        result = self.run_xtm("--detach", "work1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("attached elsewhere", result.stderr)
+        self.assertEqual(len(self.rows("clients.txt")), 1)
+
+    def test_open_is_allowed_when_only_a_foreign_client_is_attached(self):
+        self.run_xtm("-s", "work1", "0,0,900,700")
+        self.add_session("work1", attached="0")
+        self.add_client("work1", tty="/dev/pts/77")
+        result = self.run_xtm("-o", "work1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launched_sessions(), ["work1"])

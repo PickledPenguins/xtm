@@ -12,7 +12,7 @@ prints the status of the effective profile.
 | `-l` | `--list` | — | Show session and window status for the profile. **Default action.** |
 | `-o` | `--open` | `SESSION` | Open one tmux session in a new xterm and place it. |
 | `-r` | `--reset` | — | Reposition, or open if missing, every named session in the profile. |
-| `-R` | `--reset-all` | — | As `--reset`, and also stack any stray sessions. |
+| `-R` | `--reset-all` | — | As `--reset`, and also stack stray xtm windows. |
 | `-k` | `--close` | `SLOT` or `SESSION` | Kill one session, closing its window and destroying its tabs and panes. |
 | `-t` | `--detach` | `SLOT` or `SESSION` | Close a session's window but leave the session, its tabs and its panes running. |
 | `-K` | `--close-all` | — | Kill every running session named in the profile. Asks for confirmation. |
@@ -106,16 +106,16 @@ strays are stacked alphabetically.
 | `--auto` | With no matching `match` block, falls through to the reserved `default` profile, which always exists. |
 | `--all` | Affects visibility only. It never changes what a command does to a profile it can already see. |
 | `--hostname` | Everything that depends on which machine this is follows it: which profiles are visible, which `match` block wins under `--auto`, and which per-machine state file is read and written. That last one is why it is not a preview flag on its own — pair it with `--dry-run` to change nothing. The name must be a valid profile-name charset, since it ends up in a filename. |
-| `--detach` | Accepts a slot name or a session name. A session with no window attached reports so and exits 0; a session that is not running exits 1. |
+| `--detach` | Accepts a slot name or a session name. Detaches only xtm's own window: a terminal xtm did not open stays attached. A session with no xtm window reports so and exits 0; a session that is not running exits 1. |
 | `--capture-new` | Only meaningful with `--update-profile`. Captured windows are recorded with an explicit `session:`, because those sessions already exist under the names they were captured with and must not be renamed by the profile's prefix. |
 | `--on-switch` | Applies to the profile being left, not the one being entered. Has no effect when the profile is not actually changing. |
 | `--detach-mode` | Only meaningful with `--close-all`. |
 | `--verbose` | Only meaningful with `--list-profiles`. |
 | `--make-global` | A profile that is already global reports so and exits 0. One-way: there is no command to re-bind a global profile to a machine. |
 | *(positional)* | Giving both a positional profile and `--profile` is a usage error even when they name the same profile. An unknown name that matches a session suggests `--open`/`--focus` instead. |
-| `--open` | An already-attached session is an error, not a silent no-op. An unconfigured session is placed in the next stack slot, counted from the number of currently attached strays. |
+| `--open` | A session that already has an xtm window is an error, not a silent no-op. One attached only in another terminal gets an xtm window beside it. An unconfigured session is placed in the next stack slot, counted from the number of stray xtm windows. |
 | `--reset` | A profile with no named sessions logs a notice and exits 0. Individual failures are collected, reported per session, and the command exits 1 at the end; other sessions are still processed. |
-| `--reset-all` | Runs `--reset` first, then stacks strays. A failure in either phase exits 1, but neither phase aborts the other. |
+| `--reset-all` | Runs `--reset` first, then stacks stray xtm windows. Terminals xtm did not open are never moved. A failure in either phase exits 1, but neither phase aborts the other. |
 | `--close` | A session that is not running is an error, since silently succeeding would hide a typo. |
 | `--close-all` | Scoped to the current profile's sessions unless `--all` widens it; sessions belonging to no profile are never touched. With nothing running, logs a notice and exits 0. When stdin is not a terminal, the confirmation prompt is skipped, because a scripted caller has already opted in and cannot answer. |
 | `--focus` | Accepts a slot name or a session name. Requires `xdotool` or `wmctrl`; with only `xwininfo` present, fails with an explanation before looking for the window. A session with no window exits 1. |
@@ -140,7 +140,7 @@ cannot read.
 | Compare | Difference |
 |---|---|
 | `--reset` vs `--reset-all` | `--reset` touches only sessions named in the profile. `--reset-all` also gathers every attached session that is *not* named, and stacks them diagonally. |
-| `--open` vs `--reset` | `--open` handles exactly one session and refuses if it is already attached. `--reset` is idempotent. |
+| `--open` vs `--reset` | `--open` handles exactly one session and refuses if it already has an xtm window. `--reset` is idempotent. |
 | `--update-profile` vs `--new-profile` | Both capture the screen. The first overwrites the current profile in place; the second creates a new one and fails if the name exists. |
 | `--set` vs `--update-profile` | `--set` writes one exact position from the command line and needs no geometry tool. `--update-profile` captures every window at once and does. |
 | `--close` vs `--detach` | `--close` kills the session, destroying its tabs, panes and running jobs. `--detach` closes only the window and leaves everything running. |
@@ -179,19 +179,19 @@ Config:  /home/user/.config/xtm/config.yaml
 Prefix:  desk-
 
 Slots:
-  work1                attached     configured: x=0 y=0 960x1180  [live: x=0 y=0 960x1180]
-                                    session:    desk-work1
-  logs                 attached     configured: x=960 y=0 960x580  [live: x=964 y=2 960x580]
-                                    session:    desk-logs
-                                    command:    journalctl -f
-  notes                attached     configured: x=0 y=1180 960x400
-                                    session:    notes  (shared, kept on profile switch)
-  cluster              not running  configured: x=960 y=600 960x580
-                                    session:    desk-cluster
-                                    command:    ssh headnode
-                                    cwd:        ~/projects
+  work1                attached           configured: x=0 y=0 960x1180  [live: x=0 y=0 960x1180]
+                                          session:    desk-work1
+  logs                 attached           configured: x=960 y=0 960x580  [live: x=964 y=2 960x580]
+                                          session:    desk-logs
+                                          command:    journalctl -f
+  notes                attached elsewhere configured: x=0 y=1180 960x400
+                                          session:    notes  (shared, kept on profile switch)
+  cluster              not running        configured: x=960 y=600 960x580
+                                          session:    desk-cluster
+                                          command:    ssh headnode
+                                          cwd:        ~/projects
 
-Stray attached sessions (no configured position):
+Stray xtm windows (sessions this profile does not name):
   lab-build  (belongs to profile lab)
   scratch
 ```
@@ -202,13 +202,13 @@ Stray attached sessions (no configured position):
 | `Config:` | Absolute path of the config file actually being used. |
 | `Prefix:` | The profile's session-name prefix. Omitted when the profile has none. |
 | Slot name | The key from the profile, left-aligned in a 20-column field. |
-| Status | `attached` — running with a window; `detached` — the tmux session exists but nothing is attached; `not running` — no such tmux session. |
+| Status | `attached` — shown in an xtm window; `attached elsewhere` — running, and attached only in terminals xtm did not open (an SSH login, another terminal), so a reset opens an xtm window beside them; `detached` — the tmux session exists but nothing is attached; `not running` — no such tmux session. |
 | `configured:` | The position recorded in the profile, as `x=<x> y=<y> <width>x<height>` in pixels. |
 | `[live: …]` | The position read off the screen right now, shown only when the session is attached and a geometry tool is available. A difference from `configured` means the window has been moved or resized since the profile was saved. |
 | `session:` | The tmux session name this slot resolves to. Shown when it differs from the slot name, or when it is shared. `(shared, kept on profile switch)` marks a slot with an explicit `session:`. |
 | `command:` | The slot's configured launch command, shown only when one is set. |
 | `cwd:` | The slot's configured working directory, shown only when one is set. |
-| Stray sessions | Attached sessions matching no slot in this profile. Those belonging to another profile are labeled with its name. |
+| Stray xtm windows | xtm windows showing a session that matches no slot in this profile. Those belonging to another profile are labeled with its name. Terminals xtm did not open are never listed. |
 
 A trailing note appears when no geometry tool is installed, explaining that live positions
 cannot be shown.
@@ -255,13 +255,13 @@ cannot be shown.
 | `sessions[].session` | string | The tmux session name the slot resolves to. |
 | `sessions[].shared` | boolean | Whether the slot names its session explicitly, and so is kept across a profile switch. |
 | `sessions[].title` | string | The window title the slot resolves to. |
-| `sessions[].status` | string | `attached`, `detached` or `not running`. |
+| `sessions[].status` | string | `attached`, `attached elsewhere`, `detached` or `not running`. |
 | `sessions[].configured` | object | Recorded `x`, `y`, `width`, `height`. |
 | `sessions[].live` | object or null | Current on-screen geometry, or `null` if unavailable. |
 | `sessions[].command` | string or null | Configured launch command. |
 | `sessions[].cwd` | string or null | Configured working directory. |
 | `state_file` | string | Path of this machine's current-profile state file. |
-| `strays` | array | Names of attached sessions with no configured position. |
+| `strays` | array | Sessions shown in an xtm window that no slot in this profile names. |
 | `stray_owners` | object | Maps a stray session to the profile that claims it. Empty when none do. |
 
 `sessions[].name` is the **slot** and `sessions[].session` is what tmux calls it; they
@@ -316,9 +316,9 @@ Sessions claimed by no profile:
 | Profile line | The profile name, `*` if it is the one in effect, then its `prefix` (omitted when it has none) and its `on_switch` mode. |
 | Slot name | The key from the profile. |
 | Session name | What the slot resolves to. |
-| Status | `attached`, `detached` or `not running`. |
+| Status | `attached`, `attached elsewhere`, `detached` or `not running`. |
 | `shared` | The slot has an explicit `session:`, so it is not owned by the profile. |
-| Sessions claimed by no profile | Running sessions that match no slot in any visible profile. |
+| Sessions claimed by no profile | Sessions in an xtm window that match no slot in any visible profile. |
 
 `--all` extends this to profiles bound to other machines. With `--json`, the same data is
 emitted as `{"profiles": [...], "unclaimed": [...], "config": ...}`, each profile carrying
