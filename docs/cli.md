@@ -50,6 +50,7 @@ Every action has a short and a long form. At most one action may be given. With 
 | `-N` | `--dry-run` | — | Show what would happen without launching, moving, closing or saving anything. |
 | `-y` | `--yes` | — | Answer yes to confirmation prompts. |
 | — | `--verify` | — | After placing a window, read its position back and report any difference. |
+| — | `--clamp` | — | When placing, move a window that would land wholly or partly off the connected monitors onto the one it overlaps most, instead of only warning. |
 | — | `--no-frame-compensation` | — | Do not correct captured positions for window decorations. |
 | `-h` | `--help` | — | Show usage and exit. |
 | — | `--version` | — | Show the version and exit. |
@@ -205,6 +206,7 @@ Stray xtm windows (sessions this profile does not name):
 | Slot name | The key from the profile, left-aligned in a 20-column field. |
 | Status | `attached` — shown in an xtm window; `attached elsewhere` — running, and attached only in terminals xtm did not open (an SSH login, another terminal), so a reset opens an xtm window beside them; `detached` — the tmux session exists but nothing is attached; `not running` — no such tmux session. |
 | `configured:` | The position recorded in the profile, as `x=<x> y=<y> <width>x<height>` in pixels. |
+| `[off screen]`, `[partly off screen]` | Shown when the configured position does not fit the connected monitors. See [placement.md](placement.md#windows-off-screen). |
 | `[live: …]` | The position read off the screen right now, shown only when the session is attached and a geometry tool is available. A difference from `configured` means the window has been moved or resized since the profile was saved. |
 | `session:` | The tmux session name this slot resolves to. Shown when it differs from the slot name, or when it is shared. `(shared, kept on profile switch)` marks a slot with an explicit `session:`. |
 | `command:` | The slot's configured launch command, shown only when one is set. |
@@ -221,6 +223,10 @@ cannot be shown.
   "config": "/home/user/.config/xtm/config.yaml",
   "frame_compensation": true,
   "geometry_tool": "xdotool",
+  "monitors": [
+    {"height": 1200, "name": "DP-1", "width": 1920, "x": 0, "y": 0},
+    {"height": 1080, "name": "HDMI-1", "width": 1920, "x": 1920, "y": 0}
+  ],
   "on_switch": "detach",
   "prefix": "desk-",
   "profile": "desk",
@@ -231,6 +237,7 @@ cannot be shown.
       "cwd": null,
       "live": {"height": 580, "width": 960, "x": 964, "y": 2},
       "name": "logs",
+      "placement": "on screen",
       "session": "desk-logs",
       "shared": false,
       "status": "attached",
@@ -247,6 +254,7 @@ cannot be shown.
 |---|---|---|
 | `config` | string | Path of the config file in use. |
 | `frame_compensation` | boolean | Whether decoration compensation is enabled for this run. |
+| `monitors` | array or null | The connected monitors, each `name`, `x`, `y`, `width`, `height`; `null` when neither `xrandr` nor `xwininfo` could say. |
 | `geometry_tool` | string or null | The geometry tool selected, or `null` if none was found. |
 | `on_switch` | string | The profile's disposal mode: `leave`, `detach` or `kill`. |
 | `prefix` | string | The profile's session-name prefix, or `""` when it has none. |
@@ -261,6 +269,7 @@ cannot be shown.
 | `sessions[].live` | object or null | Current on-screen geometry, or `null` if unavailable. |
 | `sessions[].command` | string or null | Configured launch command. |
 | `sessions[].cwd` | string or null | Configured working directory. |
+| `sessions[].placement` | string or null | Where the configured position lands: `on screen`, `partly off screen` or `off screen`; `null` when the monitors are unknown. See [placement.md](placement.md#windows-off-screen). |
 | `state_file` | string | Path of this machine's current-profile state file. |
 | `strays` | array | Sessions shown in an xtm window that no slot in this profile names. |
 | `stray_owners` | object | Maps a stray session to the profile that claims it. Empty when none do. |

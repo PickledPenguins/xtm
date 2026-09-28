@@ -382,3 +382,86 @@ class TestProcessAncestry(unittest.TestCase):
 
     def test_depth_limit_stops_the_walk(self):
         self.assertFalse(xtm._is_descendant_of(os.getpid(), 1, max_depth=1))
+
+
+class TestScreenFit(unittest.TestCase):
+    """Whether a window can be seen, and where --clamp moves it."""
+
+    LAPTOP = [{"name": "eDP-1", "x": 0, "y": 0, "width": 1440, "height": 900}]
+    DESK = [{"name": "DP-1", "x": 0, "y": 0, "width": 1920, "height": 1080},
+            {"name": "DP-2", "x": 1920, "y": -200, "width": 1080, "height": 1920}]
+
+    def geo(self, x, y, w=600, h=400):
+        return {"x": x, "y": y, "width": w, "height": h}
+
+    def test_inside_a_monitor_is_on_screen(self):
+        self.assertEqual(xtm.screen_fit(self.geo(10, 10), self.LAPTOP),
+                         xtm.ON_SCREEN)
+
+    def test_on_a_monitor_that_is_not_connected_is_off_screen(self):
+        # The desk's right-hand monitor, on the laptop alone.
+        self.assertEqual(xtm.screen_fit(self.geo(1920, 0), self.LAPTOP),
+                         xtm.OFF_SCREEN)
+
+    def test_a_title_bar_out_of_reach_is_partly_off_screen(self):
+        self.assertEqual(xtm.screen_fit(self.geo(-100, 10), self.LAPTOP),
+                         xtm.PARTLY_OFF_SCREEN)
+        self.assertEqual(xtm.screen_fit(self.geo(1200, 10), self.LAPTOP),
+                         xtm.ON_SCREEN)
+
+    def test_the_gap_between_monitors_of_different_heights(self):
+        # Below DP-1's bottom edge and left of DP-2: on no monitor at all.
+        self.assertEqual(xtm.screen_fit(self.geo(100, 1200, 300, 300), self.DESK),
+                         xtm.OFF_SCREEN)
+        self.assertEqual(xtm.screen_fit(self.geo(1950, -150), self.DESK),
+                         xtm.ON_SCREEN)
+
+    def test_clamp_moves_onto_the_monitor_overlapped_most(self):
+        self.assertEqual(xtm.clamp_to_screen(self.geo(1200, 700), self.LAPTOP),
+                         self.geo(840, 500))
+
+    def test_clamp_brings_an_off_screen_window_to_the_first_monitor(self):
+        self.assertEqual(xtm.clamp_to_screen(self.geo(3000, 50), self.LAPTOP),
+                         self.geo(840, 50))
+
+    def test_clamp_shrinks_a_window_larger_than_the_monitor(self):
+        self.assertEqual(xtm.clamp_to_screen(self.geo(0, 0, 3000, 2000), self.LAPTOP),
+                         self.geo(0, 0, 1440, 900))
+
+    def test_clamp_leaves_a_window_that_fits_alone(self):
+        self.assertEqual(xtm.clamp_to_screen(self.geo(10, 20), self.LAPTOP),
+                         self.geo(10, 20))
+
+
+class TestMonitorDetection(RunPatchMixin):
+
+    def setUp(self):
+        RunPatchMixin.setUp(self)
+        saved = os.environ.get("DISPLAY")
+        os.environ["DISPLAY"] = ":99"
+        self.addCleanup(lambda: os.environ.__setitem__("DISPLAY", saved)
+                        if saved is not None else os.environ.pop("DISPLAY", None))
+
+    def test_xrandr_monitors_are_read(self):
+        self.patch_run(lambda cmd: FakeResult(0, (
+            "Monitors: 2\n"
+            " 0: +*eDP-1 1440/290x900/180+0+0  eDP-1\n"
+            " 1: +HDMI-1 1920/530x1080/300+1440-180  HDMI-1\n")))
+        self.assertEqual(xtm.screen_monitors(), [
+            {"name": "eDP-1", "x": 0, "y": 0, "width": 1440, "height": 900},
+            {"name": "HDMI-1", "x": 1440, "y": -180, "width": 1920, "height": 1080}])
+
+    def test_the_root_window_is_the_fallback(self):
+        def answer(cmd):
+            if cmd[0] == "xrandr":
+                return None
+            return FakeResult(0, "  Width: 2560\n  Height: 1440\n")
+        self.patch_run(answer)
+        self.assertEqual(xtm.screen_monitors(), [
+            {"name": "screen", "x": 0, "y": 0, "width": 2560, "height": 1440}])
+
+    def test_nothing_known_means_nothing_checked(self):
+        self.patch_run(lambda cmd: FakeResult(1))
+        self.assertIsNone(xtm.screen_monitors())
+        geometry = {"x": 9000, "y": 0, "width": 10, "height": 10}
+        self.assertIs(xtm.fit_to_screen("s", geometry, None), geometry)

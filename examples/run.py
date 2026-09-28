@@ -37,7 +37,8 @@ REPO_ROOT = HERE.parent
 XTM = REPO_ROOT / "src" / "xtm.py"
 
 # Fields whose value depends on the machine rather than on the config.
-VOLATILE_KEYS = ("config", "state_file", "geometry_tool", "live",
+VOLATILE_KEYS = ("config", "state_file", "geometry_tool", "live", "monitors",
+                 "placement",
                  "frame_compensation", "status")
 
 

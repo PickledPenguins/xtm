@@ -43,6 +43,18 @@ If windows xtm opened do not move:
 - Run `xtm --reset --verify --debug`: the debug log shows the exact bytes written and the
   tty they went to, and `--verify` reports what the window manager actually did.
 
+## "... is off screen on this screen"
+
+The profile puts a window where no connected monitor is — typically a layout written for a
+desk with two monitors, used on the same laptop undocked, or a monitor that has not woken
+up yet. The window is still placed as the profile says, so it is running but out of sight.
+
+- `xtm --clamp` brings every such window onto a monitor for this run.
+- `xtm NAME` switches to a profile written for this screen; `xtm --new-profile NAME`
+  captures one from the windows as they are.
+- `xtm --list` marks each slot that does not fit with `[off screen]` or
+  `[partly off screen]`.
+
 ## Windows land near, but not exactly at, the requested position
 
 Placement is a *request* to the window manager. Size increments, panel struts, snapping and

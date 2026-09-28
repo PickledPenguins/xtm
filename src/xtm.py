@@ -126,6 +126,9 @@ class RunContext(object):
         self.verify = False
         # Correct captured positions for window-manager decorations.
         self.frame_compensation = True
+        # Move a window that would land off every monitor back onto one,
+        # rather than only warning about it.
+        self.clamp = False
 
     @property
     def config_dir(self) -> Path:
@@ -2151,6 +2154,129 @@ def focus_window(session: str, tool: str) -> bool:
 
 
 # --------------------------------------------------------------------------
+# The screen: which monitors are connected, and whether a window fits
+# --------------------------------------------------------------------------
+#
+# A profile is absolute pixels, so one written for a desk with two monitors
+# puts half its windows off screen on the same laptop undocked -- silently,
+# since the window manager accepts the position. Checking each window
+# against the monitors actually connected turns that into a warning naming
+# the window and the screen, and --clamp into a window you can see.
+
+# One monitor in `xrandr --listmonitors`:
+#    0: +*eDP-1 1440/290x900/180+0+0  eDP-1
+_XRANDR_MONITOR_RE = re.compile(
+    r"^\s*\d+:\s+\S+\s+(\d+)/\d+x(\d+)/\d+([+-]\d+)([+-]\d+)\s+(\S+)", re.M)
+
+ON_SCREEN = "on screen"
+PARTLY_OFF_SCREEN = "partly off screen"
+OFF_SCREEN = "off screen"
+
+
+def screen_monitors() -> Optional[List[GeometryDict]]:
+    """The connected monitors as geometries with a `name`, or None.
+
+    `xrandr --listmonitors` first, since it knows each monitor and the gaps
+    between them; the root window's size from `xwininfo -root` otherwise,
+    which is one rectangle covering them all. None when neither answers --
+    no display, or neither tool -- and then nothing is checked at all.
+    """
+    if not os.environ.get("DISPLAY"):
+        return None
+    res = run(["xrandr", "--listmonitors"], required=False)
+    if res is not None and res.returncode == 0:
+        found = [{"name": m.group(5), "x": int(m.group(3)), "y": int(m.group(4)),
+                  "width": int(m.group(1)), "height": int(m.group(2))}
+                 for m in _XRANDR_MONITOR_RE.finditer(res.stdout)]
+        if found:
+            return found
+    res = run(["xwininfo", "-root"], required=False)
+    if res is not None and res.returncode == 0:
+        width = re.search(r"Width:\s+(\d+)", res.stdout)
+        height = re.search(r"Height:\s+(\d+)", res.stdout)
+        if width and height:
+            return [{"name": "screen", "x": 0, "y": 0,
+                     "width": int(width.group(1)), "height": int(height.group(1))}]
+    logger.debug("Could not read the monitor layout; windows are not checked "
+                 "against it.")
+    return None
+
+
+def _overlap(a: GeometryDict, b: GeometryDict) -> int:
+    """Area, in pixels, shared by two rectangles."""
+    w = min(a["x"] + a["width"], b["x"] + b["width"]) - max(a["x"], b["x"])
+    h = min(a["y"] + a["height"], b["y"] + b["height"]) - max(a["y"], b["y"])
+    return max(w, 0) * max(h, 0)
+
+
+def screen_fit(geometry: GeometryDict, monitors: List[GeometryDict]) -> str:
+    """Whether a window at `geometry` can be seen and grabbed.
+
+    OFF_SCREEN when it touches no monitor. PARTLY_OFF_SCREEN when it touches
+    one but its top-left corner is on none: the title bar is then out of
+    reach, so the window cannot be dragged back by hand either.
+    """
+    if not any(_overlap(geometry, m) for m in monitors):
+        return OFF_SCREEN
+    corner = {"x": geometry["x"], "y": geometry["y"], "width": 1, "height": 1}
+    if not any(_overlap(corner, m) for m in monitors):
+        return PARTLY_OFF_SCREEN
+    return ON_SCREEN
+
+
+def clamp_to_screen(geometry: GeometryDict, monitors: List[GeometryDict]
+                    ) -> GeometryDict:
+    """`geometry` moved onto the monitor it overlaps most, or the first.
+
+    Shrunk to that monitor when it is larger than it; otherwise the size is
+    kept and only the position moves.
+    """
+    target = max(monitors, key=lambda m: _overlap(geometry, m))
+    if not _overlap(geometry, target):
+        target = monitors[0]
+    width = min(int(geometry["width"]), target["width"])
+    height = min(int(geometry["height"]), target["height"])
+    x = min(max(int(geometry["x"]), target["x"]),
+            target["x"] + target["width"] - width)
+    y = min(max(int(geometry["y"]), target["y"]),
+            target["y"] + target["height"] - height)
+    return {"x": x, "y": y, "width": width, "height": height}
+
+
+def _describe_monitors(monitors: List[GeometryDict]) -> str:
+    return ", ".join("%s %sx%s%+d%+d" % (m["name"], m["width"], m["height"],
+                                         m["x"], m["y"]) for m in monitors)
+
+
+def fit_to_screen(session: str, geometry: GeometryDict,
+                  monitors: Optional[List[GeometryDict]]) -> GeometryDict:
+    """The geometry to place `session` at: as given, or clamped.
+
+    A window that would land off screen is reported either way; with
+    --clamp it is also moved onto a monitor. Unknown monitors check nothing.
+    """
+    if not monitors:
+        return geometry
+    fit = screen_fit(geometry, monitors)
+    if fit == ON_SCREEN:
+        return geometry
+    where = "x=%s y=%s %sx%s" % (geometry["x"], geometry["y"],
+                                 geometry["width"], geometry["height"])
+    if CONTEXT.clamp:
+        clamped = clamp_to_screen(geometry, monitors)
+        logger.warning("%s: %s is %s on this screen (%s); placing it at "
+                       "x=%s y=%s %sx%s instead.", session, where, fit,
+                       _describe_monitors(monitors), clamped["x"], clamped["y"],
+                       clamped["width"], clamped["height"])
+        return clamped
+    logger.warning("%s: %s is %s on this screen (%s). Use --clamp to bring "
+                   "it onto a monitor, or switch to a profile for this screen "
+                   "with 'xtm NAME'.", session, where, fit,
+                   _describe_monitors(monitors))
+    return geometry
+
+
+# --------------------------------------------------------------------------
 # Stacking (default placement for sessions with no configured position)
 # --------------------------------------------------------------------------
 
@@ -2347,7 +2473,8 @@ def cmd_open(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
         title = None
         logger.info("%s has no configured position in profile %s; using stacked "
                     "slot #%d.", session, profile_name, index)
-    open_session(session, geometry, slot_cfg, title)
+    open_session(session, fit_to_screen(session, geometry, screen_monitors()),
+                 slot_cfg, title)
     return EXIT_OK
 
 
@@ -2358,12 +2485,15 @@ def cmd_reset(args: argparse.Namespace, config: ConfigDict, profile_name: str) -
         logger.info("Profile %s has no slots configured.", profile_name)
         return EXIT_OK
     windows = xtm_windows()
+    monitors = screen_monitors()
     failures = []
     for slot, session in profile_slots(profile):
         slot_cfg = profile["sessions"][slot]
         try:
             reposition_or_open(
-                session, session_geometry(slot_cfg), slot_cfg,
+                session,
+                fit_to_screen(session, session_geometry(slot_cfg), monitors),
+                slot_cfg,
                 window_tty=(windows.get(session) or [None])[0],
                 title=resolve_window_title(profile, profile_name, slot, session))
         except XtmError as e:
@@ -2390,9 +2520,11 @@ def cmd_reset_all(args: argparse.Namespace, config: ConfigDict,
     named = set(profile_sessions(profile))
     windows = xtm_windows()
     strays = sorted(name for name in windows if name not in named)
+    monitors = screen_monitors() if strays else None
     failures = []
     for index, session in enumerate(strays):
-        geometry = stack_slot(profile["stack"], index)
+        geometry = fit_to_screen(session, stack_slot(profile["stack"], index),
+                                 monitors)
         try:
             place_window(session, geometry, windows[session][0])
             logger.info("Stacked stray session %s at slot #%d (x=%s y=%s)",
@@ -2982,6 +3114,7 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
     tool = detect_geometry_tool()
     live = tmux_list_sessions()
     windows = xtm_windows()
+    monitors = screen_monitors()
 
     sessions = []
     for slot, session in profile_slots(profile):
@@ -2996,6 +3129,8 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
             "command": cfg.get("command"),
             "cwd": cfg.get("cwd"),
             "live": None,
+            "placement": (screen_fit(session_geometry(cfg), monitors)
+                          if monitors else None),
         }
         if session in windows and tool:
             entry["live"] = get_window_geometry(session, tool)
@@ -3026,6 +3161,7 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
         "state_file": str(CONTEXT.state_file),
         "geometry_tool": tool,
         "frame_compensation": CONTEXT.frame_compensation,
+        "monitors": monitors,
         "sessions": sessions,
         "strays": strays,
         "stray_owners": owners,
@@ -3056,6 +3192,8 @@ def cmd_list(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
             geometry = entry["live"]
             live_text = "  [live: x=%s y=%s %sx%s]" % (
                 geometry["x"], geometry["y"], geometry["width"], geometry["height"])
+        if entry["placement"] not in (None, ON_SCREEN):
+            live_text += "  [%s]" % (entry["placement"],)
         print("  %-20s %-18s configured: %s%s"
               % (entry["name"], entry["status"], position, live_text))
         # Worth a line whenever the session name is not simply the slot
@@ -3372,6 +3510,11 @@ def build_parser() -> argparse.ArgumentParser:
     general.add_argument("--verify", action="store_true",
                          help="After placing a window, read its position back "
                               "and report any difference from what was asked.")
+    general.add_argument("--clamp", action="store_true",
+                         help="When placing, move a window that would land "
+                              "wholly or partly off the connected monitors "
+                              "onto the one it overlaps most, instead of only "
+                              "warning.")
     general.add_argument("--no-frame-compensation", action="store_true",
                          help="Do not correct captured positions for window "
                               "manager decorations (see README).")
@@ -3450,6 +3593,7 @@ def apply_runtime_flags(args: argparse.Namespace) -> None:
     CONTEXT.dry_run = bool(args.dry_run)
     CONTEXT.verify = bool(args.verify)
     CONTEXT.frame_compensation = not args.no_frame_compensation
+    CONTEXT.clamp = bool(args.clamp)
     if args.hostname is not None:
         # Same charset as a profile name, because it ends up in the state
         # file's name: a hostname carrying a slash or a colon would write

@@ -85,6 +85,20 @@ CATALOG = [
         "The morning command is one word: a bare `xtm` must restore the "
         "profile, not only report on it."),
     Mutant(
+        "a-window-off-screen-is-reported",
+        "    if fit == ON_SCREEN:",
+        "    if True:",
+        ["tests.integration.test_windows"],
+        "A profile for another screen put windows where nobody could see "
+        "them, and nothing said so."),
+    Mutant(
+        "a-title-bar-out-of-reach-is-partly-off-screen",
+        "        return PARTLY_OFF_SCREEN",
+        "        return ON_SCREEN",
+        ["tests.unit.test_geometry"],
+        "A window whose top-left corner is off every monitor cannot be "
+        "dragged back by hand."),
+    Mutant(
         "placement-resize-before-move",
         "send_window_op(tty, _CSI_RESIZE_WINDOW_PX_TEMPLATE.format(height=height,\n"
         "                                                             width=width))\n"

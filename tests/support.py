@@ -363,7 +363,22 @@ def tool_xprop(argv):
     fail()
 
 
+def tool_xrandr(argv):
+    # XTM_FAKE_MONITORS is "name:WxH+X+Y,..."; unset, xrandr fails and xtm
+    # checks nothing, which keeps every test that does not care unaffected.
+    monitors = os.environ.get("XTM_FAKE_MONITORS")
+    if "--listmonitors" not in argv or not monitors:
+        fail()
+    entries = [m.split(":", 1) for m in monitors.split(",")]
+    print("Monitors: %d" % (len(entries),))
+    for index, (name, spec) in enumerate(entries):
+        m = re.match(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", spec)
+        print(" %d: +%s %s/300x%s/200%s%s  %s"
+              % (index, name, m.group(1), m.group(2), m.group(3), m.group(4), name))
+
+
 TOOLS = {
+    "xrandr": tool_xrandr,
     "tmux": tool_tmux,
     "xterm": tool_xterm,
     "xdotool": tool_xdotool,
@@ -392,7 +407,8 @@ def build_fake_tools(bin_dir, only=None):
     impl = bin_dir / "_fake_tools.py"
     impl.write_text(FAKE_TOOL_SOURCE)
     for name in (only if only is not None else sorted(
-            ["tmux", "xterm", "xdotool", "wmctrl", "xwininfo", "xprop"])):
+            ["tmux", "xterm", "xdotool", "wmctrl", "xwininfo", "xprop",
+             "xrandr"])):
         script = bin_dir / name
         script.write_text("#!/bin/sh\nexec %s %s \"$0\" \"$@\"\n"
                           % (sys.executable, impl))

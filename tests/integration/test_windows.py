@@ -699,3 +699,69 @@ class TestTerminalsXtmDidNotOpen(IntegrationBase):
         result = self.run_xtm("-o", "work1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.launched_sessions(), ["work1"])
+
+
+class TestOffScreenWindows(IntegrationBase):
+    """A profile written for another screen must not lose windows silently."""
+
+    LAPTOP = "eDP-1:1440x900+0+0"
+
+    def setUp(self):
+        IntegrationBase.setUp(self)
+        self.env["XTM_FAKE_MONITORS"] = self.LAPTOP
+        master_fd, slave_fd = pty.openpty()
+        self.addCleanup(os.close, master_fd)
+        self.addCleanup(os.close, slave_fd)
+        os.set_blocking(master_fd, False)
+        self.master_fd, self.tty = master_fd, os.ttyname(slave_fd)
+
+    def written(self):
+        time.sleep(0.1)
+        try:
+            return os.read(self.master_fd, 4096).decode("ascii")
+        except BlockingIOError:
+            return ""
+
+    def test_a_window_off_every_monitor_is_reported_and_still_placed(self):
+        self.run_xtm("-s", "right", "1920,0,960,580")
+        self.add_session("right", tty=self.tty)
+        result = self.run_xtm("-r")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("right: x=1920 y=0 960x580 is off screen on this screen "
+                      "(eDP-1 1440x900+0+0)", result.stderr)
+        self.assertIn("--clamp", result.stderr)
+        self.assertEqual(self.written(), "\x1b[4;580;960t\x1b[3;1920;0t")
+
+    def test_clamp_brings_it_onto_the_monitor(self):
+        self.run_xtm("-s", "right", "1920,0,960,580")
+        self.add_session("right", tty=self.tty)
+        result = self.run_xtm("-r", "--clamp")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("placing it at x=480 y=0 960x580 instead", result.stderr)
+        self.assertEqual(self.written(), "\x1b[4;580;960t\x1b[3;480;0t")
+
+    def test_a_window_on_screen_says_nothing(self):
+        self.run_xtm("-s", "left", "0,0,960,580")
+        self.add_session("left", tty=self.tty)
+        result = self.run_xtm("-r")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("screen", result.stderr)
+
+    def test_the_status_view_flags_it(self):
+        self.run_xtm("-s", "right", "1920,0,960,580")
+        self.run_xtm("-s", "left", "-50,10,960,580")
+        text = self.run_xtm("-l").stdout
+        self.assertIn("[off screen]", text)
+        self.assertIn("[partly off screen]", text)
+        payload = json.loads(self.run_xtm("-l", "-j").stdout)
+        placements = dict((s["name"], s["placement"]) for s in payload["sessions"])
+        self.assertEqual(placements, {"right": "off screen",
+                                      "left": "partly off screen"})
+        self.assertEqual(payload["monitors"][0]["name"], "eDP-1")
+
+    def test_an_unknown_screen_checks_nothing(self):
+        self.env.pop("XTM_FAKE_MONITORS")
+        self.run_xtm("-s", "right", "1920,0,960,580")
+        payload = json.loads(self.run_xtm("-l", "-j").stdout)
+        self.assertIsNone(payload["monitors"])
+        self.assertIsNone(payload["sessions"][0]["placement"])

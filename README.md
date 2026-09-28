@@ -7,9 +7,11 @@ positions them on screen according to a named *profile* stored in a small YAML f
 command restores an entire desktop layout; another saves the current layout back into the
 profile.
 
-Profiles are per machine and per monitor arrangement, so the same configuration file can
-describe a laptop, a two-monitor desk and a remote workstation, and `xtm` picks the right
-one automatically.
+One configuration file can describe a laptop, a two-monitor desk and a remote workstation:
+a profile can be bound to a machine by hostname and is then picked there automatically, and
+`xtm NAME` switches between the layouts of one machine — docked and undocked, say. A
+window that would land off the monitors actually connected is reported, and `--clamp`
+brings it onto one.
 
 This README is an index. Each subject is owned by one document under [docs/](docs/), listed
 at the bottom.
@@ -43,6 +45,7 @@ Everything runs on the machine displaying the windows, using tools already prese
 | `xdotool`, `wmctrl` or `xwininfo` | reading window positions back | Only for `--update-profile`, `--new-profile`, `--focus`, `--verify`, and the live column of `--list` |
 | `xdotool` or `wmctrl` | `--focus` specifically | `xwininfo` can query windows but cannot raise them |
 | `xprop` | correcting captured positions for window decorations | Optional; skipped with a debug message when absent |
+| `xrandr` | checking that windows land on a connected monitor | Optional; `xwininfo -root` is the fallback, and with neither nothing is checked |
 
 PyYAML is the only Python package needed, and nothing needs to be installed
 system-wide — the tool itself is one file.

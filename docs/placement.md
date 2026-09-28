@@ -93,8 +93,27 @@ diagonally by `offset_x`/`offset_y` per window already stacked. Strays are stack
 alphabetical order; `--open` for an unconfigured session counts from the number of stray
 xtm windows.
 
-There is no screen-size awareness: offsets can eventually push a window off-screen, and
-there is no wraparound. Lower the offsets, or give the sessions explicit positions.
+Offsets can eventually push a stacked window off screen; there is no wraparound. Such a
+window is reported like any other (see below), and `--clamp` brings it back.
+
+## Windows off screen
+
+Before placing a window, xtm checks it against the connected monitors, read from `xrandr
+--listmonitors` — or, without `xrandr`, the root window's size from `xwininfo -root`, which
+cannot see the gaps between monitors of different sizes. A window is:
+
+| State | Meaning |
+|---|---|
+| on screen | Its top-left corner is on a monitor. |
+| partly off screen | It overlaps a monitor, but its top-left corner is on none, so its title bar cannot be grabbed to drag it back. |
+| off screen | It overlaps no monitor at all. |
+
+Either of the last two is reported as a warning naming the window and the monitors, and
+the window is placed where the profile says. With `--clamp` it is moved onto the monitor it
+overlaps most — or the first, when it overlaps none — keeping its size unless it is larger
+than that monitor. `--list` shows the state beside each slot, and its JSON carries
+`monitors` and `sessions[].placement`. When no monitor information is available nothing is
+checked.
 
 ## A worked example
 

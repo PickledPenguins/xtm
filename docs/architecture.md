@@ -209,8 +209,9 @@ examples/
   Xwayland, and placement, capture and `--verify` work there too (verified on KDE Plasma 6
   with Xwayland at scale 1); native Wayland terminals are not supported.
 - **xterm specifically.** Placement relies on xterm's `allowWindowOps` escape sequences.
-- **No screen-size awareness.** Stack offsets can push a window off-screen; there is no
-  wraparound.
+- **Screen checks, not layout.** Each window is checked against the monitors `xrandr`
+  reports, and one that would land off screen is reported or, with `--clamp`, moved onto a
+  monitor. Profiles are not chosen by the monitors connected: `xtm NAME` switches.
 - **Absolute pixels only.** Positions do not scale between resolutions, which is why
   profiles are per machine.
 - **`command` runs only at creation**, as tmux itself does. It replaces the pane's shell, so

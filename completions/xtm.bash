@@ -46,7 +46,7 @@ _xtm() {
         --copy-profile --rename-profile --make-global --detach"
     local options="--profile --auto --all --verbose --on-switch --capture-new
         --detach-mode --config --state-dir --hostname --json --dry-run --yes --verify
-        --no-frame-compensation --debug --quiet --log-level --log-file
+        --clamp --no-frame-compensation --debug --quiet --log-level --log-file
         --help --version"
 
     case "$prev" in
