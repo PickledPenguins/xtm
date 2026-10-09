@@ -49,6 +49,10 @@ from pathlib import Path
 # Integration tests set their own DISPLAY and PATH for the fakes.
 os.environ.pop("DISPLAY", None)
 os.environ.pop("TMUX", None)
+# The developer's own VISUAL beats the EDITOR a test sets, so --edit would
+# start their editor -- not on the fakes' PATH -- instead of the test's.
+os.environ.pop("VISUAL", None)
+os.environ.pop("EDITOR", None)
 os.environ["TMUX_TMPDIR"] = tempfile.mkdtemp(prefix="xtm-test-tmux-")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
