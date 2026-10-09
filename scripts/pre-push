@@ -1,0 +1,28 @@
+#!/bin/sh
+# Pre-push gate: the tests on each commit being pushed, in a clean
+# checkout of it, so neither uncommitted edits nor untracked files decide
+# the result.  A failure stops the push.  Installed switched off, as
+# .git/hooks/pre-push.off, by
+#   tests/run-tests.sh --install-hooks
+# Rename it to .git/hooks/pre-push to switch it on.  Skip it once with
+# git push --no-verify.  The checkout runs its own copy of this file with
+# --test, so the tests are the ones the pushed commit has.
+set -eu
+if [ "${1-}" = --test ]; then
+    exec ./tests/run-tests.sh --lint --fast
+fi
+self=scripts/pre-push
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+tmp=$(mktemp -d)
+trap 'git worktree remove --force "$tmp/w" >/dev/null 2>&1 || :; rm -rf "$tmp"' EXIT
+while read -r _ sha _ _; do
+    case $sha in *[!0]*) ;; *) continue ;; esac     # a branch being deleted
+    git worktree add -q --detach "$tmp/w" "$sha"
+    if [ ! -x "$tmp/w/$self" ]; then
+        echo "pre-push: $sha has no $self; not tested" >&2
+    elif ! (cd "$tmp/w" && "./$self" --test </dev/null); then
+        echo "pre-push: tests fail at $sha; push stopped" >&2
+        exit 1
+    fi
+    git worktree remove --force "$tmp/w"
+done

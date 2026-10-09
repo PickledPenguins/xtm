@@ -18,9 +18,9 @@ RUN    := PYTHON=$(PYTHON) tests/run-tests.sh
 
 help:
 	@echo "make test           Every test module, each in its own interpreter"
-	@echo "make test-fast      The commit gate: in-process work plus smoke, ~25s"
+	@echo "make test-fast      The push gate: in-process work plus smoke, ~25s"
 	@echo "make test-long      The release gate: integration, races, examples"
-	@echo "make hooks          Install the pre-commit hook"
+	@echo "make hooks          Install the pre-push hook"
 	@echo "make test-shared    The suite in one interpreter (faster, weaker)"
 	@echo "make coverage       The suite under coverage, gated by the floor"
 	@echo "make coverage-html  As above, then write .build/htmlcov/"

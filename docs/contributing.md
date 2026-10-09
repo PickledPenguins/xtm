@@ -6,11 +6,12 @@ changes people actually make.
 ## Before anything
 
 ```bash
-tests/run-tests.sh --install-hooks   # once, per clone
+tests/run-tests.sh --install-hooks   # once, per clone; links .git/hooks/pre-push.off
+mv .git/hooks/pre-push.off .git/hooks/pre-push   # switches it on
 ```
 
-That runs the linter and the fast half of the suite before every commit, in about 25
-seconds. `git commit --no-verify` bypasses it when you need to; nothing else does.
+That runs the linter and the fast half of the suite on each commit before it is pushed, in
+about 25 seconds. `git push --no-verify` bypasses it when you need to; nothing else does.
 
 ## Where a change goes
 

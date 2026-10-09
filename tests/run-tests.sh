@@ -15,7 +15,7 @@
 #   tests/run-tests.sh --profile       where the time goes in real usage
 #   tests/run-tests.sh --full          all of the above
 #   tests/run-tests.sh --list          print the selected modules, run nothing
-#   tests/run-tests.sh --install-hooks install the pre-commit hook
+#   tests/run-tests.sh --install-hooks install the pre-push hook (scripts/pre-push), switched off
 #
 # Each module gets a fresh interpreter by default because xtm keeps state at
 # module level -- the run context, the logger's level, the resolved config
@@ -72,15 +72,9 @@ want_unit=1
 pattern=""
 
 install_hooks() {
-    hook="$ROOT/.git/hooks/pre-commit"
-    cat > "$hook" <<'HOOK'
-#!/bin/sh
-# Installed by tests/run-tests.sh --install-hooks.
-# The fast half of the suite plus the linter, before every commit.
-exec "$(git rev-parse --show-toplevel)/tests/run-tests.sh" --lint --fast
-HOOK
-    chmod +x "$hook"
-    echo "installed $hook (runs --lint --fast; bypass with git commit --no-verify)"
+    hook="$ROOT/.git/hooks/pre-push.off"
+    ln -sfn ../../scripts/pre-push "$hook"
+    echo "installed $hook -> scripts/pre-push, switched off; rename it to pre-push to switch it on (runs --lint --fast on each pushed commit; bypass with git push --no-verify)"
 }
 
 for arg in "$@"; do

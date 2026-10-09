@@ -14,19 +14,21 @@ tests/run-tests.sh --coverage      # the suite under coverage, gated by the floo
 tests/run-tests.sh --lint          # pyflakes and a compile check
 tests/run-tests.sh --examples      # every example, and the ones meant to fail
 tests/run-tests.sh --list          # which modules a selection covers, run nothing
-tests/run-tests.sh --install-hooks # install the pre-commit hook
+tests/run-tests.sh --install-hooks # install the pre-push hook, switched off
 tests/run-tests.sh --full          # all of the above
 make check                           # --full, plus the clean-tree assertion
 ```
 
 ## The two halves
 
-The suite splits on one question: is this cheap enough to run before every commit.
+The suite splits on one question: is this cheap enough to run before every push.
 
 **Fast** — about 25 seconds — is in-process work plus four smoke checks that really do
 start the program, because a smoke test that does not start it tests nothing. It is what
-`.git/hooks/pre-commit` runs, alongside the linter; install it with
-`tests/run-tests.sh --install-hooks` and bypass it with `git commit --no-verify`.
+`.git/hooks/pre-push` (`scripts/pre-push`) runs, alongside the linter, on each pushed commit
+in a clean checkout of it; install it with `tests/run-tests.sh --install-hooks`, which links
+it switched off as `.git/hooks/pre-push.off`, switch it on by renaming the link to
+`pre-push`, and bypass it with `git push --no-verify`.  Commits are not gated.
 
 **Long** — about two and a half minutes — runs xtm as a child process hundreds of times,
 races several of them, and executes every example. It gates a release.
