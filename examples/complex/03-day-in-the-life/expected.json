@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "day-editor",
+      "setup": null,
       "shared": false,
       "title": "editor"
     },
@@ -28,6 +29,7 @@
       "cwd": "~/work/service",
       "name": "terminal",
       "session": "day-terminal",
+      "setup": null,
       "shared": false,
       "title": "terminal"
     },
@@ -42,6 +44,7 @@
       "cwd": "~/work/service",
       "name": "tests",
       "session": "day-tests",
+      "setup": null,
       "shared": false,
       "title": "tests"
     },
@@ -56,6 +59,7 @@
       "cwd": null,
       "name": "logs",
       "session": "day-logs",
+      "setup": null,
       "shared": false,
       "title": "logs"
     },
@@ -70,6 +74,7 @@
       "cwd": null,
       "name": "metrics",
       "session": "day-metrics",
+      "setup": null,
       "shared": false,
       "title": "metrics"
     },
@@ -84,6 +89,7 @@
       "cwd": "~/work/service",
       "name": "db",
       "session": "day-db",
+      "setup": null,
       "shared": false,
       "title": "db"
     },
@@ -98,6 +104,7 @@
       "cwd": null,
       "name": "notes",
       "session": "notes",
+      "setup": null,
       "shared": true,
       "title": "notes"
     },
@@ -112,6 +119,7 @@
       "cwd": null,
       "name": "scratch",
       "session": "scratch",
+      "setup": null,
       "shared": true,
       "title": "scratch"
     }

@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "dev-editor",
+      "setup": null,
       "shared": false,
       "title": "dev: editor"
     },
@@ -28,6 +29,7 @@
       "cwd": "~/projects/thing",
       "name": "test",
       "session": "dev-test",
+      "setup": null,
       "shared": false,
       "title": "dev: test"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "logs",
       "session": "dev-logs",
+      "setup": null,
       "shared": false,
       "title": "dev: logs"
     }

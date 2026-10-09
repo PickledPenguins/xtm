@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "editor",
+      "setup": null,
       "shared": false,
       "title": "default \u00b7 editor"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "logs",
       "session": "logs",
+      "setup": null,
       "shared": false,
       "title": "LOGS \u2014 do not close"
     }

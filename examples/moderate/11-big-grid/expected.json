@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "r1c1",
       "session": "g-r1c1",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r1c1"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "r1c2",
       "session": "g-r1c2",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r1c2"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "r1c3",
       "session": "g-r1c3",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r1c3"
     },
@@ -56,6 +59,7 @@
       "cwd": null,
       "name": "r1c4",
       "session": "g-r1c4",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r1c4"
     },
@@ -70,6 +74,7 @@
       "cwd": null,
       "name": "r2c1",
       "session": "g-r2c1",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r2c1"
     },
@@ -84,6 +89,7 @@
       "cwd": null,
       "name": "r2c2",
       "session": "g-r2c2",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r2c2"
     },
@@ -98,6 +104,7 @@
       "cwd": null,
       "name": "r2c3",
       "session": "g-r2c3",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r2c3"
     },
@@ -112,6 +119,7 @@
       "cwd": null,
       "name": "r2c4",
       "session": "g-r2c4",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r2c4"
     },
@@ -126,6 +134,7 @@
       "cwd": null,
       "name": "r3c1",
       "session": "g-r3c1",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r3c1"
     },
@@ -140,6 +149,7 @@
       "cwd": null,
       "name": "r3c2",
       "session": "g-r3c2",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r3c2"
     },
@@ -154,6 +164,7 @@
       "cwd": null,
       "name": "r3c3",
       "session": "g-r3c3",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r3c3"
     },
@@ -168,6 +179,7 @@
       "cwd": null,
       "name": "r3c4",
       "session": "g-r3c4",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-r3c4"
     }

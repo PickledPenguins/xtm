@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "owned",
       "session": "k-owned",
+      "setup": null,
       "shared": false,
       "title": "xtm:k-owned"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "shared-with-detacher",
       "session": "sd",
+      "setup": null,
       "shared": true,
       "title": "xtm:sd"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "shared-with-killer",
       "session": "sk",
+      "setup": null,
       "shared": true,
       "title": "xtm:sk"
     }

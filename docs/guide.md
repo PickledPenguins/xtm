@@ -169,7 +169,22 @@ wanted to keep.
 
 xtm works one level above tmux's internals. It issues five tmux commands —
 `new-session`, `list-sessions`, `list-clients`, `kill-session` and `detach-client` — and
-never touches windows or panes inside a session. Four consequences:
+never touches the windows or panes inside a session itself. What a new session should
+contain goes in the slot's `setup`, which runs once when xtm creates the session:
+
+```yaml
+dev:
+  x: 0
+  y: 0
+  width: 1280
+  height: 1080
+  command: vim
+  setup: tmux new-window -d -t "$XTM_SESSION" -n shell && tmux split-window -h -t "$XTM_SESSION:1"
+```
+
+After a reboot the sessions are new, so `xtm` rebuilds them; while they keep running it
+only reattaches them. [moderate/16](../examples/moderate/16-setup-scripts/) has more.
+Four consequences of staying outside the session:
 
 - **`--update-profile` is pane-agnostic.** It captures four numbers per slot. A session
   split into six panes is saved exactly like a session with one.

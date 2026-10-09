@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "a-editor",
+      "setup": null,
       "shared": false,
       "title": "xtm:a-editor"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "shell",
       "session": "a-shell",
+      "setup": null,
       "shared": false,
       "title": "xtm:a-shell"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "notes",
       "session": "shared-notes",
+      "setup": null,
       "shared": true,
       "title": "xtm:shared-notes"
     }

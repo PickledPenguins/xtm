@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "compile",
       "session": "b-compile",
+      "setup": null,
       "shared": false,
       "title": "build/compile"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "tests",
       "session": "b-tests",
+      "setup": null,
       "shared": false,
       "title": "build/tests"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "logs",
       "session": "b-logs",
+      "setup": null,
       "shared": false,
       "title": "build/logs"
     },
@@ -56,6 +59,7 @@
       "cwd": null,
       "name": "notes",
       "session": "notes",
+      "setup": null,
       "shared": true,
       "title": "build/notes"
     }

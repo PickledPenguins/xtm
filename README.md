@@ -22,9 +22,10 @@ Three things: **opens** terminals — one `xterm` per named `tmux` session, opti
 a chosen command in a chosen directory; **places** them at the position recorded in the
 profile; and **records** layouts by reading the current positions back into the profile.
 
-It is deliberately *not* a tmux session manager: it does not define windows, panes or splits
-inside a session. It manages the desktop-level arrangement of terminals and leaves what
-happens inside each one to tmux.
+It is deliberately *not* a tmux session manager: it does not describe windows, panes or
+splits inside a session. It manages the desktop-level arrangement of terminals; a slot's
+`setup` command, run once when its session is created, is where tmux commands build the
+inside.
 
 Three words are used precisely throughout: a **slot** is a position on screen and the key of
 an entry under `sessions:`; the **session** is the tmux session attached to it; **tabs** and

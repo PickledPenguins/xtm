@@ -66,6 +66,7 @@ at the example's config and asks it to report, so running these is safe on any m
 | [moderate/13-mixed-quoting](moderate/13-mixed-quoting/) | The four quoting rules, applied where they actually come |
 | [moderate/14-captured-layout](moderate/14-captured-layout/) | What the tool writes when you let it, and how to read it. |
 | [moderate/15-three-profiles-one-notes](moderate/15-three-profiles-one-notes/) | The shared-session pattern at the size people really use |
+| [moderate/16-setup-scripts](moderate/16-setup-scripts/) | Sessions that come up with their tmux windows and splits, built by `setup`. |
 
 ## Complex
 

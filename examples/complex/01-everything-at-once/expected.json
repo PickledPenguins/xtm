@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "desk-editor",
+      "setup": null,
       "shared": false,
       "title": "desk \u00b7 editor"
     },
@@ -28,6 +29,7 @@
       "cwd": "/var/log",
       "name": "logs",
       "session": "desk-logs",
+      "setup": null,
       "shared": false,
       "title": "LOGS"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "notes",
       "session": "notes",
+      "setup": null,
       "shared": true,
       "title": "desk \u00b7 notes"
     },
@@ -56,6 +59,7 @@
       "cwd": null,
       "name": "build",
       "session": "desk-build",
+      "setup": null,
       "shared": false,
       "title": "0755"
     }

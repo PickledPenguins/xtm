@@ -212,6 +212,7 @@ Stray xtm windows (sessions this profile does not name):
 | `session:` | The tmux session name this slot resolves to. Shown when it differs from the slot name, or when it is shared. `(shared, kept on profile switch)` marks a slot with an explicit `session:`. |
 | `command:` | The slot's configured launch command, shown only when one is set. |
 | `cwd:` | The slot's configured working directory, shown only when one is set. |
+| `setup:` | The slot's setup command, shown only when one is set. |
 | Stray xtm windows | xtm windows showing a session that matches no slot in this profile. Those belonging to another profile are labeled with its name. Terminals xtm did not open are never listed. |
 
 A trailing note appears when no geometry tool is installed, explaining that live positions
@@ -270,6 +271,7 @@ cannot be shown.
 | `sessions[].live` | object or null | Current on-screen geometry, or `null` if unavailable. |
 | `sessions[].command` | string or null | Configured launch command. |
 | `sessions[].cwd` | string or null | Configured working directory. |
+| `sessions[].setup` | string or null | Configured setup command. |
 | `sessions[].placement` | string or null | Where the configured position lands: `on screen`, `partly off screen` or `off screen`; `null` when the monitors are unknown. See [placement.md](placement.md#windows-off-screen). |
 | `state_file` | string | Path of this machine's current-profile state file. |
 | `strays` | array | Sessions shown in an xtm window that no slot in this profile names. |

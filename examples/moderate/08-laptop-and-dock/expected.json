@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "m-editor",
+      "setup": null,
       "shared": false,
       "title": "xtm:m-editor"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "reference",
       "session": "m-reference",
+      "setup": null,
       "shared": false,
       "title": "xtm:m-reference"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "shell",
       "session": "m-shell",
+      "setup": null,
       "shared": false,
       "title": "xtm:m-shell"
     },
@@ -56,6 +59,7 @@
       "cwd": null,
       "name": "logs",
       "session": "m-logs",
+      "setup": null,
       "shared": false,
       "title": "xtm:m-logs"
     }

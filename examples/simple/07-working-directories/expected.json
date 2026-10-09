@@ -14,6 +14,7 @@
       "cwd": "~/projects/current",
       "name": "project",
       "session": "project",
+      "setup": null,
       "shared": false,
       "title": "xtm:project"
     },
@@ -28,6 +29,7 @@
       "cwd": "/var/log",
       "name": "logs",
       "session": "logs",
+      "setup": null,
       "shared": false,
       "title": "xtm:logs"
     },
@@ -42,6 +44,7 @@
       "cwd": "~/projects/current",
       "name": "build",
       "session": "build",
+      "setup": null,
       "shared": false,
       "title": "xtm:build"
     }

@@ -798,3 +798,61 @@ class TestFailingStartCommands(IntegrationBase):
         result = self.run_xtm("-r", env={"XTM_FAKE_TMUX_VERSION": "3.1c"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.launched()[0][-1], "ssh headnode")
+
+
+class TestSetup(IntegrationBase):
+    """A slot's `setup` builds the inside of a session xtm just created."""
+
+    def config(self, setup):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                prefix: desk-
+                sessions:
+                  dev:
+                    x: 0
+                    y: 0
+                    width: 900
+                    height: 700
+                    cwd: %s
+                    setup: %s
+            """ % (self.tmp, setup))
+        self.out = self.tmp / "setup-ran"
+
+    def test_runs_once_with_the_session_slot_and_profile(self):
+        self.config("""'printf "%s %s %s %s" "$XTM_SESSION" "$XTM_SLOT" "$XTM_PROFILE" "$PWD" >> setup-ran'""")
+        result = self.run_xtm("desk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Ran setup for desk-dev", result.stderr)
+        self.assertEqual(self.out.read_text(),
+                         "desk-dev dev desk %s" % (self.tmp,))
+
+    def test_not_run_when_the_session_already_existed(self):
+        self.config("'printf x >> setup-ran'")
+        self.add_session("desk-dev", attached="0")
+        result = self.run_xtm("desk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_a_failing_setup_is_a_warning(self):
+        self.config("'printf oops >&2; exit 4'")
+        result = self.run_xtm("desk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("desk-dev: setup exited 4: oops", result.stderr)
+        self.assertIn("Opened desk-dev", result.stderr)
+
+    def test_dry_run_only_says_so(self):
+        self.config("'printf x >> setup-ran'")
+        result = self.run_xtm("desk", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[dry-run] would run setup for desk-dev", result.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_the_status_view_shows_it(self):
+        self.config("'printf x >> setup-ran'")
+        result = self.run_xtm("-p", "desk", "-l")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout, r"\n {42}setup: +printf x >> setup-ran\n")
+        self.assertFalse(self.out.exists())

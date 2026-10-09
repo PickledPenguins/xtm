@@ -1,0 +1,36 @@
+# Slots whose sessions come up with more than one tmux window.
+#
+# `command` is what the first pane runs. `setup` runs once, just after xtm
+# creates the session, with XTM_SESSION, XTM_SLOT and XTM_PROFILE set, so it
+# can add windows, splits and a layout with plain tmux commands -- or call a
+# script that does. It does not run again while the session keeps running.
+profiles:
+  default:
+    sessions: {}
+
+  dev:
+    prefix: dev-
+    sessions:
+      editor:
+        x: 0
+        y: 0
+        width: 1280
+        height: 1080
+        cwd: ~/work/service
+        command: vim
+        setup: tmux new-window -d -t "$XTM_SESSION" -n shell
+      build:
+        x: 1280
+        y: 0
+        width: 640
+        height: 1080
+        cwd: ~/work/service
+        setup: >-
+          tmux split-window -v -t "$XTM_SESSION" 'make watch' &&
+          tmux select-layout -t "$XTM_SESSION" even-vertical
+      ops:
+        x: 1920
+        y: 0
+        width: 960
+        height: 1080
+        setup: ~/.config/xtm/ops-layout.sh

@@ -220,4 +220,5 @@ examples/
   with the same care as any line in a shell profile.
 - **Windows opened by hand are invisible to xtm**, since they carry no `xtm-` instance name.
 - **xtm manages sessions, not their contents.** Tabs, panes and layouts inside a session are
-  tmux's business.
+  tmux's business; `setup` hands a new session to the user's own tmux commands once, and
+  xtm never reads or restores what is inside.

@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "mo-editor",
+      "setup": null,
       "shared": false,
       "title": "modern/editor"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "shell",
       "session": "mo-shell",
+      "setup": null,
       "shared": false,
       "title": "modern/shell"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "notes",
       "session": "mo-notes",
+      "setup": null,
       "shared": false,
       "title": "modern/notes"
     }

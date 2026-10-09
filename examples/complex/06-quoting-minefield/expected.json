@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "octal",
       "session": "desk-octal",
+      "setup": null,
       "shared": false,
       "title": "0755"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "sexagesimal",
       "session": "desk-sexagesimal",
+      "setup": null,
       "shared": false,
       "title": "1:30"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "boolean",
       "session": "desk-boolean",
+      "setup": null,
       "shared": false,
       "title": "yes"
     },
@@ -56,6 +59,7 @@
       "cwd": null,
       "name": "date",
       "session": "desk-date",
+      "setup": null,
       "shared": false,
       "title": "2026-01-01"
     },
@@ -70,6 +74,7 @@
       "cwd": null,
       "name": "separators",
       "session": "desk-separators",
+      "setup": null,
       "shared": false,
       "title": "1_000"
     },
@@ -84,6 +89,7 @@
       "cwd": null,
       "name": "scientific",
       "session": "desk-scientific",
+      "setup": null,
       "shared": false,
       "title": "1e3"
     },
@@ -98,6 +104,7 @@
       "cwd": null,
       "name": "escapes",
       "session": "desk-escapes",
+      "setup": null,
       "shared": false,
       "title": "xtm:desk-escapes"
     },
@@ -112,6 +119,7 @@
       "cwd": null,
       "name": "font",
       "session": "desk-font",
+      "setup": null,
       "shared": false,
       "title": "xtm:desk-font"
     },
@@ -126,6 +134,7 @@
       "cwd": null,
       "name": "infinity",
       "session": "desk-infinity",
+      "setup": null,
       "shared": false,
       "title": ".inf"
     }

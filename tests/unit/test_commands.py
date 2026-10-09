@@ -1,8 +1,12 @@
 """Command helpers exercised in-process with a scripted run()."""
 
 import builtins
+import os
+import shutil
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 from tests.support import (
     FakeResult,
@@ -153,3 +157,41 @@ class TestFocusAndConfirm(RunPatchMixin):
             self.assertTrue(xtm.confirm("q", False))
         finally:
             sys.stdin.isatty = stdin_original
+
+
+class TestRunSetup(unittest.TestCase):
+    """run_setup's warnings: none of them stops the session from being used."""
+
+    def setUp(self):
+        context = xtm.scoped_context()
+        context.__enter__()
+        self.addCleanup(context.__exit__, None, None, None)
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.out = os.path.join(self.tmp, "out")
+
+    def setup(self, line, cwd=None):
+        with self.assertLogs(xtm.logger, "DEBUG") as logs:
+            xtm.run_setup("s", {"setup": line, "cwd": cwd}, "slot", None)
+        return "\n".join(logs.output)
+
+    def test_a_missing_cwd_runs_it_in_the_home_directory(self):
+        os.environ["HOME"], home = self.tmp, os.environ["HOME"]
+        self.addCleanup(os.environ.__setitem__, "HOME", home)
+        self.setup('printf "%%s %%s" "$PWD" "$XTM_PROFILE" > %s' % self.out,
+                   cwd=os.path.join(self.tmp, "gone"))
+        with open(self.out) as f:
+            self.assertEqual(f.read(), "%s " % self.tmp)
+
+    def test_a_setup_that_runs_too_long_is_stopped(self):
+        original = xtm.SETUP_TIMEOUT_SECONDS
+        xtm.SETUP_TIMEOUT_SECONDS = 0.2
+        self.addCleanup(setattr, xtm, "SETUP_TIMEOUT_SECONDS", original)
+        self.assertIn("WARNING:%s:s: setup did not finish within 0s and was stopped."
+                      % xtm.LOGGER_NAME,
+                      self.setup("exec sleep 5", cwd=self.tmp))
+
+    def test_a_setup_that_cannot_start_is_a_warning(self):
+        with mock.patch.object(xtm.subprocess, "run", side_effect=OSError("no sh")):
+            self.assertIn("WARNING:%s:s: could not run setup: no sh" % xtm.LOGGER_NAME,
+                          self.setup("true", cwd=self.tmp))

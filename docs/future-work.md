@@ -8,8 +8,6 @@ written down.
 
 - **Fractional and monitor-relative geometry** (`x: 50%`, `monitor: HDMI-1`) derived from
   `xrandr`, so a profile survives a resolution change and is portable between machines.
-- **Per-session tmux window and pane layouts**, which would make xtm a full workspace
-  manager rather than a placement tool.
 - **A placement backend using `xdotool`/`wmctrl`** instead of escape sequences, which would
   remove the dependency on `allowWindowOps` and open the door to terminal emulators other
   than xterm.
@@ -46,6 +44,11 @@ written down.
 - **Re-binding a global profile to a machine.** `--make-global` is one-way on purpose:
   re-binding would hide a profile that other machines may already be relying on. Adding a
   `match` block by hand is the supported route.
+- **Declarative tmux windows and panes per slot** (`windows: {build: {command: ...}}`).
+  Chosen instead on 2026-09-28: a `setup` shell command run once when the session is
+  created. It covers every layout tmux can express without a second schema in the config,
+  and without xtm turning into a tmux session manager. The declarative form would also need
+  xtm to decide when an existing session's contents are "wrong", which it cannot know.
 - **Keeping a built-in YAML reader for hosts without PyYAML.** Until 2026-09-27 xtm read
   its config with PyYAML when importable and with its own parser otherwise, behind a
   guard that refused every input the two would read differently. That guard was 580 of

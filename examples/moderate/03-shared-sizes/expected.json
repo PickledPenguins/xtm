@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "g-editor",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-editor"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "shell",
       "session": "g-shell",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-shell"
     },
@@ -42,6 +44,7 @@
       "cwd": null,
       "name": "logs",
       "session": "g-logs",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-logs"
     },
@@ -56,6 +59,7 @@
       "cwd": null,
       "name": "wide",
       "session": "g-wide",
+      "setup": null,
       "shared": false,
       "title": "xtm:g-wide"
     }

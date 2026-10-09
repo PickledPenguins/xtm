@@ -910,6 +910,9 @@ def validate_session_entry(entry: GeometryDict, context: str) -> None:
     cwd = entry.get("cwd")
     if cwd is not None:
         require_text(cwd, context, "cwd")
+    setup = entry.get("setup")
+    if setup is not None:
+        require_text(setup, context, "setup")
     xterm_args = entry.get("xterm_args")
     if xterm_args is not None:
         if not isinstance(xterm_args, (list, tuple)):
@@ -2403,23 +2406,78 @@ def spawn_xterm(session: str, sess_cfg: Optional[GeometryDict] = None,
     return proc
 
 
+SETUP_TIMEOUT_SECONDS = 60.0
+
+
+def run_setup(session: str, sess_cfg: GeometryDict, slot: str,
+              profile_name: Optional[str]) -> None:
+    """Run a slot's `setup` once, just after xtm created its session.
+
+    `setup` is a shell command -- a script path, or a line of tmux commands
+    -- for what `command` cannot do: extra tmux windows, splits, a layout.
+    It runs with XTM_SESSION, XTM_SLOT and XTM_PROFILE set, in the slot's
+    cwd, with the user's own environment. Only on creation: a session that
+    was already running has whatever its setup built, and running it again
+    would build it twice.
+
+    A failure is a warning, not an error: the window is already open and
+    placed, and the session is usable without whatever setup would have
+    added.
+    """
+    setup = sess_cfg.get("setup")
+    if not setup:
+        return
+    if CONTEXT.dry_run:
+        logger.info("[dry-run] would run setup for %s: %s", session, setup)
+        return
+    cwd = os.path.expanduser(str(sess_cfg.get("cwd") or "~"))
+    if not os.path.isdir(cwd):
+        cwd = os.path.expanduser("~")
+    env = dict(os.environ)
+    env.update({"XTM_SESSION": session, "XTM_SLOT": slot,
+                "XTM_PROFILE": profile_name or ""})
+    logger.debug("Running setup for %s in %s: %s", session, cwd, setup)
+    try:
+        result = subprocess.run(["/bin/sh", "-c", str(setup)], cwd=cwd, env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                universal_newlines=True,
+                                timeout=SETUP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        logger.warning("%s: setup did not finish within %ds and was stopped.",
+                       session, SETUP_TIMEOUT_SECONDS)
+        return
+    except OSError as e:
+        logger.warning("%s: could not run setup: %s", session, e)
+        return
+    if result.returncode != 0:
+        logger.warning("%s: setup exited %d: %s", session, result.returncode,
+                       _truncate(result.stderr) or "(no output)")
+        return
+    logger.info("Ran setup for %s.", session)
+
+
 def open_session(session: str, geometry: GeometryDict,
                  sess_cfg: Optional[GeometryDict] = None,
-                 title: Optional[str] = None) -> None:
+                 title: Optional[str] = None, slot: Optional[str] = None,
+                 profile_name: Optional[str] = None) -> None:
     """Open one session in a new xterm and place it.
 
     Errors if the session already has an xtm window. A session attached
     only elsewhere -- an SSH login, another terminal -- still gets one:
-    `tmux new-session -A` attaches a second client beside the first.
+    `tmux new-session -A` attaches a second client beside the first. When
+    the session did not exist and this created it, the slot's `setup` runs.
     """
     validate_session_name(session)
     if xtm_windows().get(session):
         die("tmux session %r already has an xtm window." % (session,))
+    creating = session not in tmux_list_sessions()
     proc = spawn_xterm(session, sess_cfg, title)
     if CONTEXT.dry_run:
         logger.info("[dry-run] would place %r at x=%s y=%s %sx%s", session,
                     geometry["x"], geometry["y"], geometry["width"],
                     geometry["height"])
+        if creating and sess_cfg:
+            run_setup(session, sess_cfg, slot or session, profile_name)
         return
     tty = wait_for_own_client(session, proc)
     if not tty:
@@ -2428,12 +2486,15 @@ def open_session(session: str, geometry: GeometryDict,
     place_window(session, geometry, tty)
     logger.info("Opened %s at x=%s y=%s %sx%s", session, geometry["x"],
                 geometry["y"], geometry["width"], geometry["height"])
+    if creating and sess_cfg:
+        run_setup(session, sess_cfg, slot or session, profile_name)
 
 
 def reposition_or_open(session: str, geometry: GeometryDict,
                        sess_cfg: Optional[GeometryDict] = None,
                        window_tty: Optional[str] = None,
-                       title: Optional[str] = None) -> None:
+                       title: Optional[str] = None, slot: Optional[str] = None,
+                       profile_name: Optional[str] = None) -> None:
     """Move a session's xtm window, or open one if it has none.
 
     `window_tty` is the tty of the session's xtm client, from an
@@ -2453,7 +2514,7 @@ def reposition_or_open(session: str, geometry: GeometryDict,
         logger.info("Repositioned %s to x=%s y=%s %sx%s", session, geometry["x"],
                     geometry["y"], geometry["width"], geometry["height"])
     else:
-        open_session(session, geometry, sess_cfg, title)
+        open_session(session, geometry, sess_cfg, title, slot, profile_name)
 
 
 def count_unnamed_open(profile: ProfileDict,
@@ -2501,7 +2562,7 @@ def cmd_open(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
         logger.info("%s has no configured position in profile %s; using stacked "
                     "slot #%d.", session, profile_name, index)
     open_session(session, fit_to_screen(session, geometry, screen_monitors()),
-                 slot_cfg, title)
+                 slot_cfg, title, slot_name, profile_name)
     return EXIT_OK
 
 
@@ -2522,7 +2583,8 @@ def cmd_reset(args: argparse.Namespace, config: ConfigDict, profile_name: str) -
                 fit_to_screen(session, session_geometry(slot_cfg), monitors),
                 slot_cfg,
                 window_tty=(windows.get(session) or [None])[0],
-                title=resolve_window_title(profile, profile_name, slot, session))
+                title=resolve_window_title(profile, profile_name, slot, session),
+                slot=slot, profile_name=profile_name)
         except XtmError as e:
             logger.warning("%s: %s", session, e)
             failures.append(session)
@@ -3287,6 +3349,7 @@ def collect_status(config: ConfigDict, profile_name: str) -> Dict[str, Any]:
             "configured": session_geometry(cfg),
             "command": cfg.get("command"),
             "cwd": cfg.get("cwd"),
+            "setup": cfg.get("setup"),
             "live": None,
             "placement": (screen_fit(session_geometry(cfg), monitors)
                           if monitors else None),
@@ -3370,6 +3433,8 @@ def cmd_list(args: argparse.Namespace, config: ConfigDict, profile_name: str) ->
             print("  %-20s %-18s command:    %s" % ("", "", entry["command"]))
         if entry["cwd"]:
             print("  %-20s %-18s cwd:        %s" % ("", "", entry["cwd"]))
+        if entry["setup"]:
+            print("  %-20s %-18s setup:      %s" % ("", "", entry["setup"]))
     print("")
     print("Stray xtm windows (sessions this profile does not name):")
     if not status["strays"]:

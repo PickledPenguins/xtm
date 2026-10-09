@@ -14,6 +14,7 @@
       "cwd": null,
       "name": "editor",
       "session": "desk-editor",
+      "setup": null,
       "shared": false,
       "title": "xtm:desk-editor"
     },
@@ -28,6 +29,7 @@
       "cwd": null,
       "name": "logs",
       "session": "desk-logs",
+      "setup": null,
       "shared": false,
       "title": "xtm:desk-logs"
     },
@@ -42,6 +44,7 @@
       "cwd": "~/backups",
       "name": "backup",
       "session": "desk-backup",
+      "setup": null,
       "shared": false,
       "title": "0755"
     }

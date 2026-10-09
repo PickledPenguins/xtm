@@ -40,9 +40,10 @@ Three things:
 3. **Records** layouts: reads the current on-screen positions back and saves them into a
    profile.
 
-It is deliberately *not* a tmux session manager. It does not define windows, panes or
-splits inside a session; it manages the desktop-level arrangement of terminals and leaves
-what happens inside each one to tmux.
+It is deliberately *not* a tmux session manager. It does not describe windows, panes or
+splits inside a session; it manages the desktop-level arrangement of terminals. What a new
+session should contain beyond its first pane is a slot's `setup`: a shell command run once,
+when xtm creates the session, that builds it with ordinary tmux commands.
 
 ## Ownership: prefix and session
 
