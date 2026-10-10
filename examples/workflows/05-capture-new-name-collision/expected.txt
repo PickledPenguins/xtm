@@ -1,0 +1,51 @@
+$ xtm desk
+exit 0
+stderr:
+  Opened desk-work1 at x=0 y=0 960x1180
+
++ move desk-work1 0,0,960,1180
++ session work1 900,0,500,500
+$ xtm -u --capture-new
+exit 0
+stderr:
+  Adding the reserved 'default' profile to TMP/cfg/config.yaml.
+  xtm: warning: Slot work1 already names session desk-work1; captured session work1 recorded as slot work1-2.
+  Profile desk updated: 1 slot(s) updated, 1 added. Saved to TMP/cfg/config.yaml
+
+--- state
+current profile: desk
+sessions: desk-work1 (attached), work1 (attached)
+config:
+  profiles:
+    desk:
+      prefix: desk-
+      sessions:
+        work1:
+          x: 0
+          y: 0
+          width: 960
+          height: 1180
+          command: make watch
+          cwd: ~/src
+        work1-2:
+          x: 900
+          y: 0
+          width: 500
+          height: 500
+          session: work1
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+    default:
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+      sessions: {}

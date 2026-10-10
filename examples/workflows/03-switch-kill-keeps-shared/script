@@ -1,0 +1,3 @@
+# desk kills its sessions when left, but notes is in lab too, so it is kept.
+xtm desk
+xtm lab

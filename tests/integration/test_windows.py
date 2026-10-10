@@ -7,6 +7,8 @@ import subprocess
 import sys
 import time
 
+import yaml
+
 from tests.support import (
     IntegrationBase,
     XTM_SCRIPT,
@@ -137,6 +139,16 @@ class TestWindowActions(IntegrationBase):
     def test_focus_missing_window_exits_one(self):
         self.assertEqual(self.run_xtm("-f", "ghost").returncode, 1)
 
+    def test_verify_reports_the_delta(self):
+        self.run_xtm("-s", "work1", "100,200,900,700")
+        self.add_session("work1")
+        self.add_window("work1", 105, 233, 900, 700)
+        result = self.run_xtm("--verify", "-r")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("xtm: warning: work1: placed at x=105 y=233 900x700, "
+                      "requested x=100 y=200 900x700 "
+                      "(delta x=+5 y=+33 w=+0 h=+0)\n", result.stderr)
+
 
 class TestCapture(IntegrationBase):
 
@@ -258,7 +270,40 @@ class TestCaptureScope(IntegrationBase):
         self.add_window("other-thing", 7, 8, 400, 300)
         result = self.run_xtm("desk", "--update-profile", "--capture-new")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("other-thing", self.config_text())
+        slots = yaml.safe_load(self.config_text())["profiles"]["desk"]["sessions"]
+        self.assertEqual(slots["other-thing"], {
+            "x": 7, "y": 8, "width": 400, "height": 300, "session": "other-thing"})
+
+    def test_capture_new_keeps_a_slot_whose_name_the_captured_session_has(self):
+        # Slot work1 is session desk-work1; a stray session named work1 used to
+        # be written over it, losing its command and cwd.
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                prefix: desk-
+                sessions:
+                  work1: {x: 0, y: 0, width: 960, height: 1180, command: htop, cwd: /tmp}
+                  work1-2: {x: 0, y: 0, width: 100, height: 100}
+            """)
+        self.add_session("desk-work1")
+        self.add_window("desk-work1", 5, 6, 960, 1180)
+        self.add_session("work1")
+        self.add_window("work1", 900, 0, 500, 500)
+        result = self.run_xtm("desk", "--update-profile", "--capture-new")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("xtm: warning: Slot work1 already names session desk-work1; "
+                      "captured session work1 recorded as slot work1-3.\n"
+                      "Profile desk updated: 1 slot(s) updated, 1 added.",
+                      result.stderr)
+        slots = yaml.safe_load(self.config_text())["profiles"]["desk"]["sessions"]
+        self.assertEqual(slots, {
+            "work1": {"x": 5, "y": 6, "width": 960, "height": 1180,
+                      "command": "htop", "cwd": "/tmp"},
+            "work1-2": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "work1-3": {"x": 900, "y": 0, "width": 500, "height": 500,
+                        "session": "work1"}})
 
     def test_known_slots_are_still_updated(self):
         self.setup_two()
@@ -478,12 +523,31 @@ class TestDetachAndSwitch(IntegrationBase):
 
     def test_switching_leaves_a_shared_session_attached(self):
         # It is about to be repositioned into its new slot, so closing it
-        # only to reopen it would throw the window away for nothing.
+        # only to reopen it would throw the window away for nothing. The
+        # switch's own report is the evidence: checking `attached` afterwards
+        # proved nothing, because bringing lab up reopens a detached notes.
         self.two_profiles()
         self.run_xtm("desk", "--reset")
         self.assertTrue(self.attached("notes"))
-        self.run_xtm("lab")
+        result = self.run_xtm("lab")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Detached 1 window(s) from profile desk: desk-work1\n",
+                      result.stderr)
         self.assertTrue(self.attached("notes"))
+
+    def test_switching_with_kill_spares_a_shared_session(self):
+        # Under kill, losing the keep set destroys the shared session, and
+        # its jobs and scrollback with it, on every switch.
+        self.two_profiles(on_switch="kill")
+        self.run_xtm("desk", "--reset")
+        self.clear_calls()
+        result = self.run_xtm("lab")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Closed 1 window(s) from profile desk: desk-work1\n",
+                      result.stderr)
+        killed = [call[-1] for call in self.calls("tmux")
+                  if call[1] == "kill-session"]
+        self.assertEqual(killed, ["desk-work1"])
 
     def test_on_switch_leave_keeps_windows(self):
         self.two_profiles(on_switch="leave")

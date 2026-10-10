@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -190,6 +191,21 @@ class TestRunSetup(unittest.TestCase):
         self.assertIn("WARNING:%s:s: setup did not finish within 0s and was stopped."
                       % xtm.LOGGER_NAME,
                       self.setup("exec sleep 5", cwd=self.tmp))
+
+    def test_a_setup_that_starts_a_background_process_returns_at_once(self):
+        # The child inherited setup's output pipes, so xtm waited for it to
+        # exit: up to the 60 s limit, then warned that setup "did not finish".
+        started = time.monotonic()
+        logs = self.setup("sleep 10 & echo started", cwd=self.tmp)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertIn("INFO:%s:Ran setup for s." % xtm.LOGGER_NAME, logs)
+        self.assertNotIn("WARNING", logs)
+
+    def test_a_failing_setup_reports_what_it_wrote_to_stderr(self):
+        self.assertIn("WARNING:%s:s: setup exited 3: no such window"
+                      % xtm.LOGGER_NAME,
+                      self.setup("echo ignored; echo no such window >&2; exit 3",
+                                 cwd=self.tmp))
 
     def test_a_setup_that_cannot_start_is_a_warning(self):
         with mock.patch.object(xtm.subprocess, "run", side_effect=OSError("no sh")):

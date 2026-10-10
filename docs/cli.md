@@ -37,7 +37,7 @@ Every action has a short and a long form. At most one action may be given. With 
 | Short | Long | Argument | Description |
 |---|---|---|---|
 | — | *(positional)* | `PROFILE` | Switch to a profile: `xtm desk`. Equivalent to `--profile`; with no action, the profile is then brought up. |
-| `-p` | `--profile` | `NAME` | Use profile `NAME` and persist it as this machine's current profile. |
+| `-p` | `--profile` | `NAME` | Use profile `NAME` and persist it as this machine's current profile. With `--list`, `--list-profiles`, `--validate` or `--check`, use it for this run only. |
 | `-a` | `--auto` | — | Ignore the saved current profile; select one by matching the hostname. |
 | `-A` | `--all` | — | Widen the scope: include profiles belonging to other machines when selecting or listing them, and with `--close-all` cover every profile visible on this machine rather than only the current one. Never reaches a profile bound to another host. |
 | `-v` | `--verbose` | — | With `--list-profiles`, also show each profile's slots, session names and running state. |
@@ -105,12 +105,12 @@ strays are stacked alphabetically.
 
 | Option | Edge-case behavior |
 |---|---|
-| `--profile` | A name that is not in the config is an error, and the state file is left unchanged. |
+| `--profile` | A name that is not in the config is an error, and the state file is left unchanged. Switching to a different profile runs the old profile's `on_switch` before the action. The commands that only report (`--list`, `--list-profiles`, `--validate`, `--check`) neither switch nor save: `xtm -p lab --check` checks `lab` and leaves the current profile and its windows as they were. `--current-profile` does switch, so `xtm -p lab -C` selects and confirms in one call. |
 | `--auto` | With no matching `match` block, falls through to the reserved `default` profile, which always exists. |
 | `--all` | Affects visibility only. It never changes what a command does to a profile it can already see. |
 | `--hostname` | Everything that depends on which machine this is follows it: which profiles are visible, which `match` block wins under `--auto`, and which per-machine state file is read and written. That last one is why it is not a preview flag on its own — pair it with `--dry-run` to change nothing. The name must be a valid profile-name charset, since it ends up in a filename. |
 | `--detach` | Accepts a slot name or a session name. Detaches only xtm's own window: a terminal xtm did not open stays attached. A session with no xtm window reports so and exits 0; a session that is not running exits 1. |
-| `--capture-new` | Only meaningful with `--update-profile`. Captured windows are recorded with an explicit `session:`, because those sessions already exist under the names they were captured with and must not be renamed by the profile's prefix. |
+| `--capture-new` | Only meaningful with `--update-profile`. Captured windows are recorded with an explicit `session:`, because those sessions already exist under the names they were captured with and must not be renamed by the profile's prefix. A captured session whose name is already a slot (slot `work1`, session `desk-work1`, and a stray session `work1`) leaves that slot alone and is recorded under the first free name after it (`work1-2`), with a warning. |
 | `--on-switch` | Applies to the profile being left, not the one being entered. Has no effect when the profile is not actually changing. |
 | `--detach-mode` | Only meaningful with `--close-all`. |
 | `--verbose` | Only meaningful with `--list-profiles`. |
@@ -126,10 +126,10 @@ strays are stacked alphabetically.
 | `--new-profile` | An existing name is an error. The new profile gets `prefix: <name>-` written explicitly, and every captured window is recorded with an explicit `session:`. Stack settings are inherited from the current profile. Capturing an empty screen creates an empty profile and says so. |
 | `--set` | Creates the session entry if it does not exist, and preserves `command`, `cwd` and `xterm_args` if it does. Rejects non-integer, non-finite and non-positive sizes. |
 | `--delete-session` | A name that is not in the profile is an error. A running session is not killed; only its recorded position is removed. |
-| `--delete-profile` | Deleting the current profile also clears the state file, so the next run falls back to matching or `default`. Deleting the last remaining profile is allowed. |
+| `--delete-profile` | Deleting the current profile also clears the state file, so the next run falls back to matching or `default`. Only this machine's state file: another machine whose current profile it was stops on its next run with `Current profile 'NAME' no longer exists`, and picks one with `--profile`. Deleting the last remaining profile is allowed. |
 | `--copy-profile` | The target must not already exist. The copy is deep, so later edits to one do not affect the other. |
-| `--rename-profile` | Updates the state file if the renamed profile was current. |
-| `--edit` | `$VISUAL` is checked before `$EDITOR`, and either may carry arguments (`vim -p`); the config path is appended last. A config left invalid after editing is reported and exits 1; the file is not reverted, so the edit is never lost. |
+| `--rename-profile` | Updates every machine's state file whose current profile was the renamed one, so a shared home directory follows the rename on every machine. |
+| `--edit` | `$VISUAL` is checked before `$EDITOR`, and either may carry arguments (`vim -p`); the config path is appended last. A config left invalid after editing is reported and exits 1; the file is not reverted, so the edit is never lost. The editor opens the file as it is on disk; a reserved `default` profile the file lacks is added after the editor exits, not before. |
 | `--dry-run` | Confirmation prompts are auto-accepted, since nothing will actually happen. |
 | `--verify` | Without a geometry tool, warns once and skips verification rather than failing the placement. |
 | `--json` | Applies only to `--list`, `--list-profiles`, `--current-profile`, `--validate` and `--check`, and to a bare `xtm`, which it turns into `--list`. With no profile saved, `--current-profile --json` reports `current_profile: null` alongside the `resolved_profile` that would be used. |

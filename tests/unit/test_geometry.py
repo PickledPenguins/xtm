@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import unittest
+from unittest import mock
 
 from tests.support import (
     FakeResult,
@@ -382,6 +383,22 @@ class TestProcessAncestry(unittest.TestCase):
 
     def test_depth_limit_stops_the_walk(self):
         self.assertFalse(xtm._is_descendant_of(os.getpid(), 1, max_depth=1))
+
+    def test_a_window_further_up_than_the_depth_limit_is_not_found(self):
+        # A synthetic chain 100 -> 101 -> ... whose xterm is the ninth
+        # ancestor: the walk gives up after eight hops, whatever the real
+        # process tree of the machine running the suite looks like.
+        cmdlines = {109: ["xterm", "-name", xtm.window_instance("s")]}
+        visited = []
+
+        def cmdline(pid):
+            visited.append(pid)
+            return cmdlines.get(pid, ["sh"])
+        with mock.patch.object(xtm, "_read_proc_cmdline", cmdline), \
+                mock.patch.object(xtm, "_read_proc_ppid", lambda pid: pid + 1):
+            self.assertFalse(xtm._runs_in_xtm_window(100, "s"))
+            self.assertEqual(visited, list(range(100, 108)))
+            self.assertTrue(xtm._runs_in_xtm_window(102, "s"))
 
 
 class TestScreenFit(unittest.TestCase):

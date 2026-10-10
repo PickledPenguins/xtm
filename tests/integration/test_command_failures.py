@@ -67,26 +67,26 @@ class TestProfileManagementErrors(IntegrationBase):
 
     def test_copying_a_profile_that_does_not_exist(self):
         result = self.run_xtm("--copy-profile", "ghost", "copy")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("ghost", result.stderr)
         self.assertIn("does not exist", result.stderr)
 
     def test_copying_onto_a_name_already_taken(self):
         self.run_xtm("--copy-profile", "default", "taken")
         result = self.run_xtm("--copy-profile", "default", "taken")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("already exists", result.stderr)
 
     def test_renaming_a_profile_that_does_not_exist(self):
         result = self.run_xtm("--rename-profile", "ghost", "other")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("does not exist", result.stderr)
 
     def test_renaming_onto_a_name_already_taken(self):
         self.run_xtm("--copy-profile", "default", "taken")
         self.run_xtm("--copy-profile", "default", "other")
         result = self.run_xtm("--rename-profile", "taken", "other")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("already exists", result.stderr)
 
     def test_renaming_onto_the_reserved_profile_says_which_rule_it_broke(self):
@@ -94,22 +94,22 @@ class TestProfileManagementErrors(IntegrationBase):
         reporting the generic name clash."""
         self.run_xtm("--copy-profile", "default", "taken")
         result = self.run_xtm("--rename-profile", "taken", "default")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("reserved", result.stderr)
 
     def test_deleting_a_profile_that_does_not_exist(self):
         result = self.run_xtm("--delete-profile", "ghost", "-y")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("ghost", result.stderr)
 
     def test_making_a_profile_global_that_does_not_exist(self):
         result = self.run_xtm("--make-global", "ghost")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("ghost", result.stderr)
 
     def test_deleting_the_current_profile_under_dry_run_clears_nothing(self):
         self.run_xtm("--copy-profile", "default", "doomed")
-        self.run_xtm("--profile", "doomed", "-l")
+        self.run_xtm("--profile", "doomed", "-C")
         result = self.run_xtm("--dry-run", "--delete-profile", "doomed", "-y")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("[dry-run]", result.stderr)
@@ -128,7 +128,7 @@ class TestTmuxRefusals(IntegrationBase):
         self.run_xtm("-s", "work1", "0,0,900,700")
         self.run_xtm("-o", "work1")
         result = self.run_xtm("-k", "work1", env=self.refusing("kill-session"))
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("work1", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
@@ -136,9 +136,28 @@ class TestTmuxRefusals(IntegrationBase):
         self.run_xtm("-s", "work1", "0,0,900,700")
         self.run_xtm("-o", "work1")
         result = self.run_xtm("-t", "work1", env=self.refusing("detach-client"))
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("work1", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_a_switch_that_cannot_detach_the_old_windows_still_switches(self):
+        """Leaving a window open is cosmetic: warn, name it, and switch."""
+        self.write_config("""\
+            profiles:
+              desk:
+                prefix: desk-
+                sessions:
+                  a: {x: 0, y: 0, width: 800, height: 600}
+              lab:
+                prefix: lab-
+                sessions:
+                  b: {x: 0, y: 0, width: 800, height: 600}
+            """)
+        self.run_xtm("desk")
+        result = self.run_xtm("lab", env=self.refusing("detach-client"))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("xtm: warning: Could not detach: desk-a\n", result.stderr)
+        self.assertEqual("lab\n", self.run_xtm("--current-profile", "--quiet").stdout)
 
 
 if __name__ == "__main__":

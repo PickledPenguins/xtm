@@ -323,7 +323,7 @@ class TestEffectiveProfileMarker(IntegrationBase):
                 match: {hostname: box1}
                 sessions: {}
             """)
-        self.run_xtm("--hostname", "box1", "desk", "--list")
+        self.run_xtm("--hostname", "box1", "desk", "-C")
         result = self.run_xtm("--hostname", "box1", "--auto", "--list-profiles")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("laptop *", result.stdout)
@@ -397,9 +397,90 @@ class TestCheck(IntegrationBase):
         self.assertEqual(code, 1)
         self.assertIn(("display", "fail"), found)
 
+    def test_the_profile_line_says_why_that_profile(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              desk:
+                sessions:
+                  work: {x: 0, y: 0, width: 900, height: 700}
+            """)
+        _code, _payload, found = self.checks("-p", "desk")
+        self.assertEqual("desk, named on the command line, 1 slot(s)",
+                         found[("profile", "ok")])
+        self.run_xtm("desk", "-C")
+        _code, _payload, found = self.checks()
+        self.assertEqual("desk, saved for this machine, 1 slot(s)",
+                         found[("profile", "ok")])
+
+    def test_a_profile_matched_to_this_hostname_says_so(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions: {}
+              laptop:
+                match: {hostname: box1}
+                sessions: {}
+            """)
+        _code, _payload, found = self.checks("--hostname", "box1")
+        self.assertEqual("laptop, matched to this hostname, 0 slot(s)",
+                         found[("profile", "ok")])
+
+    def test_a_command_on_path_or_past_splitting_is_not_reported(self):
+        self.write_config("""\
+            profiles:
+              default:
+                sessions:
+                  there: {x: 0, y: 0, width: 900, height: 700, command: /bin/sh -c true}
+                  quoted: {x: 0, y: 0, width: 900, height: 700, command: "vim 'unclosed"}
+            """)
+        _code, _payload, found = self.checks()
+        self.assertIn(("slot there", "ok"), found)
+        self.assertIn(("slot quoted", "ok"), found)
+
+    def test_a_tmux_older_than_3_2_warns(self):
+        self.config_with("work: {x: 0, y: 0, width: 900, height: 700}")
+        _code, _payload, found = self.checks(env={"XTM_FAKE_TMUX_VERSION": "3.1"})
+        self.assertEqual("3.1: a failing start command closes its window without "
+                         "a trace; 3.2 or newer keeps it on screen",
+                         found[("tmux", "warn")])
+
+    def test_a_tmux_that_reports_no_version_fails(self):
+        self.config_with("work: {x: 0, y: 0, width: 900, height: 700}")
+        code, _payload, found = self.checks(env={"XTM_FAKE_TMUX_REFUSE": "-V"})
+        self.assertEqual(1, code)
+        self.assertEqual("not found on PATH, or did not report a version",
+                         found[("tmux", "fail")])
+
     def test_the_text_report_counts_problems(self):
         self.config_with("work: {x: 0, y: 0, width: 900, height: 700, "
                          "cwd: /no/such/dir}")
         result = self.run_xtm("--check")
         self.assertEqual(result.returncode, 1)
         self.assertIn("1 problem(s)", result.stdout)
+
+
+def geometry_check(test):
+    """The geometry-tool line of --check, as (status, detail) pairs."""
+    result = test.run_xtm("--check", "--json")
+    return [(c["status"], c["detail"]) for c in json.loads(result.stdout)["checks"]
+            if c["check"] == "geometry tool"]
+
+
+class TestCheckWithNoGeometryTool(IntegrationBase):
+    TOOLS = ["tmux", "xterm"]
+
+    def test_it_warns_what_does_not_work(self):
+        self.assertEqual([("warn", "none of xdotool, wmctrl, xwininfo: placement "
+                                   "works, but --update-profile, --verify and "
+                                   "--focus do not")], geometry_check(self))
+
+
+class TestCheckWithOnlyXwininfo(IntegrationBase):
+    TOOLS = ["tmux", "xterm", "xwininfo"]
+
+    def test_it_warns_that_focus_needs_another_tool(self):
+        self.assertEqual([("warn", "xwininfo reads positions but cannot raise a "
+                                   "window, so --focus needs xdotool or wmctrl")],
+                         geometry_check(self))

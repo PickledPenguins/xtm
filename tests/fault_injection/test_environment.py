@@ -39,12 +39,26 @@ class TestExternalToolFailures(IntegrationBase):
         self.assertIn("not running", result.stdout)
 
     def test_tmux_failing_is_reported_by_a_command_that_needs_it(self):
-        """A command that cannot do its job says so and exits non-zero."""
+        """A command that cannot do its job says so and exits 1.
+
+        A tmux that fails every call lists no sessions, so the session to
+        kill is reported as not running.
+        """
         self.run_xtm("-s", "work1", "0,0,900,700")
         make_tool(self.bin, "tmux", "echo 'tmux: server exited' >&2\nexit 1")
         result = self.run_xtm("-k", "work1")
-        self.assertNotEqual(0, result.returncode)
-        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("xtm: error: No tmux session named 'work1' is running.\n",
+                         result.stderr)
+
+    def test_an_xterm_that_cannot_be_run_is_reported(self):
+        """xterm is on PATH but cannot be executed: say why, once."""
+        self.run_xtm("-s", "work1", "0,0,900,700")
+        (self.bin / "xterm").chmod(0o644)
+        result = self.run_xtm("-o", "work1")
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("xtm: error: Could not launch xterm: [Errno 13] "
+                         "Permission denied: 'xterm'\n", result.stderr)
 
     def test_tmux_printing_nothing_is_read_as_no_sessions(self):
         make_tool(self.bin, "tmux", "exit 0")
@@ -80,7 +94,7 @@ class TestExternalToolFailures(IntegrationBase):
 
     def test_an_editor_that_fails_is_reported_not_swallowed(self):
         result = self.run_xtm("-e", env={"VISUAL": "/nonexistent/editor"})
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("editor", result.stderr.lower())
         self.assertNotIn("Traceback", result.stderr)
 
@@ -104,12 +118,12 @@ class TestCorruptState(IntegrationBase):
         The message names the profile, the file it came from, and the fix.
         """
         # Naming a profile is what writes the state file.
-        self.run_xtm("--profile", "default", "-l")
+        self.run_xtm("--profile", "default", "-C")
         path = self.state_file()
         self.assertIsNotNone(path, "no state file was written")
         path.write_text("gone-profile\n")
         result = self.run_xtm("-l")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("gone-profile", result.stderr)
         self.assertIn("xtm NAME", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
@@ -121,26 +135,43 @@ class TestCorruptState(IntegrationBase):
         control character in a corrupt file cannot rewrite the user's
         terminal on its way out.
         """
-        self.run_xtm("--profile", "default", "-l")
+        self.run_xtm("--profile", "default", "-C")
         path = self.state_file()
         path.write_bytes(b"\x00\x01\x02 not a name\n")
         result = self.run_xtm("-l")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn("\x00", result.stderr)
 
     def test_an_unreadable_state_file_is_reported_cleanly(self):
         if os.geteuid() == 0:
             self.skipTest("running as root, which ignores file permissions")
-        self.run_xtm("--profile", "default", "-l")
+        self.run_xtm("--profile", "default", "-C")
         path = self.state_file()
         mode = path.stat().st_mode
         path.chmod(0o000)
         self.addCleanup(path.chmod, mode)
         result = self.run_xtm("-l")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("state file", result.stderr.lower())
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_a_state_file_that_cannot_be_cleared_is_a_warning(self):
+        """Deleting the current profile still succeeds when its selection
+        cannot be forgotten; the user is told which file is left behind."""
+        if os.geteuid() == 0:
+            self.skipTest("running as root, which ignores file permissions")
+        self.run_xtm("--copy-profile", "default", "doomed")
+        self.run_xtm("--profile", "doomed", "-C")
+        path = self.state_file()
+        state_dir = path.parent
+        state_dir.chmod(0o555)
+        self.addCleanup(state_dir.chmod, 0o755)
+        result = self.run_xtm("--delete-profile", "doomed", "-y")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("xtm: warning: Could not clear %s: [Errno 13] Permission "
+                      "denied: '%s'\n" % (path, path), result.stderr)
+        self.assertNotIn("doomed", self.run_xtm("-P").stdout)
 
     def test_a_truncated_config_is_refused_with_a_message(self):
         self.run_xtm("-s", "work1", "0,0,900,700")
@@ -156,7 +187,7 @@ class TestCorruptState(IntegrationBase):
         config_dir = self.tmp / "cfg2"
         config_dir.write_text("not a directory\n")
         result = self.run_xtm("-l", env={"XTM_CONFIG_DIR": str(config_dir)})
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertNotIn("Traceback", result.stderr)
 
 

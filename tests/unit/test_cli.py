@@ -69,21 +69,27 @@ class TestParser(unittest.TestCase):
 
     def test_no_action_brings_the_profile_up(self):
         args = self.parse()
-        dest, handler, mutates, needs_profile = xtm.selected_action(args)
+        dest, handler, mutates, needs_profile, switches = xtm.selected_action(args)
         self.assertEqual(dest, "default")
         self.assertIs(handler, xtm.cmd_default)
         self.assertFalse(mutates)
         self.assertTrue(needs_profile)
+        self.assertTrue(switches)
 
     def test_selected_action_reports_mutation(self):
         args = self.parse("-s", "a", "0,0,1,1")
-        dest, _handler, mutates, _needs = xtm.selected_action(args)
+        dest, _handler, mutates, _needs, _switches = xtm.selected_action(args)
         self.assertEqual(dest, "set")
         self.assertTrue(mutates)
 
+    def test_only_the_reporting_commands_leave_the_profile_unswitched(self):
+        unswitched = {dest for dest, _h, _m, _n, switches in xtm.COMMANDS
+                      if not switches}
+        self.assertEqual(unswitched, {"list", "list_profiles", "validate", "check"})
+
     def test_every_command_dest_exists_on_namespace(self):
         args = self.parse()
-        for dest, _handler, _mutates, _needs in xtm.COMMANDS:
+        for dest, _handler, _mutates, _needs, _switches in xtm.COMMANDS:
             self.assertTrue(hasattr(args, dest), dest)
 
 

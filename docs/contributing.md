@@ -35,7 +35,7 @@ caught something:
 | Gate | Enforces | Runs in |
 |---|---|---|
 | `pyflakes`, `py_compile` | No unused imports, no syntax errors | `--lint`, the hook |
-| The fast suite | Unit, differential, property, smoke, safety | the hook, `--fast` |
+| The fast suite | Unit, property, smoke, safety | the hook, `--fast` |
 | The long suite | Integration, concurrency, fault injection, examples | `--long` |
 | `[tool.coverage.report] fail_under` in `pyproject.toml` | The coverage floor, on the combined figure | `--coverage` |
 | `tests/mutation/run.py` | That the suite would notice each pinned decision breaking | `--mutation` |

@@ -104,7 +104,8 @@ class TestDryRun(IntegrationBase):
             os.read(master_fd, 4096)
 
 
-class TestDryRunExtras(IntegrationBase):
+class TestDryRunSkipsTheEditorAndDeletion(IntegrationBase):
+    """The two dry-run paths outside placement: --edit and --delete-profile."""
 
     def test_dry_run_edit_does_not_start_an_editor(self):
         editor = self.tmp / "must-not-run"
@@ -119,14 +120,6 @@ class TestDryRunExtras(IntegrationBase):
         self.run_xtm("--copy-profile", "default", "spare")
         self.run_xtm("-N", "-y", "--delete-profile", "spare")
         self.assertIn("spare", self.config_text())
-
-    def test_verify_reports_the_delta(self):
-        self.run_xtm("-s", "work1", "100,200,900,700")
-        self.add_session("work1")
-        self.add_window("work1", 105, 233, 900, 700)
-        result = self.run_xtm("--verify", "-r")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("delta", result.stderr)
 
 
 class TestDryRunDoesNotAlterTheDefaults(unittest.TestCase):

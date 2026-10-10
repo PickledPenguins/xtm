@@ -1,0 +1,3 @@
+# A slot whose working directory does not exist is reported before anything
+# is opened.
+xtm -p desk --check

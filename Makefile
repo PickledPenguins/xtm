@@ -27,7 +27,7 @@ help:
 	@echo "make property       Property tests, when Hypothesis is available"
 	@echo "make mutation       The mutation catalog"
 	@echo "make lint           pyflakes + compile check"
-	@echo "make examples       Every example, the failures, and a profile"
+	@echo "make examples       Every example, the failures, the workflows, a profile"
 	@echo "make profile        Where the time goes in real usage"
 	@echo "make check          Everything, plus a clean-tree assertion"
 	@echo "make clean          Remove .build/ and stray artifacts"

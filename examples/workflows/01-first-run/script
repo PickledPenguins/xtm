@@ -1,0 +1,4 @@
+# No config yet: the first run writes the default one and reports it.
+xtm -l
+xtm -P
+xtm -C

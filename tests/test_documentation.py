@@ -309,6 +309,14 @@ class TestRecordedNumbersMatchTheDocs(unittest.TestCase):
                       "figure the last run measured (%s)"
                       % (self.measured["combined"],))
 
+    def test_the_line_and_branch_figures_are_current(self):
+        for label, key in (("Line coverage", "line"), ("Branch coverage", "branch")):
+            with self.subTest(label=label):
+                self.assertEqual(self.measured[key].rstrip("%"),
+                                 self.documented(label),
+                                 "docs/testing.md quotes a %s figure the last "
+                                 "coverage run does not agree with" % (key,))
+
     def test_the_commit_the_numbers_were_measured_at_is_named(self):
         self.assertRegex(
             self.doc, r"Measured at commit `[0-9a-f]{7,}`",

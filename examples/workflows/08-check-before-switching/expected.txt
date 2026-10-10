@@ -1,0 +1,36 @@
+$ xtm desk
+exit 0
+stderr:
+  Opened desk-work at x=0 y=0 960x1180
+
+$ xtm -p lab --check
+exit 0
+stdout:
+    ok    profile          lab, named on the command line, 1 slot(s)
+    ok    display          :99
+    ok    xterm            TMP/bin/xterm
+    ok    tmux             3.6
+    ok    geometry tool    xdotool
+    warn  monitors         unknown (no xrandr or xwininfo answer), so windows are not checked against the screen
+    ok    slot bench       lab-bench
+  
+  0 problem(s), 1 warning(s).
+
+$ xtm -C
+exit 0
+stdout:
+  desk
+
+--- state
+current profile: desk
+sessions: desk-work (attached)
+config:
+  profiles:
+    desk:
+      prefix: desk-
+      sessions:
+        work: {x: 0, y: 0, width: 960, height: 1180}
+    lab:
+      prefix: lab-
+      sessions:
+        bench: {x: 0, y: 0, width: 1920, height: 1180}

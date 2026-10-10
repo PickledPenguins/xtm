@@ -95,13 +95,6 @@ jobs:
       - name: Lint
         run: tests/run-tests.sh --lint
 
-      # The documentation must describe the tool that ships with it: every
-      # option, exit code, environment variable, config key and emitted JSON
-      # key, enumerated from the code and looked for in the document that
-      # owns it.
-      - name: Documentation contract
-        run: python -m unittest tests.test_documentation
-
       - name: Examples
         run: make examples
 
@@ -118,6 +111,15 @@ jobs:
       # in pyproject.toml fails the job on a drop.
       - name: Coverage
         run: make coverage
+
+      # The documentation must describe the tool that ships with it: every
+      # option, exit code, environment variable, config key and emitted JSON
+      # key, enumerated from the code and looked for in the document that
+      # owns it. After coverage, so that the numbers docs/testing.md quotes
+      # are compared with this run's .build/metrics.json; before it, that
+      # file did not exist and the comparison skipped.
+      - name: Documentation contract
+        run: python -m unittest tests.test_documentation
 
       # Proves .gitignore actually covers everything the suite produces --
       # a full run leaves hundreds of parallel-mode coverage data files.

@@ -7,6 +7,7 @@ current directory -- so a typo silently ran the whole suite from the
 repository root and reported nothing about the pattern.
 """
 
+import os
 import subprocess
 import unittest
 
@@ -73,6 +74,17 @@ class TestModuleSelection(unittest.TestCase):
         return set(line.strip() for line in result.stdout.split("\n")
                    if line.strip())
 
+    def test_lint_names_an_interpreter_without_pyflakes(self):
+        """`No module named pyflakes` did not say which interpreter was asked,
+        and PYTHON defaults to python3, rarely the one pyflakes is in."""
+        result = subprocess.run(
+            [str(RUNNER), "--lint"], cwd=str(REPO_ROOT),
+            env=dict(os.environ, PYTHON="/bin/false"), stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=120)
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("%s: pyflakes is not importable by /bin/false (/bin/false); "
+                         "set PYTHON= to an interpreter that has it\n" % (RUNNER,),
+                         result.stderr)
     def test_the_runner_is_executable(self):
         # It is invoked by path in CI and in the documentation.
         self.assertTrue(RUNNER.stat().st_mode & 0o111,

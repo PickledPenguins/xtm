@@ -1,9 +1,9 @@
 # Examples
 
-Forty worked configurations and eight that are meant to fail. Every one is a test: each
-directory holds a `config.yaml`, a `README.md` explaining what it demonstrates, and an
-`expected.json` recording what `xtm` reports for it, so an example that stops matching the
-tool fails the build rather than quietly rotting.
+41 worked configurations, eight that are meant to fail, and ten command workflows. Every
+one is a test: each configuration directory holds a `config.yaml`, a `README.md`
+explaining what it demonstrates, and an `expected.json` recording what `xtm` reports for
+it, so an example that stops matching the tool fails the build rather than quietly rotting.
 
 They come at three levels, and the point of having many is that you should be able to find
 one close to what you want and change three values rather than starting from the manual.
@@ -11,6 +11,8 @@ one close to what you want and change three values rather than starting from the
 - **simple/** — one idea, the smallest useful config. Start at `simple/01-one-screen`.
 - **moderate/** — several features interacting, at the size people really have.
 - **complex/** — every mechanism at once. No single feature is under test; the interaction is.
+- **workflows/** — sequences of commands (switch, capture, `--set`, copy and rename, `--check`)
+  and the state they leave.
 
 ## Running them
 
@@ -19,6 +21,7 @@ make examples                                  # all of them, then the ones mean
 python3 examples/run.py simple/01-one-screen   # just one
 python3 examples/run.py --show complex/03-day-in-the-life
 python3 examples/run.py --negative             # the configs that must be refused
+python3 examples/run.py --workflows            # the command sequences
 ```
 
 `--show` prints what `xtm` currently reports instead of comparing it, which is how you
@@ -26,6 +29,8 @@ update an `expected.json` after deliberately changing behavior.
 
 Nothing is installed, no X server is used and no window is opened: the runner points `xtm`
 at the example's config and asks it to report, so running these is safe on any machine.
+The workflows do run commands that open, move and close windows, but against the fake
+`tmux` and `xterm` of the test suite, in a scratch directory.
 
 ## Simple
 
@@ -104,6 +109,40 @@ python3 examples/run.py --negative
 | [negative/07-unknown-match-key](negative/07-unknown-match-key/) | `match` takes `hostname` and nothing else. |
 | [negative/08-quoted-number](negative/08-quoted-number/) | `"900"` is text; a size has to be a number. |
 
+## Command workflows
+
+`workflows/` holds command sequences rather than configs. Each `script` runs, in order,
+against the fake `tmux`, `xterm` and geometry tools of the test suite (`tests/support.py`):
+the windows are rows in a file, not windows on an X server. So these show what xtm
+decides and says, not how a real window manager places the windows. `expected.txt` is the
+transcript: each command with its exit status, stderr and stdout, then the current profile,
+the running sessions and the whole config they left.
+
+| | Shows |
+|---|---|
+| [workflows/01-first-run](workflows/01-first-run/) | No config yet: the default one is written and reported. |
+| [workflows/02-switch-detach](workflows/02-switch-detach/) | Switching profiles detaches the old one's windows; its sessions keep running. |
+| [workflows/03-switch-kill-keeps-shared](workflows/03-switch-kill-keeps-shared/) | `on_switch: kill` spares a session the new profile also names. |
+| [workflows/04-capture-after-moving](workflows/04-capture-after-moving/) | `-u` saves hand-moved positions and keeps each slot's `command` and `cwd`. |
+| [workflows/05-capture-new-name-collision](workflows/05-capture-new-name-collision/) | `--capture-new` records a stray session named like a slot under a free name. |
+| [workflows/06-set-then-reset](workflows/06-set-then-reset/) | `-s` edits the config only; `-r` moves the window. |
+| [workflows/07-copy-rename-delete](workflows/07-copy-rename-delete/) | A profile copied, renamed and deleted, with the list after each step. |
+| [workflows/08-check-before-switching](workflows/08-check-before-switching/) | `-p other --check` leaves the current profile and its windows alone. |
+| [workflows/09-check-a-broken-slot](workflows/09-check-a-broken-slot/) | `--check` fails a slot whose `cwd` does not exist, before anything opens. |
+| [workflows/10-new-profile-from-layout](workflows/10-new-profile-from-layout/) | `-n` makes a profile of the sessions already on screen. |
+
+A script line is one of:
+
+| Line | Meaning |
+|---|---|
+| `xtm ARGS` | Run xtm with these arguments (split as a shell would). |
+| `session NAME [X,Y,W,H]` | A running session in an xtm window, at that position. |
+| `detached NAME` | A running session with no window. |
+| `foreign NAME` | A session attached in a terminal xtm did not open. |
+| `move NAME X,Y,W,H` | The user moves NAME's window there. |
+
+`#` starts a comment. In the transcript the scratch directory is written `TMP` and this
+machine's name `HOST`, so it is the same on every machine.
 ## What a directory may contain
 
 | File | Meaning |
@@ -113,6 +152,8 @@ python3 examples/run.py --negative
 | `expected.json` | Required. What `xtm --list --json` reports for it. |
 | `profile` | The profile to report on, when it is not the one xtm would pick. |
 | `flags` | Extra arguments the example needs — `--all` for one whose subject is a profile bound to another machine. |
+| `script` | Workflows only, required: the commands to run. `config.yaml` is then optional. |
+| `expected.txt` | Workflows only, required: the transcript the script produces. |
 
 ## Writing a new one
 
@@ -126,4 +167,6 @@ Check the recorded output says what you meant before committing it. The point of
 `expected.json` is that a human agreed with it once.
 
 `--record` takes a prefix, so `--record complex/` re-records a whole level after a
-deliberate behavior change, and a bare `--record` does all forty. Read the diff.
+deliberate behavior change, and a bare `--record` does every one. Read the diff.
+A workflow is recorded the same way with `--workflows`:
+`python3 examples/run.py --workflows --record workflows/11-your-workflow`.

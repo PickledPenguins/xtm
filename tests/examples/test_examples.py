@@ -8,6 +8,8 @@ matching the tool fails the build instead of quietly going stale.
 
 import json
 import os
+import platform
+import re
 import subprocess
 import tempfile
 import sys
@@ -15,6 +17,7 @@ import unittest
 
 from tests.support import (
     REPO_ROOT,
+    IntegrationBase,
     xtm,
 )
 
@@ -181,6 +184,47 @@ class TestNegativeExamples(unittest.TestCase):
                           % (directory.name,))
 
 
+class TestWorkflowExamples(unittest.TestCase):
+    """Every command sequence in examples/workflows/ produces its transcript.
+
+    The configuration examples only report; these run the commands that
+    switch, capture, edit and check, against the fake tools, so a change in
+    what a command does or says shows up as a changed transcript.
+    """
+
+    WORKFLOWS = EXAMPLES / "workflows"
+
+    def workflow_dirs(self):
+        return sorted(d for d in self.WORKFLOWS.iterdir() if d.is_dir())
+
+    def test_there_are_workflows_to_run(self):
+        self.assertGreaterEqual(len(self.workflow_dirs()), 8)
+
+    def test_each_one_carries_a_readme_a_script_and_a_transcript(self):
+        for directory in self.workflow_dirs():
+            for name in ("README.md", "script", "expected.txt"):
+                self.assertTrue((directory / name).exists(),
+                                "%s has no %s" % (directory.name, name))
+            self.assertIn("Level: **workflow**", (directory / "README.md").read_text(),
+                          "%s does not say its level" % (directory.name,))
+
+    def test_every_workflow_produces_its_recorded_transcript(self):
+        result = subprocess.run(
+            [sys.executable, str(EXAMPLES / "run.py"), "--workflows"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        self.assertEqual(result.returncode, 0,
+                         "workflows did not match their transcripts:\n%s\n%s"
+                         % (result.stdout, result.stderr))
+        self.assertIn("\n%d workflow(s) match their recorded transcript.\n"
+                      % (len(self.workflow_dirs()),), result.stdout)
+
+    def test_every_workflow_is_listed_in_the_index(self):
+        index = (EXAMPLES / "README.md").read_text()
+        for directory in self.workflow_dirs():
+            self.assertIn("workflows/%s" % (directory.name,), index,
+                          "workflows/%s is not mentioned in examples/README.md"
+                          % (directory.name,))
 class TestExampleProfile(unittest.TestCase):
     """A run that executes the examples reports where the time went.
 
@@ -212,3 +256,19 @@ class TestExampleProfile(unittest.TestCase):
         self.assertTrue((written / "examples.pstats").exists(),
                         "no pstats file was written, so nothing can be "
                         "explored afterwards")
+
+
+class TestReadmeQuickStart(IntegrationBase):
+    """The output the README's quick start shows is what xtm prints for the
+    profile it shows, so a first-time reader can tell success from silence."""
+
+    def test_bringing_up_the_sample_profile_prints_what_the_readme_shows(self):
+        readme = (REPO_ROOT / "README.md").read_text()
+        config = re.search(r"```yaml\n(profiles:.*?)```", readme, re.S).group(1)
+        shown = re.search(r"```console\n\$ xtm desk\n(.*?)```", readme, re.S).group(1)
+        self.write_config(config)
+        # The sample binds the profile to workstation*; act as one of those.
+        result = self.run_xtm("--hostname", "workstation1", "desk")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("Acting as host 'workstation1' rather than %s.\n"
+                         % (platform.node().split(".")[0],) + shown, result.stderr)

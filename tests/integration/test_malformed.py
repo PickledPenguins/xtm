@@ -34,6 +34,13 @@ class TestMalformedConfig(IntegrationBase):
         self.write_config("- one\n- two\n")
         self.assert_clean_failure("--list")
 
+    def test_a_bare_profiles_key_means_none_yet(self):
+        """`profiles:` with nothing under it is YAML's null, not an error."""
+        self.write_config("profiles:\n")
+        result = self.run_xtm("--list-profiles")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("default *\n", result.stdout)
+
     def test_missing_profiles_key(self):
         self.write_config("something_else: {}\n")
         result = self.assert_clean_failure("--list")

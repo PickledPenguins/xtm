@@ -1,0 +1,5 @@
+profiles:
+  desk:
+    sessions:
+      work: {x: 0, y: 0, width: 960, height: 1180, cwd: /nonexistent/xtm-example}
+      logs: {x: 960, y: 0, width: 960, height: 1180}

@@ -1,0 +1,6 @@
+# Bring desk up, then switch to lab: desk's windows close (the default
+# on_switch, detach) but its sessions keep running.
+xtm desk
+xtm lab
+xtm -C
+xtm -p desk -l

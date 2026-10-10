@@ -12,7 +12,7 @@ tests/run-tests.sh test_yaml       # only the modules whose path matches
 tests/run-tests.sh --perf          # timing and memory gates, against this machine
 tests/run-tests.sh --coverage      # the suite under coverage, gated by the floor
 tests/run-tests.sh --lint          # pyflakes and a compile check
-tests/run-tests.sh --examples      # every example, and the ones meant to fail
+tests/run-tests.sh --examples      # every example, the ones meant to fail, the workflows
 tests/run-tests.sh --list          # which modules a selection covers, run nothing
 tests/run-tests.sh --install-hooks # install the pre-push hook, switched off
 tests/run-tests.sh --full          # all of the above
@@ -42,8 +42,8 @@ runs. The timing gates are the one deliberate exception, and are named as such.
 `tests/run-tests.sh` is the only thing that knows how to run anything in this repository;
 the Makefile delegates to it. Every artifact lands under `.build/`.
 
-The suite needs no display, no window manager, no tmux and no X server. It takes about 100
-seconds, or five minutes under coverage.
+The suite needs no display, no window manager, no tmux and no X server. It takes about 160
+seconds, or about 25 minutes under coverage, which traces every child process.
 
 **Each module runs in a fresh interpreter by default.** xtm keeps state at module level —
 the run context, the logger's level, the resolved paths — so a suite that passes only when
@@ -86,7 +86,7 @@ guard test that fails if the hiding ever stops working.
 | `tests/concurrency/` | Real processes contending for the config, the lock and the state file |
 | `tests/fault_injection/` | Failure paths a healthy filesystem never reaches, and the world outside the process |
 | `tests/load/` | Cost budgets: enumeration calls per tool, scaling |
-| `tests/safety/` | `--dry-run` changes nothing |
+| `tests/safety/` | `--dry-run` changes nothing; `--list`, `--list-profiles`, `--validate` and `--check` with `-p` neither switch nor save the profile |
 | `tests/examples/` | Every shipped example still describes the tool, at all three levels |
 | `tests/test_documentation.py` | The documentation describes the tool that ships with it |
 
@@ -129,23 +129,24 @@ the way out, parsing inverts the geometry format, stack offsets are monotonic in
 a valid name survives a round trip as a key, and an explicit `session:` is never
 prefixed.
 
-The engine is `tests/property/engine.py` — forty lines of generate, check, shrink.
+The engine is `tests/property/engine.py` — under sixty lines of generate, check, shrink.
 Hypothesis is deliberately not used: xtm's premise is running where nothing can be
 installed, and a property test that skips because a dependency is missing tests nothing.
 What that gives up is real shrinking strategy and a corpus; what it keeps is many inputs
 per property, fixed seeds so a failure reproduces, and a counterexample small enough to
 read.
 
-Two defects came out of these on the runs that introduced them, both the same shape: the
-dumper writing a config the guard then refuses. That class is closed now — the dumper asks
-the guard whether it would refuse a scalar unquoted rather than keeping its own list.
-
 ## Mutation
 
-`tests/mutation/run.py` is a catalog of decisions deliberately broken — the colon rule,
-the quote rules, the indicator set, resize before move, the sign of frame compensation, the
-stack offset, the switch keep set, edit-time validation, the config lock — each naming the
-test modules that ought to fail because of it.
+`tests/mutation/run.py` is a catalog of decisions deliberately broken — YAML keys read as
+written, duplicate keys refused, key order kept on writing; the tmux field separator,
+which clients count as xtm's windows, waiting for the xterm just spawned; bringing a
+profile up, off-screen reports, held failing commands, `--check` on a missing `cwd`;
+resize before move, the sign of frame compensation, the stack offset, an explicit session
+never prefixed; the switch keep set; edit-time validation and restore, reading never
+rewriting the config, the hostname override reaching the state file, a rename following
+every machine, and the config lock —
+each naming the test modules that ought to fail because of it.
 
 **A surviving mutant is a missing test.** Write the test; never soften the mutant. A stale
 mutant means the code moved: re-point it after checking the decision is still being made
@@ -205,13 +206,13 @@ is the strictest of the three numbers and therefore holds the other two above it
 
 | Metric | Result |
 |---|---|
-| Statements | 2036 |
-| Line coverage | **98.1%** |
-| Branch coverage | **95.9%** |
-| Combined | **97.4%** — the figure `fail_under` enforces |
-| Tests | 657 |
+| Statements | 1851 |
+| Line coverage | **98.8%** |
+| Branch coverage | **96.5%** |
+| Combined | **98.1%** — the figure `fail_under` enforces |
+| Tests | 678 |
 
-Measured at commit `9b1e0f2`, 2026-09-04. **These numbers are checked, not trusted:**
+Measured at commit `a0f5e54` with the uncommitted fixes of 2026-10-09 applied. **These numbers are checked, not trusted:**
 `tests/run-tests.sh --coverage` records what it measured under `.build/metrics.json`, and
 `tests/test_documentation.py` fails when this table disagrees with it. They had gone stale
 three times before that existed. The floor is enforced rather than reported:
@@ -224,13 +225,14 @@ child process, so a plain `coverage run -m unittest` reports about 63% — a mea
 artifact, not a regression. `tests/run-tests.sh --coverage` writes the `.pth` file and
 sets `COVERAGE_PROCESS_START` itself. **If you see 63%, you bypassed the entry point.**
 
-The uncovered remainder is 39 statements and 38 partial branches, almost entirely defensive
-error handling that cannot be triggered without breaking the filesystem underneath a running
-process: `OSError` branches around `fsync`, lock acquisition and temp-file cleanup, the
-`ImportError` fallback for `fcntl`, and guards that exist so a future edit fails
-loudly. Reaching a round 98 from there would mean asserting on internals, which buys a
-number and pays for it with a suite that breaks when the code is refactored rather than when
-it is wrong.
+The uncovered remainder is 23 statements and 27 partial branches, all defensive: the
+`OSError` from a directory `fsync`; type guards behind validation that has already
+refused what they check for; parse fallbacks for lines no supported version of a
+geometry tool prints; a geometry tool that answers one call and fails the next; a state
+file deleted between the check and the unlink; and the `return` after a `die`. None can
+be reached without breaking the filesystem or a tool underneath a running process, or
+bypassing validation, so covering them would mean asserting on internals: a suite that
+breaks when the code is refactored rather than when it is wrong.
 
 ## Standards
 
@@ -246,6 +248,11 @@ it is wrong.
   deliberate change; read the diff.
 - **The examples are fixtures.** A new directory under `examples/` is under test as soon as
   it exists; there is no list to update.
+- **The workflows run against fakes.** `examples/workflows/` runs command sequences
+  (switch, capture, `--set`, copy and rename, `--check`) against the fake `tmux`, `xterm`
+  and geometry tools of `tests/support.py`, not a real X server. A transcript shows what
+  xtm decides and prints; where a real window manager puts the window is outside it (see
+  below). `python3 examples/run.py --workflows --record [prefix]` re-records them.
 
 ## What cannot be tested here
 
@@ -266,5 +273,8 @@ window manager:
 ## Static analysis
 
 `pyflakes` reports no findings on `src/xtm.py`, `tests/`, `scripts/` or `examples/run.py`, and all of it compiles
-cleanly under `python3 -m py_compile`. `tests/run-tests.sh --lint` runs both. Every
+cleanly under `python3 -m py_compile`. `tests/run-tests.sh --lint` runs both, with the
+interpreter `PYTHON` names (`python3` by default); when pyflakes is not importable there it
+names that interpreter and stops, and `PYTHON=python3.12 tests/run-tests.sh --lint` points
+it at one that has it. Every
 function and class carries a docstring.

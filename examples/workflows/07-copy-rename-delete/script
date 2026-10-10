@@ -1,0 +1,8 @@
+# Keep a variant of a profile, rename it, and delete it again.
+xtm -p desk -C
+xtm --copy-profile desk desk-wide
+xtm -P
+xtm --rename-profile desk-wide wide
+xtm -P
+xtm --delete-profile wide
+xtm -P

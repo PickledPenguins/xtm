@@ -1,0 +1,49 @@
+$ xtm desk
+exit 0
+stderr:
+  Opened desk-work at x=0 y=0 960x1180
+  Opened desk-logs at x=960 y=0 960x580
+
+$ xtm lab
+exit 0
+stderr:
+  Detached 2 window(s) from profile desk: desk-work, desk-logs
+  Opened lab-bench at x=0 y=0 1920x1180
+
+$ xtm -C
+exit 0
+stdout:
+  lab
+
+$ xtm -p desk -l
+exit 0
+stderr:
+  1 stray session(s) belong to another profile; switch to it, or use --all --close-all to clean them up.
+stdout:
+  Profile: desk
+  Config:  TMP/cfg/config.yaml
+  Prefix:  desk-
+  
+  Slots:
+    work                 detached           configured: x=0 y=0 960x1180
+                                            session:    desk-work
+    logs                 detached           configured: x=960 y=0 960x580
+                                            session:    desk-logs
+  
+  Stray xtm windows (sessions this profile does not name):
+    lab-bench  (belongs to profile lab)
+
+--- state
+current profile: lab
+sessions: desk-work (detached), desk-logs (detached), lab-bench (attached)
+config:
+  profiles:
+    desk:
+      prefix: desk-
+      sessions:
+        work: {x: 0, y: 0, width: 960, height: 1180}
+        logs: {x: 960, y: 0, width: 960, height: 580}
+    lab:
+      prefix: lab-
+      sessions:
+        bench: {x: 0, y: 0, width: 1920, height: 1180}

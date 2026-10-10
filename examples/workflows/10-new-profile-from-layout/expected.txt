@@ -1,0 +1,61 @@
++ session mail 0,0,800,600
++ session code 800,0,1120,1180
++ detached batch
+$ xtm -n home
+exit 0
+stderr:
+  No config file at TMP/cfg/config.yaml; creating a default one.
+  Created profile home with 2 slot(s) captured from the current layout, and prefix 'home-' for new slots. Saved to TMP/cfg/config.yaml
+
+$ xtm -p home -l
+exit 0
+stdout:
+  Profile: home
+  Config:  TMP/cfg/config.yaml
+  Prefix:  home-
+  
+  Slots:
+    mail                 attached           configured: x=0 y=0 800x600  [live: x=0 y=0 800x600]
+                                            session:    mail  (shared, kept on profile switch)
+    code                 attached           configured: x=800 y=0 1120x1180  [live: x=800 y=0 1120x1180]
+                                            session:    code  (shared, kept on profile switch)
+  
+  Stray xtm windows (sessions this profile does not name):
+    (none)
+
+--- state
+current profile: none saved
+sessions: mail (attached), code (attached), batch (detached)
+config:
+  profiles:
+    default:
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+      sessions: {}
+    home:
+      prefix: home-
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+      sessions:
+        mail:
+          x: 0
+          y: 0
+          width: 800
+          height: 600
+          session: mail
+        code:
+          x: 800
+          y: 0
+          width: 1120
+          height: 1180
+          session: code

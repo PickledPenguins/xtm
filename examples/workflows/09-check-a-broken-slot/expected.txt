@@ -1,0 +1,23 @@
+$ xtm -p desk --check
+exit 1
+stdout:
+    ok    profile          desk, named on the command line, 2 slot(s)
+    ok    display          :99
+    ok    xterm            TMP/bin/xterm
+    ok    tmux             3.6
+    ok    geometry tool    xdotool
+    warn  monitors         unknown (no xrandr or xwininfo answer), so windows are not checked against the screen
+    fail  slot work        cwd /nonexistent/xtm-example does not exist; tmux would silently start in your home directory
+    ok    slot logs        logs
+  
+  1 problem(s), 1 warning(s).
+
+--- state
+current profile: none saved
+sessions: none
+config:
+  profiles:
+    desk:
+      sessions:
+        work: {x: 0, y: 0, width: 960, height: 1180, cwd: /nonexistent/xtm-example}
+        logs: {x: 960, y: 0, width: 960, height: 1180}

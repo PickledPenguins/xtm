@@ -1,0 +1,5 @@
+# Arrange the windows by hand, then save where they are.
+xtm desk
+move desk-work 100,50,1000,900
+move desk-logs 1100,50,800,600
+xtm -u

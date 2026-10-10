@@ -1,0 +1,45 @@
+$ xtm desk
+exit 0
+stderr:
+  Opened desk-work at x=0 y=0 960x1180
+
+$ xtm -s work 200,100,1200,900
+exit 0
+stderr:
+  Adding the reserved 'default' profile to TMP/cfg/config.yaml.
+  Updated slot work (session desk-work) in profile desk: x=200 y=100 1200x900
+
+$ xtm -r
+exit 0
+stderr:
+  Repositioned desk-work to x=200 y=100 1200x900
+
+--- state
+current profile: desk
+sessions: desk-work (attached)
+config:
+  profiles:
+    desk:
+      prefix: desk-
+      sessions:
+        work:
+          x: 200
+          y: 100
+          width: 1200
+          height: 900
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+    default:
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+      sessions: {}

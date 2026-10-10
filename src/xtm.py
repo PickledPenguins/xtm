@@ -226,16 +226,7 @@ GEOMETRY_TOOLS = ("xdotool", "wmctrl", "xwininfo")
 LOGGER_NAME = "xtm"
 logger = logging.getLogger(LOGGER_NAME)
 
-# Runtime switches set once from parsed arguments. Kept as module state
-# rather than passed through every signature because they are read-only
-# cross-cutting concerns (a global "pretend" mode and a global "check the
-# result" mode) that would otherwise appear in a dozen unrelated
-# signatures purely to be forwarded.
-CONTEXT.dry_run = False
-CONTEXT.verify = False
-CONTEXT.frame_compensation = True
-
-# Exit codes. Documented in README.md; keep the two in sync.
+# Exit codes. Documented in docs/cli.md#exit-status; keep the two in sync.
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_USAGE = 2
@@ -1117,10 +1108,6 @@ def validate_profile(config: ConfigDict, name: str) -> ProfileDict:
     return profile
 
 
-
-
-
-
 @contextlib.contextmanager
 def edit_profile(config: ConfigDict, profile_name: str, what: str) -> Any:
     """Apply an edit to one profile, or leave the profile untouched.
@@ -1301,8 +1288,8 @@ def parse_geometry_spec(spec: str) -> GeometryDict:
 # so a live $XTM_PROFILE in an interactive shell is not achievable from
 # here. This state file is the practical equivalent: it persists across
 # separate xtm invocations exactly as an environment variable would across
-# a shell session. README.md documents an optional shell wrapper for those
-# who also want a real environment variable.
+# a shell session. docs/guide.md documents an optional shell wrapper for
+# those who also want a real environment variable.
 
 def read_current_profile_state() -> Optional[str]:
     """Return the persisted current profile for this machine, if any."""
@@ -1351,14 +1338,16 @@ def match_profile(config: ConfigDict) -> Optional[str]:
 
 def resolve_profile_name(config: ConfigDict, explicit: Optional[str],
                          auto: bool = False, include_all: bool = False,
-                         switch_override: Optional[str] = None) -> str:
+                         switch_override: Optional[str] = None,
+                         switch: bool = True) -> str:
     """Decide which profile this invocation uses.
 
     Order of precedence:
       1. An explicitly named profile, from the positional argument or
-         --profile, which is also persisted as the new current profile.
-         Switching away from a different profile disposes of that
-         profile's windows according to its 'on_switch' setting.
+         --profile. With `switch` (every command but the reporting ones)
+         it is also persisted as the new current profile, and switching
+         away from a different profile disposes of that profile's windows
+         according to its 'on_switch' setting.
       2. The persisted current profile for this machine, unless --auto
          was given.
       3. A machine-specific profile whose 'match' block fits this host.
@@ -1376,6 +1365,10 @@ def resolve_profile_name(config: ConfigDict, explicit: Optional[str],
     if explicit:
         if explicit not in visible:
             die(_unknown_profile_message(config, explicit, include_all))
+        if not switch:
+            logger.debug("Using profile %r (named explicitly, this run only)",
+                         explicit)
+            return explicit
         previous = read_current_profile_state()
         if previous and previous != explicit:
             apply_switch_action(config, previous, explicit, switch_override)
@@ -1531,9 +1524,6 @@ def tmux_list_sessions() -> Dict[str, bool]:
         # non-zero, non-empty value means at least one client is attached.
         sessions[name] = attached.strip() not in ("0", "")
     return sessions
-
-
-
 
 
 def tmux_kill_session(name: str) -> bool:
@@ -2287,11 +2277,10 @@ def stack_slot(stack_cfg: GeometryDict, index: int) -> GeometryDict:
     """Diagonally offset position and size for the Nth (0-based) window
     that has no configured position. All stacked windows share one size.
 
-    Known limitation, by design rather than by oversight: xtm does not
-    know the monitor resolution, so with enough simultaneous stray
-    sessions the diagonal offsets eventually push a window off screen.
-    There is no wraparound; lower offset_x/offset_y, or give the sessions
-    explicit positions, if that becomes a practical problem.
+    There is no wraparound: with enough simultaneous stray sessions the
+    diagonal offsets push a window off screen. Placement warns about that
+    when the monitors are known, and --clamp moves it back; lower
+    offset_x/offset_y, or give the sessions positions, to avoid it.
     """
     return {
         "x": stack_cfg["x"] + index * stack_cfg["offset_x"],
@@ -2437,22 +2426,26 @@ def run_setup(session: str, sess_cfg: GeometryDict, slot: str,
     env.update({"XTM_SESSION": session, "XTM_SLOT": slot,
                 "XTM_PROFILE": profile_name or ""})
     logger.debug("Running setup for %s in %s: %s", session, cwd, setup)
-    try:
-        result = subprocess.run(["/bin/sh", "-c", str(setup)], cwd=cwd, env=env,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                universal_newlines=True,
-                                timeout=SETUP_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        logger.warning("%s: setup did not finish within %ds and was stopped.",
-                       session, SETUP_TIMEOUT_SECONDS)
-        return
-    except OSError as e:
-        logger.warning("%s: could not run setup: %s", session, e)
-        return
-    if result.returncode != 0:
-        logger.warning("%s: setup exited %d: %s", session, result.returncode,
-                       _truncate(result.stderr) or "(no output)")
-        return
+    # stderr goes to a file, not a pipe: a process setup starts in the
+    # background inherits it, and a pipe would keep xtm waiting for EOF
+    # until that process exited rather than until setup itself did.
+    with tempfile.TemporaryFile("w+") as errors:
+        try:
+            result = subprocess.run(["/bin/sh", "-c", str(setup)], cwd=cwd,
+                                    env=env, stdout=subprocess.DEVNULL,
+                                    stderr=errors, timeout=SETUP_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.warning("%s: setup did not finish within %ds and was stopped.",
+                           session, SETUP_TIMEOUT_SECONDS)
+            return
+        except OSError as e:
+            logger.warning("%s: could not run setup: %s", session, e)
+            return
+        if result.returncode != 0:
+            errors.seek(0)
+            logger.warning("%s: setup exited %d: %s", session, result.returncode,
+                           _truncate(errors.read()) or "(no output)")
+            return
     logger.info("Ran setup for %s.", session)
 
 
@@ -2824,11 +2817,24 @@ def cmd_update_profile(args: argparse.Namespace, config: ConfigDict,
             elif args.capture_new:
                 # An unrecognized window is recorded under its own name with
                 # an explicit 'session', so the entry means exactly the
-                # session that was captured regardless of any prefix.
+                # session that was captured regardless of any prefix. A slot
+                # of that name may already exist for another session (slot
+                # work1 is session desk-work1 under prefix desk-); it is kept,
+                # and the capture takes the first free name after it.
+                key = session
+                suffix = 1
+                while key in profile["sessions"]:
+                    suffix += 1
+                    key = "%s-%d" % (session, suffix)
+                if key != session:
+                    logger.warning("Slot %s already names session %s; captured "
+                                   "session %s recorded as slot %s.", session,
+                                   resolve_session_name(profile, session),
+                                   session, key)
                 entry = dict(geometry)
-                if session != "%s%s" % (profile.get("prefix", ""), session):
+                if session != "%s%s" % (profile.get("prefix", ""), key):
                     entry["session"] = session
-                profile["sessions"][session] = entry
+                profile["sessions"][key] = entry
                 added += 1
             else:
                 # Windows belonging to another profile are left out by
@@ -2977,6 +2983,24 @@ def cmd_delete_profile(args: argparse.Namespace, config: ConfigDict,
     return EXIT_OK
 
 
+def follow_rename_in_state_files(old: str, new: str) -> None:
+    """Point every machine's state file that names `old` at `new`.
+
+    Every machine, not only this one: a home directory shared between
+    machines is what per-machine state files exist for, and a machine left
+    naming the old profile would stop on its next run. Deletion stays
+    per-machine (cmd_delete_profile): there, another machine stopping to
+    ask which profile to use is better than a silent fallback. No lock
+    covers the state files; a machine switching at the same moment can
+    only write a name of its own choosing.
+    """
+    for path in sorted(CONTEXT.state_dir.glob("current_profile.*")):
+        raw = _read_text_safe(path, "current-profile state file")
+        if raw.strip() and raw.splitlines()[0].strip() == old:
+            _write_text_safe(path, new + "\n", "current-profile state file")
+            logger.debug("Renamed the current profile in %s", path)
+
+
 def clear_current_profile_state() -> None:
     """Forget the persisted current profile for this machine."""
     if CONTEXT.dry_run:
@@ -3033,8 +3057,7 @@ def cmd_rename_profile(args: argparse.Namespace, config: ConfigDict,
     config["profiles"] = dict(
         (new if name == old else name, value) for name, value in profiles.items())
     save_config(config)
-    if read_current_profile_state() == old:
-        write_current_profile_state(new)
+    follow_rename_in_state_files(old, new)
     logger.info("Renamed profile %s to %s", old, new)
     return EXIT_OK
 
@@ -3094,8 +3117,8 @@ def cmd_edit(args: argparse.Namespace, config: ConfigDict,
     holding an exclusive lock for that long would block every other xtm
     invocation on the machine with no bound on the wait. Nothing is gained
     by it either, since xtm performs no read-modify-write cycle around the
-    editor -- the editor writes the file itself. The two short writes this
-    command really does make take the lock individually.
+    editor -- the editor writes the file itself. The one write xtm makes,
+    restoring the reserved profile after the edit, takes the lock for itself.
     """
     # shlex.split, not a bare name: VISUAL and EDITOR routinely carry
     # arguments ("vim -p", "code --wait"), and treating the whole string as
@@ -3109,13 +3132,6 @@ def cmd_edit(args: argparse.Namespace, config: ConfigDict,
     if not editor_argv:
         return die("The editor setting %r is empty. Set VISUAL or EDITOR to "
                    "a command, or unset both to use vi." % (editor,))
-    if not CONTEXT.config_file.exists():
-        with config_lock():
-            # Re-check inside the lock: another xtm may have created the
-            # config between the test above and the lock being granted.
-            if not CONTEXT.config_file.exists():
-                _write_text_safe(CONTEXT.config_file, dump_yaml(DEFAULT_CONFIG),
-                                 "config file")
     if CONTEXT.dry_run:
         logger.info("[dry-run] would open %s in %s", CONTEXT.config_file, editor)
         return EXIT_OK
@@ -3124,9 +3140,11 @@ def cmd_edit(args: argparse.Namespace, config: ConfigDict,
         subprocess.call(editor_argv + [str(CONTEXT.config_file)])
     except OSError as e:
         die("Could not start editor %r: %s" % (editor, e))
-    # Held only for the reload: load_config() may rewrite the file to restore
-    # the reserved "default" profile if the edit removed it.
+    # Held only for the reload, which may rewrite the file to restore the
+    # reserved "default" profile if the edit removed it. Only this reload:
+    # the load before the editor opened left the file as the user had it.
     with config_lock():
+        CONTEXT.may_write_config = True
         return validate_all(json_output=False)
 
 
@@ -3153,8 +3171,6 @@ def validate_all(json_output: bool) -> int:
         print("Config: %s" % (CONTEXT.config_file,))
         for name, error in results:
             print("  %-20s %s" % (name, "OK" if error is None else "INVALID: " + error))
-        if not results:
-            print("  (no profiles defined)")
     return EXIT_ERROR if bad else EXIT_OK
 
 
@@ -3587,40 +3603,48 @@ def cmd_list_profiles(args: argparse.Namespace, config: ConfigDict,
 # Command table
 # --------------------------------------------------------------------------
 #
-# Each entry is (argparse dest, handler, mutates_config). The table is the
-# single source of truth for dispatch: which action ran, whether the config
-# lock is needed, and which action a bare `xtm` falls back to.
+# Each entry is (argparse dest, handler, mutates_config, needs_profile,
+# switches_profile). The table is the single source of truth for dispatch:
+# which action ran, whether the config lock is needed, and which action a
+# bare `xtm` falls back to.
+#
+# switches_profile: whether a profile named with -p becomes this machine's
+# current profile, running the old one's on_switch. False for the commands
+# that only report (--list, --list-profiles, --validate, --check): looking
+# at a profile before switching to it must not switch to it. --current-profile
+# keeps True, so `xtm -p work -C` selects and confirms in one call.
 
 COMMANDS = (
-    # (argparse dest, handler, mutates_config, needs_profile)
-    ("open", cmd_open, False, True),
-    ("reset", cmd_reset, False, True),
-    ("reset_all", cmd_reset_all, False, True),
+    # (argparse dest, handler, mutates_config, needs_profile, switches_profile)
+    ("open", cmd_open, False, True, True),
+    ("reset", cmd_reset, False, True, True),
+    ("reset_all", cmd_reset_all, False, True, True),
     # needs_profile: --close and --focus resolve a slot name against the
     # profile before acting, exactly as --detach does, so an unresolvable
     # profile is fatal for all three rather than for only one of them.
-    ("close", cmd_close, False, True),
-    ("close_all", cmd_close_all, False, True),
-    ("focus", cmd_focus, False, True),
-    ("list", cmd_list, False, True),
-    ("list_profiles", cmd_list_profiles, False, False),
-    ("current_profile", cmd_current_profile, False, False),
-    ("update_profile", cmd_update_profile, True, True),
-    ("new_profile", cmd_new_profile, True, False),
-    ("set", cmd_set, True, True),
-    ("delete_session", cmd_delete_session, True, True),
-    ("delete_profile", cmd_delete_profile, True, False),
-    ("copy_profile", cmd_copy_profile, True, False),
-    ("rename_profile", cmd_rename_profile, True, False),
-    ("detach", cmd_detach, False, True),
-    ("make_global", cmd_make_global, True, False),
+    ("close", cmd_close, False, True, True),
+    ("close_all", cmd_close_all, False, True, True),
+    ("focus", cmd_focus, False, True, True),
+    ("list", cmd_list, False, True, False),
+    ("list_profiles", cmd_list_profiles, False, False, False),
+    ("current_profile", cmd_current_profile, False, False, True),
+    ("update_profile", cmd_update_profile, True, True, True),
+    ("new_profile", cmd_new_profile, True, False, True),
+    ("set", cmd_set, True, True, True),
+    ("delete_session", cmd_delete_session, True, True, True),
+    ("delete_profile", cmd_delete_profile, True, False, True),
+    ("copy_profile", cmd_copy_profile, True, False, True),
+    ("rename_profile", cmd_rename_profile, True, False, True),
+    ("detach", cmd_detach, False, True, True),
+    ("make_global", cmd_make_global, True, False, True),
     # NOT marked config-mutating: cmd_edit takes the lock itself around
     # its short writes rather than holding it across an interactive
     # editor session. See its docstring.
-    ("edit", cmd_edit, False, False),
-    ("validate", cmd_validate, False, False),
-    ("check", cmd_check, False, True),
+    ("edit", cmd_edit, False, False, True),
+    ("validate", cmd_validate, False, False, False),
+    ("check", cmd_check, False, True, False),
 )
+
 
 def cmd_default(args: argparse.Namespace, config: ConfigDict,
                 profile_name: str) -> int:
@@ -3644,12 +3668,14 @@ def cmd_default(args: argparse.Namespace, config: ConfigDict,
 
 
 # What runs when no action is named. Not in COMMANDS: it is not an option.
-DEFAULT_ENTRY = ("default", cmd_default, False, True)
+DEFAULT_ENTRY = ("default", cmd_default, False, True, True)
 
 
-def selected_action(args: argparse.Namespace) -> Tuple[str, Any, bool, bool]:
-    """Return the (dest, handler, mutates_config, needs_profile) entry for
-    this run: the one action named, or cmd_default when none is."""
+def selected_action(args: argparse.Namespace
+                    ) -> Tuple[str, Any, bool, bool, bool]:
+    """Return the (dest, handler, mutates_config, needs_profile,
+    switches_profile) entry for this run: the one action named, or
+    cmd_default when none is."""
     for entry in COMMANDS:
         if getattr(args, entry[0], None):
             return entry
@@ -3855,19 +3881,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.info("Acting as host %r rather than %s.",
                     CONTEXT.hostname, platform.node().split(".")[0])
 
-    dest, handler, mutates, needs_profile = selected_action(args)
-    logger.debug("Action: %s (mutates config: %s, needs profile: %s)",
-                 dest, mutates, needs_profile)
+    dest, handler, mutates, needs_profile, switches = selected_action(args)
+    logger.debug("Action: %s (mutates config: %s, needs profile: %s, "
+                 "switches profile: %s)", dest, mutates, needs_profile, switches)
     # --edit is marked as not mutating because it must not hold the lock
-    # across an editor session, but it does write, so it keeps permission.
-    CONTEXT.may_write_config = mutates or dest == "edit"
+    # across an editor session; it grants itself permission for the one
+    # write it makes, under the lock (cmd_edit).
+    CONTEXT.may_write_config = mutates
 
     # Mutating commands hold the lock across the whole load/modify/save
     # cycle, so two concurrent runs cannot lose each other's edits.
     if mutates:
         with config_lock():
-            return _run_action(args, handler, needs_profile)
-    return _run_action(args, handler, needs_profile)
+            return _run_action(args, handler, needs_profile, switches)
+    return _run_action(args, handler, needs_profile, switches)
 
 
 def _merge_positional_profile(parser: argparse.ArgumentParser,
@@ -3889,12 +3916,14 @@ def _merge_positional_profile(parser: argparse.ArgumentParser,
 
 
 def _run_action(args: argparse.Namespace, handler: Any,
-                needs_profile: bool) -> int:
+                needs_profile: bool, switches: bool) -> int:
     """Load the config, resolve the profile and invoke one command.
 
     --profile is resolved before dispatch regardless of the action, so
     that `xtm -p work -C` both selects and reports the profile in one
-    call rather than silently ignoring the selection.
+    call rather than silently ignoring the selection. For a command that
+    only reports (`switches` False) the named profile is used for this
+    run and nothing is switched or saved.
 
     Commands that operate on the config as a whole rather than on one
     profile (listing, validating, renaming) tolerate an unresolvable
@@ -3904,7 +3933,7 @@ def _run_action(args: argparse.Namespace, handler: Any,
     config = load_config()
     try:
         profile_name = resolve_profile_name(config, args.profile, args.auto,
-                                            args.all, args.on_switch)
+                                            args.all, args.on_switch, switches)
     except XtmError:
         if needs_profile or args.profile:
             raise

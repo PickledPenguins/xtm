@@ -1,0 +1,50 @@
+$ xtm desk
+exit 0
+stderr:
+  Opened desk-work at x=0 y=0 960x1180
+  Opened desk-logs at x=960 y=0 960x580
+
++ move desk-work 100,50,1000,900
++ move desk-logs 1100,50,800,600
+$ xtm -u
+exit 0
+stderr:
+  Adding the reserved 'default' profile to TMP/cfg/config.yaml.
+  Profile desk updated: 2 slot(s) updated, 0 added. Saved to TMP/cfg/config.yaml
+
+--- state
+current profile: desk
+sessions: desk-work (attached), desk-logs (attached)
+config:
+  profiles:
+    desk:
+      prefix: desk-
+      sessions:
+        work:
+          x: 100
+          y: 50
+          width: 1000
+          height: 900
+          command: vim
+          cwd: ~/src
+        logs:
+          x: 1100
+          y: 50
+          width: 800
+          height: 600
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+    default:
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+      sessions: {}

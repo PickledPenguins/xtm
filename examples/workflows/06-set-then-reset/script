@@ -1,0 +1,5 @@
+# Record a new place for one window without touching the screen, then put
+# every window back where the profile says.
+xtm desk
+xtm -s work 200,100,1200,900
+xtm -r

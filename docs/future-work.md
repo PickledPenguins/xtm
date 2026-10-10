@@ -34,7 +34,7 @@ written down.
 - **Hypothesis for the property tests.** It is the obvious choice and would give real
   shrinking, a corpus and statistics. It is absent on every interpreter here, and xtm's
   premise is running where nothing can be installed — a property test that skips because a
-  dependency is missing tests nothing. `tests/property/engine.py` is forty lines and runs
+  dependency is missing tests nothing. `tests/property/engine.py` is under sixty lines and runs
   everywhere the suite does. Revisit if the shrinking becomes the bottleneck in reading a
   failure.
 - **A mutation tool** (`mutmut`, `cosmic-ray`) instead of the checked-in catalog. Same
@@ -57,12 +57,39 @@ written down.
   deliberately and always has PyYAML, so xtm now requires it and reads real YAML. What
   was given up: running on a host where PyYAML cannot be installed. Revisit only if such a
   host becomes a real target — and then prefer a stdlib format over a second YAML reader.
+- **Superscript cross-references with a `## References` table per document**, the
+  convention the documentation audit of 2026-10-09 proposed. Declined: it would touch all
+  eleven documents in `docs/`, whose plain inline links already say where a subject
+  lives, and its checker (`doc-refs`) is a tool of this machine, not of
+  the repository, so CI could only skip the gate or carry a copy of it. Cross-document
+  mentions stay plain inline links to the owning section. Revisit if the set grows to
+  where a reader cannot tell which document owns a subject.
+
 ## Open questions
 
-- **Whether the coverage floor should reach 98.** Settled for now at 97 against 97.4
-  achieved, after a deliberate push from 95.4 that added the command-failure, validation-
-  message and untidy-screen tests. What is left is 39 statements and 37 partial branches of
-  error handling that needs the filesystem to break underneath a running process, plus the
-  `fcntl` import fallback. Reaching 98 from there means asserting on internals.
-  Revisit if a way appears to reach those paths through behavior rather than through
-  mocking.
+- **Whether the coverage floor should reach 98.** Held at 97 by the owner (2026-10-09)
+  against 98.1% achieved, after the pushes from 95.4 to 97.4 and then to 98.1 that added
+  the command-failure, validation-message, untidy-screen and reachable-branch tests. What
+  is left is 23 statements and 27 partial branches of defensive code
+  ([testing.md](testing.md#coverage) lists them) that needs the filesystem or a tool to
+  break underneath a running process. A floor at 98.1 would leave no margin for a refactor
+  that moves one branch. Revisit if a way appears to reach those paths through behavior
+  rather than through mocking.
+- **Whether `--current-profile` should check that the profile still exists.** `xtm -C`
+  prints the saved name and exits 0 even when that profile was deleted on another machine
+  sharing the config (`cmd_current_profile`, `src/xtm.py`), while `--list` stops with
+  "Current profile ... no longer exists". Checking would make `-C` exit 1 there and change
+  its output; leaving it keeps `-C` a raw read of the state file, which is what a script
+  asking "what did I last select" may want. Raised 2026-10-09.
+- **How runtime error messages are documented.** 88 of the 100 messages xtm can print
+  (`die`, `logger.error`, `logger.warning`) appear in no document
+  (`doc-errors src/xtm.py --call die --call logger.error --call logger.warning`), and no
+  test keeps [troubleshooting.md](troubleshooting.md) in step with the code. Options:
+  troubleshooting entries for the messages that leave a user stuck (the attach timeout,
+  "already has an xtm window", "Command %r timed out", the capture-collision warning); an
+  in-repository test that fails on an undocumented message, with an explicit exempt list;
+  or both. From the documentation audit of 2026-10-10.
+- **No release is tagged.** The README says a tag names each release, and the repository
+  has none. Tagging `v0.5` (the version in the README header) at the commit the owner
+  calls a release makes the sentence true; nothing in the code depends on it. From the
+  documentation audit of 2026-10-10.

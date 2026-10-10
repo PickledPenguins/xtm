@@ -107,7 +107,7 @@ class TestConcurrentWrites(IntegrationBase):
         self.run_xtm("--copy-profile", "default", "alpha")
         self.run_xtm("--copy-profile", "default", "beta")
         for _ in range(ROUNDS):
-            self.run_together([("alpha", "-l"), ("beta", "-l")])
+            self.run_together([("alpha", "-C"), ("beta", "-C")])
             current = self.run_xtm("-C").stdout.strip()
             self.assertIn(current, ("alpha", "beta"),
                           "the current profile became %r after a race"

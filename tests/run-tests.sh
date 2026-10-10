@@ -11,7 +11,7 @@
 #   tests/run-tests.sh --property      generated inputs against stated invariants
 #   tests/run-tests.sh --mutation      the mutation catalog
 #   tests/run-tests.sh --lint          pyflakes and a compile check
-#   tests/run-tests.sh --examples      every example, the failures, and a profile
+#   tests/run-tests.sh --examples      every example, the failures, the workflows, a profile
 #   tests/run-tests.sh --profile       where the time goes in real usage
 #   tests/run-tests.sh --full          all of the above
 #   tests/run-tests.sh --list          print the selected modules, run nothing
@@ -50,12 +50,18 @@ export PYTHONPYCACHEPREFIX
 # what kind of test they hold. Every module is in exactly one half -- a
 # module in neither is a test nobody runs, which
 # tests/integration/test_entry_point.py asserts.
-FAST_DIRS="tests/smoke tests/unit tests/differential tests/property tests/safety"
+FAST_DIRS="tests/smoke tests/unit tests/property tests/safety"
 # tests/load holds both cost budgets (cheap) and the timing gates (their own
 # run, against a per-machine baseline), so its modules are named rather than
 # taken wholesale.
 FAST_MODULES="tests.test_documentation tests.load.test_enumeration_cost tests.load.test_scaling"
 LONG_DIRS="tests/integration tests/concurrency tests/fault_injection tests/examples"
+# A directory named above that is not there would be skipped without a word
+# (find is told to be quiet), so a typo or a removed suite would shrink the
+# run unnoticed: tests/differential stayed listed for weeks after it went.
+for dir in $FAST_DIRS $LONG_DIRS; do
+    [ -d "$dir" ] || { echo "$0: $dir is listed in FAST_DIRS or LONG_DIRS but does not exist" >&2; exit 2; }
+done
 
 want_shared=0
 want_coverage=0
@@ -131,6 +137,13 @@ no_match() {
 run_lint() {
     echo "--- lint ($(date +%H:%M:%S))"
     files="src/xtm.py examples/run.py $(find tests scripts -name '*.py' 2>/dev/null || true)"
+    # The interpreter is whatever PYTHON names (python3 by default), which is
+    # often not the one pyflakes was installed into; "No module named
+    # pyflakes" alone does not say which interpreter was asked.
+    $PYTHON -c 'import pyflakes' 2>/dev/null || {
+        echo "$0: pyflakes is not importable by $PYTHON ($(command -v "$PYTHON")); set PYTHON= to an interpreter that has it" >&2
+        exit 2
+    }
     # shellcheck disable=SC2086
     $PYTHON -m pyflakes $files
     # shellcheck disable=SC2086
@@ -182,18 +195,32 @@ run_coverage() {
     rm -rf "$BUILD/coverage"
     mkdir -p "$BUILD/coverage"
     # Tee'd because record_metrics.py takes the test count from this output
-    # rather than running the suite a second time to count it.
-    COVERAGE_PROCESS_START="$ROOT/pyproject.toml" \
-    PYTHONPATH="$COVERAGE_BOOTSTRAP" \
-        $PYTHON -m coverage run -m unittest discover -t . -s tests 2>&1 \
-        | tee "$BUILD/coverage-run.log"
+    # rather than running the suite a second time to count it. A pipeline's
+    # status is tee's in sh, which has no pipefail, so the test run leaves
+    # its own status in a file; without it a failing test passed this step.
+    rm -f "$BUILD/coverage-run.status"
+    {
+        COVERAGE_PROCESS_START="$ROOT/pyproject.toml" \
+        PYTHONPATH="$COVERAGE_BOOTSTRAP" \
+            $PYTHON -m coverage run -m unittest discover -t . -s tests 2>&1 \
+            || echo "$?" > "$BUILD/coverage-run.status"
+    } | tee "$BUILD/coverage-run.log"
     $PYTHON -m coverage combine
-    $PYTHON -m coverage report
+    # The floor (fail_under) is applied after the numbers are recorded: a
+    # run under the floor is the one whose numbers most need to reach
+    # docs/testing.md's check, and stopping here kept a months-old file.
+    floor=0
+    $PYTHON -m coverage report || floor=$?
     # Record what was measured, so the numbers quoted in docs/testing.md can
     # be checked against a real run rather than trusted. They have gone stale
     # three times; a table whose whole value is being current needs a gate,
     # not a habit.
     $PYTHON scripts/record_metrics.py
+    if [ -f "$BUILD/coverage-run.status" ]; then
+        echo "the suite failed under coverage; see $BUILD/coverage-run.log" >&2
+        exit "$(cat "$BUILD/coverage-run.status")"
+    fi
+    [ "$floor" = 0 ] || exit "$floor"
 }
 
 run_perf() {
@@ -226,6 +253,7 @@ run_examples() {
     echo "--- examples ($(date +%H:%M:%S))"
     $PYTHON examples/run.py
     $PYTHON examples/run.py --negative
+    $PYTHON examples/run.py --workflows
     # The examples are the closest thing here to real usage, so a run that
     # executes them says where the time went as well as whether they passed.
     run_profile

@@ -16,6 +16,8 @@ reading it.
     python3 examples/run.py --record              # rewrite every expected.json
     python3 examples/run.py --record complex/     # rewrite the matching ones
     python3 examples/run.py --negative            # the configs that must fail
+    python3 examples/run.py --workflows           # the command sequences
+    python3 examples/run.py --workflows --record workflows/02   # re-record some
 
 An example directory may also carry:
 
@@ -23,10 +25,19 @@ An example directory may also carry:
     flags        extra arguments the example needs, one per line or space
                  separated -- `--all` for an example whose subject is a
                  profile bound to another machine
+
+A workflow (examples/workflows/) is a sequence of commands rather than a
+config: its `script` runs against the fake tmux, xterm and geometry tools of
+the test suite (tests/support.py), and `expected.txt` records each command's
+exit status and output and the state they left. See run_workflow().
 """
 
+import difflib
 import json
 import os
+import platform
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -185,10 +196,138 @@ def check_negatives(names, show):
     return failures
 
 
+WORKFLOWS = HERE / "workflows"
+
+
+def run_workflow(directory):
+    """Run one workflow's script against the fake tools; return its transcript.
+
+    Script lines, one per line, `#` starting a comment:
+
+        xtm ARGS              run xtm (shlex-split)
+        session NAME [X,Y,W,H]  a session in an xtm window, at that position
+        detached NAME         a running session with no window
+        foreign NAME          a session attached in a terminal xtm did not open
+        move NAME X,Y,W,H     the user moves NAME's window there
+
+    The transcript echoes each line, then for a command its exit status and
+    its stderr and stdout, indented; and at the end the current profile, the
+    running sessions and the whole config. The scratch directory is written
+    as TMP and this machine's name as HOST, so the transcript is the same on
+    every machine.
+    """
+    sys.path.insert(0, str(REPO_ROOT))
+    from tests.support import IntegrationBase
+
+    class Workflow(IntegrationBase):
+        def runTest(self):  # pragma: no cover - never run as a test
+            pass
+
+    case = Workflow()
+    case.setUp()
+    out = []
+    try:
+        config = directory / "config.yaml"
+        if config.exists():
+            case.write_config(config.read_text())
+        for line in (directory / "script").read_text().splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            verb, *args = shlex.split(line)
+            if verb == "xtm":
+                result = case.run_xtm(*args)
+                out.append("$ %s\nexit %d\n" % (line.strip(), result.returncode))
+                for label, text in (("stderr", result.stderr), ("stdout", result.stdout)):
+                    if text.strip():
+                        out.append("%s:\n%s\n" % (label, "\n".join(
+                            "  " + row for row in text.rstrip("\n").split("\n"))))
+                out.append("\n")
+                continue
+            out.append("+ %s\n" % (line.strip(),))
+            if verb == "session":
+                case.add_session(args[0])
+                if len(args) > 1:
+                    case.add_window(args[0], *args[1].split(","))
+            elif verb == "detached":
+                case.add_session(args[0], attached="0")
+            elif verb == "foreign":
+                case.add_session(args[0], owned=False)
+            elif verb == "move":
+                rows = case.rows("windows.txt")
+                for row in rows:
+                    if row[1] == "xtm:" + args[0]:
+                        row[3:7] = args[1].split(",")
+                case.write_rows("windows.txt", rows)
+            else:
+                raise SystemExit("%s: unknown script line: %s" % (directory.name, line))
+        out.append("--- state\n")
+        state = case.tmp / "state"
+        current = sorted(p.read_text().strip()
+                         for p in state.glob("current_profile.*")) if state.is_dir() else []
+        out.append("current profile: %s\n" % (", ".join(current) or "none saved",))
+        sessions = ["%s (%s)" % (row[0], "attached" if row[1] != "0" else "detached")
+                    for row in case.rows("sessions.txt")]
+        out.append("sessions: %s\n" % (", ".join(sessions) or "none",))
+        out.append("config:\n%s\n" % ("\n".join(
+            "  " + row for row in case.config_text().rstrip("\n").split("\n")),))
+        text = "".join(out).replace(str(case.tmp), "TMP")
+        host = platform.node().split(".")[0]
+        return re.sub(r"\b%s\b" % (re.escape(host),), "HOST", text)
+    finally:
+        case.doCleanups()
+
+
+def workflow_names():
+    """Every workflow, as `workflows/NAME`."""
+    return ["workflows/%s" % (d.name,) for d in sorted(WORKFLOWS.iterdir())
+            if d.is_dir() and (d / "script").exists()]
+
+
+def check_workflows(names, show, record):
+    """Every workflow must produce its recorded transcript."""
+    failures = []
+    for name in names:
+        directory = HERE / name
+        actual = run_workflow(directory)
+        if show:
+            print("=== %s\n%s" % (name, actual))
+            continue
+        expected_file = directory / "expected.txt"
+        if record:
+            expected_file.write_text(actual)
+            print("recorded %s" % (name,))
+            continue
+        if not expected_file.exists():
+            failures.append("%s has no expected.txt; create it with --record" % (name,))
+            continue
+        if actual == expected_file.read_text():
+            print("ok       %s" % (name,))
+            continue
+        print("FAILED   %s" % (name,))
+        failures.append("%s:\n%s" % (name, "".join(difflib.unified_diff(
+            expected_file.read_text().splitlines(True), actual.splitlines(True),
+            "expected", "actual"))))
+    return failures
 def main(argv):
     show = "--show" in argv
     record = "--record" in argv
     argv = [a for a in argv if a not in ("--show", "--record")]
+
+    if "--workflows" in argv:
+        argv = [a for a in argv if a != "--workflows"]
+        names = workflow_names()
+        if argv:
+            names = [n for n in names if any(n.startswith(w) for w in argv)]
+            if not names:
+                raise SystemExit("no workflow matches %s" % (" ".join(argv),))
+        failures = check_workflows(names, show, record)
+        for failure in failures:
+            print("\n%s" % (failure,))
+        if failures:
+            return 1
+        if not show and not record:
+            print("\n%d workflow(s) match their recorded transcript." % (len(names),))
+        return 0
 
     if "--negative" in argv:
         argv = [a for a in argv if a != "--negative"]

@@ -1,0 +1,63 @@
+$ xtm -p desk -C
+exit 0
+stdout:
+  desk
+
+$ xtm --copy-profile desk desk-wide
+exit 0
+stderr:
+  Adding the reserved 'default' profile to TMP/cfg/config.yaml.
+  Copied profile desk to desk-wide
+
+$ xtm -P
+exit 0
+stdout:
+  default
+  desk *
+  desk-wide
+
+$ xtm --rename-profile desk-wide wide
+exit 0
+stderr:
+  Renamed profile desk-wide to wide
+
+$ xtm -P
+exit 0
+stdout:
+  default
+  desk *
+  wide
+
+$ xtm --delete-profile wide
+exit 0
+stderr:
+  Deleted profile wide from TMP/cfg/config.yaml
+
+$ xtm -P
+exit 0
+stdout:
+  default
+  desk *
+
+--- state
+current profile: desk
+sessions: none
+config:
+  profiles:
+    desk:
+      prefix: desk-
+      sessions:
+        work:
+          x: 0
+          y: 0
+          width: 960
+          height: 1180
+    default:
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+      sessions: {}

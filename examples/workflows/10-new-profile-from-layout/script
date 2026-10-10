@@ -1,0 +1,6 @@
+# Sessions are already open; make a profile of them as they are on screen.
+session mail 0,0,800,600
+session code 800,0,1120,1180
+detached batch
+xtm -n home
+xtm -p home -l

@@ -29,12 +29,34 @@ class TestDegradedEnvironments(IntegrationBase):
         self.assertIn("xdotool", result.stderr)
 
     def test_focus_explains_the_missing_tool(self):
+        self.run_xtm("-s", "work1", "0,0,900,700")
         result = self.run_xtm("-f", "work1")
         self.assertEqual(result.returncode, 1)
+        self.assertEqual("xtm: error: Focusing a window needs xdotool or wmctrl, "
+                         "and neither was found on PATH.\n", result.stderr)
 
     def test_open_and_reset_still_work(self):
+        """Placement goes through the terminal, so neither needs a geometry tool."""
         self.run_xtm("-s", "work1", "0,0,900,700")
-        self.assertEqual(self.run_xtm("-o", "work1").returncode, 0)
+        opened = self.run_xtm("-o", "work1")
+        self.assertEqual(opened.returncode, 0, opened.stderr)
+        self.assertEqual("Opened work1 at x=0 y=0 900x700\n", opened.stderr)
+        self.assertEqual([["work1", "1"]],
+                         [row[:2] for row in self.rows("sessions.txt")])
+        reset = self.run_xtm("-r")
+        self.assertEqual(reset.returncode, 0, reset.stderr)
+        self.assertEqual("Repositioned work1 to x=0 y=0 900x700\n", reset.stderr)
+
+
+class TestNoXterm(IntegrationBase):
+    TOOLS = ["tmux", "xdotool"]
+
+    def test_opening_a_window_names_the_missing_program(self):
+        self.run_xtm("-s", "work1", "0,0,900,700")
+        result = self.run_xtm("-o", "work1")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual("xtm: error: Required program 'xterm' was not found "
+                         "on PATH.\n", result.stderr)
 
 
 class TestNoTmux(IntegrationBase):
@@ -96,6 +118,25 @@ class TestEditor(IntegrationBase):
         result = self.run_xtm("-e", env={"EDITOR": str(editor)})
         self.assertEqual(result.returncode, 1)
         self.assertIn("INVALID", result.stdout)
+
+    def test_the_editor_opens_the_file_as_the_user_left_it(self):
+        """No rewrite before the editor starts, even with `default` missing.
+
+        Restoring the reserved profile before the edit reformatted the
+        file -- comments and flow style gone -- outside the config lock,
+        and showed the user a file they had not written.
+        """
+        original = "# mine\nprofiles:\n  desk: {sessions: {}}\n"
+        self.write_config(original)
+        seen = self.tmp / "seen.yaml"
+        editor = self.tmp / "copying-editor"
+        editor.write_text("#!/bin/sh\n/bin/cp \"$1\" %s\n" % (seen,))
+        editor.chmod(0o755)
+        result = self.run_xtm("-e", env={"EDITOR": str(editor)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(original, seen.read_text())
+        self.assertIn("Adding the reserved 'default' profile", result.stderr)
+        self.assertIn("default:", self.config_text())
 
     def test_missing_editor_exits_one(self):
         result = self.run_xtm("-e", env={"EDITOR": "/nonexistent/editor"})
@@ -205,7 +246,7 @@ class TestWithoutPyYaml(IntegrationBase):
             [sys.executable, "-c", "import yaml"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             universal_newlines=True, env=self.env, timeout=40)
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 1)
 
     def test_reading_the_config_says_how_to_install_pyyaml(self):
         result = self.run_xtm("--list")
@@ -281,12 +322,12 @@ class TestHostnameOverride(IntegrationBase):
     def test_the_state_file_follows_it_too(self):
         """Acting as a machine means acting as that machine throughout, so
         the per-machine state file is that machine's as well."""
-        self.run_xtm("--hostname", "build-9", "--profile", "build", "-l")
+        self.run_xtm("--hostname", "build-9", "--profile", "build", "-C")
         names = [p.name for p in (self.tmp / "state").iterdir()]
         self.assertIn("current_profile.build-9", names,
                       "the state file did not follow --hostname: %s" % (names,))
 
     def test_an_invalid_hostname_is_refused(self):
         result = self.run_xtm("--hostname", "not a hostname", "-l")
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertNotIn("Traceback", result.stderr)

@@ -1,0 +1,27 @@
+$ xtm desk
+exit 0
+stderr:
+  Opened desk-work at x=0 y=0 960x1180
+  Opened notes at x=960 y=0 960x1180
+
+$ xtm lab
+exit 0
+stderr:
+  Closed 1 window(s) from profile desk: desk-work
+  Opened lab-bench at x=0 y=0 960x1180
+  Repositioned notes to x=960 y=0 960x1180
+
+--- state
+current profile: lab
+sessions: notes (attached), lab-bench (attached)
+config:
+  profiles:
+    desk:
+      on_switch: kill
+      sessions:
+        desk-work: {x: 0, y: 0, width: 960, height: 1180}
+        notes: {x: 960, y: 0, width: 960, height: 1180}
+    lab:
+      sessions:
+        lab-bench: {x: 0, y: 0, width: 960, height: 1180}
+        notes: {x: 960, y: 0, width: 960, height: 1180}

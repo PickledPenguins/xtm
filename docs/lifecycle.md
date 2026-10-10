@@ -22,7 +22,11 @@ what differs is which action step 9 dispatches to.
    rewrites it.
 7. **Resolve the profile**: `--profile` or the positional name, then the saved current
    profile unless `--auto`, then the first `match` block that fits, then `default`. Only
-   profiles visible on this machine are eligible unless `--all` was given.
+   profiles visible on this machine are eligible unless `--all` was given. A profile named
+   with `--profile` is saved here as this machine's current profile, after the profile
+   being left goes through its `on_switch` ([Switching profiles](#switching-profiles)) —
+   except under `--list`, `--list-profiles`, `--validate` and `--check`, which only report:
+   they use the named profile for this run and switch and save nothing.
 8. **Validate that profile** in full, injecting the default `stack` and an empty `sessions`
    if absent. Validation is by profile, not by file: a profile bound to another machine is
    checked by `--validate` and ignored by everything else.
@@ -40,13 +44,15 @@ trust.
 For each session in turn:
 
 1. If it has no xtm window — not running, detached, or attached only in another terminal —
-   open one: spawn an xterm, wait for the client running inside *that* xterm to attach,
-   and fail with a message naming the session if it never does.
+   open one: spawn an xterm, wait up to 6 seconds for the client running inside *that*
+   xterm to attach, and fail with a message naming the session if it never does.
 2. Otherwise use the tty of the session's xtm client, found once for the whole profile
    from a single `tmux list-clients`. A terminal xtm did not open is never written to.
 3. **Resize, then move.** On some window managers a resize shifts the anchor point, so
    moving last is what makes the final position the requested one.
 4. Under `--verify`, wait briefly, read the geometry back, and report any difference.
+5. If step 1 created the session, run its `setup`, and wait for it — up to 60 seconds —
+   before the next session. A failing or stopped `setup` is a warning; the window stays.
 
 A failure on one session is collected and reported rather than aborting the rest; the
 command exits 1 at the end.

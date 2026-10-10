@@ -1,0 +1,6 @@
+profiles:
+  desk:
+    prefix: desk-
+    sessions:
+      work: {x: 0, y: 0, width: 960, height: 1180, command: "vim", cwd: "~/src"}
+      logs: {x: 960, y: 0, width: 960, height: 580}

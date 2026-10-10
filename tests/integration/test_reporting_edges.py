@@ -48,7 +48,7 @@ class TestPartialFailures(IntegrationBase):
         self.run_xtm("-o", "logs")
         result = self.run_xtm("-K", "-y",
                               env={"XTM_FAKE_TMUX_REFUSE": "kill-session"})
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("work1", result.stderr)
         self.assertIn("logs", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
@@ -58,7 +58,7 @@ class TestPartialFailures(IntegrationBase):
         self.run_xtm("-s", "work1", "0,0,900,700")
         self.run_xtm("-s", "logs", "900,0,900,700")
         result = self.run_xtm("-r", env={"XTM_FAKE_XTERM_FAIL": "1"})
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertIn("work1", result.stderr)
         self.assertIn("logs", result.stderr)
 
@@ -74,7 +74,7 @@ class TestAttachTimeout(IntegrationBase):
                  # Outlive xtm's own wait, so what is measured is xtm giving
                  # up rather than the fake terminal exiting first.
                  "XTM_FAKE_XTERM_LIFETIME": "12"})
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, result.returncode)
         self.assertNotIn("Traceback", result.stderr)
         self.assertIn("work1", result.stderr)
 

@@ -1,0 +1,10 @@
+profiles:
+  desk:
+    on_switch: kill
+    sessions:
+      desk-work: {x: 0, y: 0, width: 960, height: 1180}
+      notes: {x: 960, y: 0, width: 960, height: 1180}
+  lab:
+    sessions:
+      lab-bench: {x: 0, y: 0, width: 960, height: 1180}
+      notes: {x: 960, y: 0, width: 960, height: 1180}

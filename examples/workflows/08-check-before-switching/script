@@ -1,0 +1,5 @@
+# Checking another profile before switching to it leaves desk alone: its
+# window stays, and desk stays the current profile.
+xtm desk
+xtm -p lab --check
+xtm -C

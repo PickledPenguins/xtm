@@ -1,0 +1,38 @@
+$ xtm -l
+exit 0
+stderr:
+  No config file at TMP/cfg/config.yaml; creating a default one.
+stdout:
+  Profile: default
+  Config:  TMP/cfg/config.yaml
+  
+  Slots:
+    (none configured)
+  
+  Stray xtm windows (sessions this profile does not name):
+    (none)
+
+$ xtm -P
+exit 0
+stdout:
+  default *
+
+$ xtm -C
+exit 0
+stdout:
+  default
+
+--- state
+current profile: none saved
+sessions: none
+config:
+  profiles:
+    default:
+      stack:
+        x: 40
+        y: 40
+        width: 900
+        height: 650
+        offset_x: 40
+        offset_y: 40
+      sessions: {}

@@ -1,0 +1,6 @@
+# A stray session is named work1, the same as desk's slot (whose session is
+# desk-work1). Capturing it must not overwrite the slot.
+xtm desk
+move desk-work1 0,0,960,1180
+session work1 900,0,500,500
+xtm -u --capture-new

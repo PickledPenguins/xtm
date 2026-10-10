@@ -139,6 +139,36 @@ class TestProfileManagement(IntegrationBase):
         result = self.run_xtm("-C")
         self.assertEqual(result.stdout.strip(), "renamed")
 
+    def test_a_rename_follows_on_every_machine_that_had_it(self):
+        """A shared home directory: another machine's saved profile followed
+        the rename too, instead of stopping on its next run; a machine that
+        had chosen something else kept its choice."""
+        self.run_xtm("-l")
+        self.run_xtm("--copy-profile", "default", "spare")
+        self.run_xtm("--hostname", "box1", "spare", "-C")
+        self.run_xtm("--hostname", "box2", "spare", "-C")
+        self.run_xtm("--hostname", "box3", "default", "-C")
+        self.run_xtm("--hostname", "box1", "--rename-profile", "spare", "renamed")
+        for host, expected in (("box1", "renamed"), ("box2", "renamed"),
+                               ("box3", "default")):
+            with self.subTest(host=host):
+                result = self.run_xtm("--hostname", host, "-C")
+                self.assertEqual((result.returncode, result.stdout),
+                                 (0, expected + "\n"), result.stderr)
+
+    def test_a_delete_clears_only_this_machine(self):
+        """Another machine whose profile was deleted stops and says so,
+        rather than falling back without a word."""
+        self.run_xtm("-l")
+        self.run_xtm("--copy-profile", "default", "spare")
+        self.run_xtm("--hostname", "box1", "spare", "-C")
+        self.run_xtm("--hostname", "box2", "spare", "-C")
+        self.run_xtm("--hostname", "box1", "-y", "--delete-profile", "spare")
+        result = self.run_xtm("--hostname", "box2", "-l")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("xtm: error: Current profile 'spare' (from ", result.stderr)
+        self.assertIn("current_profile.box2) no longer exists in ", result.stderr)
+
     def test_delete_current_profile_clears_state(self):
         self.run_xtm("-l")
         self.run_xtm("--copy-profile", "default", "spare")
@@ -559,7 +589,7 @@ class TestBareXtm(IntegrationBase):
                 sessions:
                   %s
             """ % (sessions,))
-        self.run_xtm("desk", "--list")
+        self.run_xtm("desk", "-C")
 
     def launched(self):
         path = self.state / "launched.log"

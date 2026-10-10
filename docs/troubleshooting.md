@@ -11,7 +11,7 @@ Reporting commands still work: `--list`, `--list-profiles`, `--validate` and eve
 config-editing command need no display. Only opening, placing, focusing and reading
 geometry back do.
 
-## "Reading window positions needs xdotool, wmctrl or xwininfo"
+## "This command has to read back current window positions, which requires one of: xdotool, wmctrl, xwininfo"
 
 `--update-profile`, `--new-profile`, `--verify` and the live column of `--list` read the
 screen, which needs one of the three geometry tools. Install any one of them; see

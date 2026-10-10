@@ -351,7 +351,7 @@ class TestConfigLocking(unittest.TestCase):
         time. cmd_edit takes the lock around its own short writes instead.
         """
         entries = dict((name, mutates)
-                       for name, _handler, mutates, _needs in xtm.COMMANDS)
+                       for name, _handler, mutates, _needs, _switches in xtm.COMMANDS)
         self.assertIn("edit", entries)
         self.assertFalse(
             entries["edit"],

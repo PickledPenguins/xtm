@@ -1,0 +1,9 @@
+profiles:
+  desk:
+    prefix: desk-
+    sessions:
+      work: {x: 0, y: 0, width: 960, height: 1180}
+  lab:
+    prefix: lab-
+    sessions:
+      bench: {x: 0, y: 0, width: 1920, height: 1180}

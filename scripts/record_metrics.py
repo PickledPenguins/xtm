@@ -23,7 +23,8 @@ METRICS = REPO_ROOT / ".build" / "metrics.json"
 
 
 def coverage_numbers():
-    """Statements, misses, branches, partials and the combined figure."""
+    """Statements, misses, branches, partials, and the combined, line and
+    branch figures."""
     result = subprocess.run([sys.executable, "-m", "coverage", "report"],
                             cwd=str(REPO_ROOT), stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, universal_newlines=True,
@@ -31,9 +32,17 @@ def coverage_numbers():
     for line in result.stdout.split("\n"):
         if line.startswith("TOTAL"):
             parts = line.split()
-            return {"statements": int(parts[1]), "missing": int(parts[2]),
-                    "branches": int(parts[3]), "partial": int(parts[4]),
-                    "combined": parts[5]}
+            numbers = {"statements": int(parts[1]), "missing": int(parts[2]),
+                       "branches": int(parts[3]), "partial": int(parts[4]),
+                       "combined": parts[5]}
+            # The text report has no line or branch percentage of its own.
+            totals = json.loads(subprocess.run(
+                [sys.executable, "-m", "coverage", "json", "-q", "-o", "-"],
+                cwd=str(REPO_ROOT), stdout=subprocess.PIPE, check=True,
+                universal_newlines=True, timeout=120).stdout)["totals"]
+            numbers["line"] = totals["percent_statements_covered_display"] + "%"
+            numbers["branch"] = totals["percent_branches_covered_display"] + "%"
+            return numbers
     raise SystemExit("no TOTAL line in the coverage report:\n%s" % (result.stdout,))
 
 

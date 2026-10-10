@@ -195,6 +195,14 @@ CATALOG = [
         "this is, or a run selects one machine's profile and remembers it "
         "as another's."),
     Mutant(
+        "rename-follows-every-machine",
+        "    for path in sorted(CONTEXT.state_dir.glob(\"current_profile.*\")):",
+        "    for path in [CONTEXT.state_file] if CONTEXT.state_file.exists() else []:",
+        ["tests.integration.test_basics"],
+        "A rename that updates only this machine's state file leaves every "
+        "other machine sharing the home directory naming a profile that no "
+        "longer exists, and stopping on its next run."),
+    Mutant(
         "config-lock-prevents-lost-updates",
         "                fcntl.flock(self._handle.fileno(),\n"
         "                            fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
