@@ -46,7 +46,3 @@ env/
 /config.yaml
 /config.yaml.lock
 /current_profile.*
-
-
-
-# Saved code-review reports (creview output; generated, not source).
