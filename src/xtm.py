@@ -767,9 +767,6 @@ def short_hostname() -> str:
     return re.sub(r"[^A-Za-z0-9_.\-]", "_", name)
 
 
-
-
-
 def load_config(create_if_missing: bool = True) -> ConfigDict:
     """Read, sanity-check and return the whole config file, creating a
     default one on first run."""

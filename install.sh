@@ -8,7 +8,7 @@
 
 set -eu
 
-PREFIX="$HOME/bin"
+PREFIX="$HOME/.local/bin"
 COMPLETION_DIR=""
 INSTALL_COMPLETION=0
 UNINSTALL=0
@@ -53,7 +53,7 @@ while [ $# -gt 0 ]; do
 done
 
 : "${COMPLETION_DIR:=$HOME/.local/share/bash-completion/completions}"
-TARGET="$PREFIX/xtm"
+TARGET="$PREFIX/x"
 
 if [ "$UNINSTALL" -eq 1 ]; then
     removed=0
